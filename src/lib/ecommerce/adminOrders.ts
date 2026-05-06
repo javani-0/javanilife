@@ -9,6 +9,7 @@ export interface AdminOrderFilters {
   paymentMethod: "all" | PaymentMethod;
   paymentStatus: "all" | PaymentStatus;
   dateRange: AdminOrderDateFilter;
+  specificDate: string; // "YYYY-MM-DD" – empty string means no specific-date filter
 }
 
 export const ADMIN_ORDER_STATUS_OPTIONS: OrderStatus[] = [
@@ -59,6 +60,16 @@ const matchesDateRange = (order: Order, dateRange: AdminOrderDateFilter) => {
   return orderDate >= start;
 };
 
+const matchesSpecificDate = (order: Order, specificDate: string): boolean => {
+  if (!specificDate) return true;
+  const orderDate = getDateValue(order.createdAt);
+  if (!orderDate) return false;
+  const y = orderDate.getFullYear();
+  const m = String(orderDate.getMonth() + 1).padStart(2, "0");
+  const d = String(orderDate.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}` === specificDate;
+};
+
 export const filterAdminOrders = (orders: Order[], filters: AdminOrderFilters) => {
   const search = filters.search.trim().toLowerCase();
 
@@ -72,7 +83,8 @@ export const filterAdminOrders = (orders: Order[], filters: AdminOrderFilters) =
       && matchesStatus
       && matchesPaymentMethod
       && matchesPaymentStatus
-      && matchesDateRange(order, filters.dateRange);
+      && matchesDateRange(order, filters.dateRange)
+      && matchesSpecificDate(order, filters.specificDate);
   });
 };
 

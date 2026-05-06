@@ -94,6 +94,12 @@ export const formatAccountDate = (value: unknown): string => {
   return new Intl.DateTimeFormat("en-IN", { day: "2-digit", month: "short", year: "numeric" }).format(date);
 };
 
+export const formatAccountDateTime = (value: unknown): string => {
+  const date = getDateValue(value);
+  if (!date) return "Pending";
+  return new Intl.DateTimeFormat("en-IN", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }).format(date);
+};
+
 export const sortOrdersNewestFirst = (orders: Order[]) => [...orders].sort((first, second) => {
   const firstDate = getDateValue(first.createdAt)?.getTime() || 0;
   const secondDate = getDateValue(second.createdAt)?.getTime() || 0;

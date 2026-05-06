@@ -22,6 +22,7 @@ import {
   createPaymentStatusNotificationPayloads,
   filterAdminOrders,
   formatAccountDate,
+  formatAccountDateTime,
   formatPaiseAsRupees,
   getAdminOrderMetrics,
   normalizeCustomerOrder,
@@ -42,6 +43,7 @@ const emptyFilters: AdminOrderFilters = {
   paymentMethod: "all",
   paymentStatus: "all",
   dateRange: "all",
+  specificDate: "",
 };
 
 const paymentMethodLabels: Record<PaymentMethod, string> = {
@@ -335,7 +337,7 @@ const AdminOrders = () => {
           <Filter className="h-4 w-4 text-gold" />
           <h2 className="font-display text-xl text-foreground">Filters</h2>
         </div>
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[1.4fr_1fr_1fr_1fr_1fr]">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[1.4fr_1fr_1fr_1fr_1fr_1fr]">
           <label className="relative block">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <input value={filters.search} onChange={(event) => updateFilter("search", event.target.value)} className="h-11 w-full rounded-md border border-border bg-background pl-10 pr-3 font-body text-sm outline-none focus:border-gold focus:ring-2 focus:ring-gold/20" placeholder="Search orders or customers" />
@@ -359,6 +361,13 @@ const AdminOrders = () => {
             <option value="7d">Last 7 days</option>
             <option value="30d">Last 30 days</option>
           </select>
+          <input
+            type="date"
+            value={filters.specificDate}
+            onChange={(event) => updateFilter("specificDate", event.target.value)}
+            className="h-11 rounded-md border border-border bg-background px-3 font-body text-sm outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+            title="Filter by exact date"
+          />
         </div>
       </section>
 
@@ -387,7 +396,7 @@ const AdminOrders = () => {
                         <p className="font-display text-lg text-foreground">{order.orderNumber || order.id}</p>
                         <span className="rounded-full bg-gold/10 px-2.5 py-1 font-body text-xs font-semibold text-gold">{ORDER_STATUS_LABELS[order.status] || order.status}</span>
                       </div>
-                      <p className="mt-1 font-body text-sm text-muted-foreground">{order.customerName} · {formatAccountDate(order.createdAt)} · {paymentMethodLabels[order.payment?.method] || order.payment?.method} / {paymentStatusLabels[order.payment?.status] || order.payment?.status}</p>
+                      <p className="mt-1 font-body text-sm text-muted-foreground">{order.customerName} · {formatAccountDateTime(order.createdAt)} · {paymentMethodLabels[order.payment?.method] || order.payment?.method} / {paymentStatusLabels[order.payment?.status] || order.payment?.status}</p>
                     </div>
                     <div className="flex items-center justify-between gap-4 sm:justify-end">
                       <span className="font-body font-semibold text-gold">{formatPaiseAsRupees(order.totalInPaise || 0)}</span>

@@ -32,13 +32,13 @@ const getPublicEnvValue = (key: string) => {
 };
 
 const whatsappTemplateLanguage = getPublicEnvValue("VITE_WHATSAPP_TEMPLATE_LANGUAGE") || "en";
-const whatsappOrderPlacedCustomerTemplate = getPublicEnvValue("VITE_WHATSAPP_ORDER_PLACED_CUSTOMER_TEMPLATE");
-const whatsappOrderPlacedAdminTemplate = getPublicEnvValue("VITE_WHATSAPP_ORDER_PLACED_ADMIN_TEMPLATE");
+const whatsappOrderPlacedCustomerTemplate = getPublicEnvValue("VITE_WHATSAPP_ORDER_PLACED_CUSTOMER_TEMPLATE") || "order_confirmed";
+const whatsappOrderPlacedAdminTemplate = getPublicEnvValue("VITE_WHATSAPP_ORDER_PLACED_ADMIN_TEMPLATE") || "admin_order_alert";
 
 // Per-status customer WhatsApp templates.
 // All take: {{1}}firstName {{2}}orderId {{3}}itemsSummary + a URL button suffix (orderId).
 const ORDER_STATUS_TEMPLATES: Partial<Record<OrderStatus, string>> = {
-  outForDelivery: "order_out_for_delivery",
+  "out-for-delivery": "order_out_for_delivery",
   delivered: "order_delivered",
   cancelled: "order_cancelled",
   refunded: "order_refunded",
