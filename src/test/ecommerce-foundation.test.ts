@@ -13,6 +13,7 @@ import {
   filterAdminOrders,
   formatPaiseAsRupees,
   getAdminOrderMetrics,
+  getOrderPlacedDateValue,
   isProductActive,
   isProductPurchasable,
   mergeCartItems,
@@ -342,6 +343,17 @@ describe("admin order foundation", () => {
       codPending: 1,
       paid: 1,
     });
+  });
+
+  it("uses the placed timeline timestamp when createdAt is not usable", () => {
+    const order = {
+      id: "order-with-broken-created-at",
+      createdAt: {},
+      updatedAt: {},
+      timeline: [{ status: "placed", label: "Order placed", createdAt: "2026-05-06T15:44:00.000Z" }],
+    } as Order;
+
+    expect(getOrderPlacedDateValue(order)?.toISOString()).toBe("2026-05-06T15:44:00.000Z");
   });
 });
 

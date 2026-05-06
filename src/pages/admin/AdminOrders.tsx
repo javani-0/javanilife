@@ -21,6 +21,8 @@ import {
   filterAdminOrders,
   formatAccountDate,
   formatAccountDateTime,
+  formatOrderPlacedDateTime,
+  formatOrderUpdatedDateTime,
   formatPaiseAsRupees,
   getAdminOrderMetrics,
   normalizeCustomerOrder,
@@ -386,7 +388,7 @@ const AdminOrders = () => {
                       <p className="mt-1 font-body text-sm text-muted-foreground">{order.customerName}</p>
                       <div className="mt-3 flex flex-wrap gap-2 font-body text-xs">
                         <span className="inline-flex items-center gap-1.5 rounded-full border border-gold/25 bg-gold/10 px-2.5 py-1 font-semibold text-gold">
-                          <CalendarDays className="h-3.5 w-3.5" /> Placed: {formatAccountDateTime(order.createdAt)}
+                          <CalendarDays className="h-3.5 w-3.5" /> Placed: {formatOrderPlacedDateTime(order)}
                         </span>
                         <span className="inline-flex items-center rounded-full border border-border/70 bg-card px-2.5 py-1 text-muted-foreground">
                           {paymentMethodLabels[order.payment?.method] || order.payment?.method} / {paymentStatusLabels[order.payment?.status] || order.payment?.status}
@@ -417,8 +419,8 @@ const AdminOrders = () => {
                 <p className="font-body text-xs font-semibold uppercase tracking-[0.2em] text-gold">Order Detail</p>
                 <h2 className="mt-1 font-display text-2xl text-foreground">{selectedOrder.orderNumber || selectedOrder.id}</h2>
                 <div className="mt-3 grid gap-2 rounded-xl border border-gold/20 bg-gold/10 p-3 font-body text-sm">
-                  <div className="flex items-center gap-2 text-foreground"><CalendarDays className="h-4 w-4 text-gold" /><span className="font-semibold">Placed:</span> {formatAccountDateTime(selectedOrder.createdAt)}</div>
-                  <div className="flex items-center gap-2 text-muted-foreground"><Clock className="h-4 w-4 text-gold" /><span className="font-semibold text-foreground">Updated:</span> {formatAccountDateTime(selectedOrder.updatedAt)}</div>
+                  <div className="flex items-center gap-2 text-foreground"><CalendarDays className="h-4 w-4 text-gold" /><span className="font-semibold">Placed:</span> {formatOrderPlacedDateTime(selectedOrder)}</div>
+                  <div className="flex items-center gap-2 text-muted-foreground"><Clock className="h-4 w-4 text-gold" /><span className="font-semibold text-foreground">Updated:</span> {formatOrderUpdatedDateTime(selectedOrder)}</div>
                   {selectedOrder.payment?.paidAt && <div className="flex items-center gap-2 text-muted-foreground"><CreditCard className="h-4 w-4 text-gold" /><span className="font-semibold text-foreground">Paid:</span> {formatAccountDateTime(selectedOrder.payment.paidAt)}</div>}
                 </div>
               </div>

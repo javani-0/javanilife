@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { collection, onSnapshot } from "firebase/firestore";
 import { ChevronRight, Mail, PackageCheck, Phone, Search, UserRound } from "lucide-react";
 import { db } from "@/lib/firebase";
-import { formatAccountDate, formatPaiseAsRupees, normalizeCustomerOrder, normalizeCustomerProfile, sortOrdersNewestFirst, type CustomerProfile, type Order } from "@/lib/ecommerce";
+import { formatOrderPlacedDate, formatPaiseAsRupees, normalizeCustomerOrder, normalizeCustomerProfile, sortOrdersNewestFirst, type CustomerProfile, type Order } from "@/lib/ecommerce";
 
 const AdminCustomers = () => {
   const [customers, setCustomers] = useState<CustomerProfile[]>([]);
@@ -144,7 +144,7 @@ const AdminCustomers = () => {
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
                           <p className="font-display text-base text-foreground">{order.orderNumber || order.id}</p>
-                          <p className="mt-1 font-body text-xs text-muted-foreground">{formatAccountDate(order.createdAt)} · {order.status}</p>
+                          <p className="mt-1 font-body text-xs text-muted-foreground">{formatOrderPlacedDate(order)} · {order.status}</p>
                         </div>
                         <p className="font-body text-sm font-semibold text-gold">{formatPaiseAsRupees(order.totalInPaise || 0)}</p>
                       </div>

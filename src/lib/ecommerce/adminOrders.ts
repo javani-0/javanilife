@@ -1,4 +1,4 @@
-import { getDateValue } from "./customers";
+import { getOrderPlacedDateValue } from "./customers";
 import type { Order, OrderStatus, PaymentMethod, PaymentStatus } from "./types";
 
 export type AdminOrderDateFilter = "all" | "today" | "7d" | "30d";
@@ -48,7 +48,7 @@ const getSearchText = (order: Order) => [
 const matchesDateRange = (order: Order, dateRange: AdminOrderDateFilter) => {
   if (dateRange === "all") return true;
 
-  const orderDate = getDateValue(order.createdAt);
+  const orderDate = getOrderPlacedDateValue(order);
   if (!orderDate) return false;
 
   const now = new Date();
@@ -64,7 +64,7 @@ const matchesDateRange = (order: Order, dateRange: AdminOrderDateFilter) => {
 
 const matchesSpecificDate = (order: Order, specificDate: string): boolean => {
   if (!specificDate) return true;
-  const orderDate = getDateValue(order.createdAt);
+  const orderDate = getOrderPlacedDateValue(order);
   if (!orderDate) return false;
   const y = orderDate.getFullYear();
   const m = String(orderDate.getMonth() + 1).padStart(2, "0");

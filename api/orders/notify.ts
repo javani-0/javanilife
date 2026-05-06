@@ -66,6 +66,27 @@ const paymentStatusLabels: Record<PaymentStatus, string> = {
 
 const getString = (value: unknown, fallback = "") => typeof value === "string" ? value : fallback;
 
+const getErrorMessage = (error: unknown) => {
+  if (error instanceof Error) return error.message;
+  if (typeof error === "string") return error;
+  return "Unknown automation error.";
+};
+
+const summarizeSettledResult = (result: PromiseSettledResult<unknown>) => (
+  result.status === "fulfilled"
+    ? { status: "fulfilled", value: result.value }
+    : { status: "rejected", reason: getErrorMessage(result.reason) }
+);
+
+const safeResolve = async <T>(label: string, operation: () => Promise<T>, fallback: T): Promise<T> => {
+  try {
+    return await operation();
+  } catch (error) {
+    console.error(label, error);
+    return fallback;
+  }
+};
+
 const firstName = (name?: string) => (name || "there").split(" ").filter(Boolean)[0] || "there";
 const shortOrderRef = (orderId: string) => `#${orderId.slice(-6).toUpperCase()}`;
 const rupeesFromPaise = (paise?: number) => String(Math.round(Number(paise || 0) / 100));
@@ -183,8 +204,8 @@ const sendOrderPlacedMessages = async (orderId: string, order: OrderSnapshot) =>
   const summary = itemsSummary(order.items);
   const total = rupeesFromPaise(order.totalInPaise);
   const [customerPhone, adminPhone] = await Promise.all([
-    getCustomerWhatsAppNumber(order),
-    getAdminWhatsAppNumber(),
+    safeResolve("Unable to resolve customer WhatsApp number", () => getCustomerWhatsAppNumber(order), ""),
+    safeResolve("Unable to resolve admin WhatsApp number", getAdminWhatsAppNumber, ""),
   ]);
 
   const [customerWhatsApp, adminWhatsApp, customerPush, adminPush] = await Promise.allSettled([
@@ -224,7 +245,12 @@ const sendOrderPlacedMessages = async (orderId: string, order: OrderSnapshot) =>
     }))(),
   ]);
 
-  return { customerWhatsApp, adminWhatsApp, customerPush, adminPush };
+  return {
+    customerWhatsApp: summarizeSettledResult(customerWhatsApp),
+    adminWhatsApp: summarizeSettledResult(adminWhatsApp),
+    customerPush: summarizeSettledResult(customerPush),
+    adminPush: summarizeSettledResult(adminPush),
+  };
 };
 
 const sendStatusMessages = async (orderId: string, order: OrderSnapshot, status?: OrderStatus) => {
@@ -234,7 +260,7 @@ const sendStatusMessages = async (orderId: string, order: OrderSnapshot, status?
   const customerName = order.customerName || "Customer";
   const statusLabel = statusLabels[status] || status;
   const summary = itemsSummary(order.items);
-  const customerPhone = await getCustomerWhatsAppNumber(order);
+  const customerPhone = await safeResolve("Unable to resolve customer WhatsApp number", () => getCustomerWhatsAppNumber(order), "");
   const templateName = customerStatusTemplates[status];
 
   const [customerWhatsApp, customerPush] = await Promise.allSettled([
@@ -258,7 +284,10 @@ const sendStatusMessages = async (orderId: string, order: OrderSnapshot, status?
       : { status: "skipped", reason: "missing_customer" })(),
   ]);
 
-  return { customerWhatsApp, customerPush };
+  return {
+    customerWhatsApp: summarizeSettledResult(customerWhatsApp),
+    customerPush: summarizeSettledResult(customerPush),
+  };
 };
 
 const sendPaymentMessages = async (orderId: string, order: OrderSnapshot, paymentStatus?: PaymentStatus) => {
@@ -268,7 +297,7 @@ const sendPaymentMessages = async (orderId: string, order: OrderSnapshot, paymen
   const statusLabel = paymentStatusLabels[paymentStatus] || paymentStatus;
   const customerName = order.customerName || "Customer";
   const summary = itemsSummary(order.items);
-  const customerPhone = await getCustomerWhatsAppNumber(order);
+  const customerPhone = await safeResolve("Unable to resolve customer WhatsApp number", () => getCustomerWhatsAppNumber(order), "");
 
   const [customerWhatsApp, customerPush] = await Promise.allSettled([
     customerPhone && paymentStatus === "refunded"
@@ -291,7 +320,10 @@ const sendPaymentMessages = async (orderId: string, order: OrderSnapshot, paymen
       : { status: "skipped", reason: "missing_customer" })(),
   ]);
 
-  return { customerWhatsApp, customerPush };
+  return {
+    customerWhatsApp: summarizeSettledResult(customerWhatsApp),
+    customerPush: summarizeSettledResult(customerPush),
+  };
 };
 
 export default async function handler(request: ApiRequest, response: ApiResponse) {

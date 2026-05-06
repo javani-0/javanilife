@@ -5,7 +5,7 @@ import { ArrowLeft, CheckCircle2, MapPin, PackageCheck } from "lucide-react";
 import AccountLayout from "@/components/account/AccountLayout";
 import { useAuth } from "@/contexts/AuthContext";
 import { db } from "@/lib/firebase";
-import { formatAccountDate, formatPaiseAsRupees, normalizeCustomerOrder, ORDER_STATUS_LABELS, type Order } from "@/lib/ecommerce";
+import { formatAccountDate, formatOrderPlacedDate, formatPaiseAsRupees, normalizeCustomerOrder, ORDER_STATUS_LABELS, type Order } from "@/lib/ecommerce";
 
 const OrderDetail = () => {
   const { id } = useParams<{ id: string }>();
@@ -62,7 +62,7 @@ const OrderDetail = () => {
             <section className="rounded-2xl border border-border/60 bg-card p-5 shadow-card sm:p-6">
               <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                 <div>
-                  <p className="font-body text-xs font-semibold uppercase tracking-[0.2em] text-gold">{formatAccountDate(order.createdAt)}</p>
+                  <p className="font-body text-xs font-semibold uppercase tracking-[0.2em] text-gold">{formatOrderPlacedDate(order)}</p>
                   <h2 className="mt-2 font-display text-3xl text-foreground">{order.orderNumber || order.id}</h2>
                   <p className="mt-2 font-body text-sm text-muted-foreground">{ORDER_STATUS_LABELS[order.status] || order.status} · {order.payment?.method?.toUpperCase()} / {order.payment?.status}</p>
                 </div>

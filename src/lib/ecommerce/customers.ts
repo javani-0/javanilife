@@ -102,8 +102,35 @@ export const formatAccountDateTime = (value: unknown): string => {
   return new Intl.DateTimeFormat("en-IN", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }).format(date);
 };
 
+export const getOrderPlacedDateValue = (order: Pick<Order, "createdAt" | "updatedAt" | "timeline">): Date | null => {
+  const createdDate = getDateValue(order.createdAt);
+  if (createdDate) return createdDate;
+
+  const timeline = Array.isArray(order.timeline) ? order.timeline : [];
+  const placedEvent = timeline.find((event) => event.status === "placed") || timeline[0];
+  return getDateValue(placedEvent?.createdAt) || getDateValue(order.updatedAt);
+};
+
+export const formatOrderPlacedDate = (order: Pick<Order, "createdAt" | "updatedAt" | "timeline">): string => {
+  const date = getOrderPlacedDateValue(order);
+  if (!date) return "Pending";
+  return new Intl.DateTimeFormat("en-IN", { day: "2-digit", month: "short", year: "numeric" }).format(date);
+};
+
+export const formatOrderPlacedDateTime = (order: Pick<Order, "createdAt" | "updatedAt" | "timeline">): string => {
+  const date = getOrderPlacedDateValue(order);
+  if (!date) return "Pending";
+  return new Intl.DateTimeFormat("en-IN", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }).format(date);
+};
+
+export const formatOrderUpdatedDateTime = (order: Pick<Order, "createdAt" | "updatedAt" | "timeline">): string => {
+  const date = getDateValue(order.updatedAt) || getOrderPlacedDateValue(order);
+  if (!date) return "Pending";
+  return new Intl.DateTimeFormat("en-IN", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }).format(date);
+};
+
 export const sortOrdersNewestFirst = (orders: Order[]) => [...orders].sort((first, second) => {
-  const firstDate = getDateValue(first.createdAt)?.getTime() || 0;
-  const secondDate = getDateValue(second.createdAt)?.getTime() || 0;
+  const firstDate = getOrderPlacedDateValue(first)?.getTime() || 0;
+  const secondDate = getOrderPlacedDateValue(second)?.getTime() || 0;
   return secondDate - firstDate;
 });

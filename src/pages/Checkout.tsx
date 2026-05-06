@@ -380,7 +380,7 @@ const Checkout = () => {
         : null;
       const orderItems = items.map((item) => sanitizeForFirestore(createOrderItemFromCartItem(item, deliveryProfiles[item.productId])));
 
-      const orderPayload = sanitizeForFirestore({
+      const sanitizedOrderPayload = sanitizeForFirestore({
         orderNumber,
         customerId: user.uid,
         customerName: normalizedAddress.fullName,
@@ -424,11 +424,15 @@ const Checkout = () => {
             createdBy: user.uid,
           },
         ],
+      }) as Record<string, unknown>;
+
+      const orderPayload = {
+        ...sanitizedOrderPayload,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
-      });
+      };
 
-      const orderDocument = await addDoc(collection(db, "orders"), orderPayload as Record<string, unknown>);
+      const orderDocument = await addDoc(collection(db, "orders"), orderPayload);
 
       if (paymentMethod === "razorpay") {
         if (!razorpayOrder) throw new Error("Razorpay order was not created.");
