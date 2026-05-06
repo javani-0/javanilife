@@ -7,9 +7,6 @@ import {
   createDeliveryOneShipmentPayload,
   createCartItemFromProduct,
   createOrderItemFromCartItem,
-  createOrderPlacedNotificationPayloads,
-  createOrderStatusNotificationPayload,
-  createWhatsAppUrl,
   createWishlistItemFromProduct,
   createRazorpayPrefill,
   createRazorpayReceipt,
@@ -24,7 +21,6 @@ import {
   normalizeWishlistItem,
   parsePriceToPaise,
   type Product,
-  type Order,
 } from "@/lib/ecommerce";
 
 const product: Product = normalizeProduct("product-1", {
@@ -322,54 +318,3 @@ describe("admin order foundation", () => {
   });
 });
 
-describe("notification foundation", () => {
-  const notificationOrder = {
-    id: "order-doc-1",
-    orderNumber: "JAV-20260506-ABC12",
-    customerId: "customer-1",
-    customerName: "Anaya Rao",
-    customerPhone: "+91 98765 43210",
-    payment: { method: "cod", status: "cod-pending" },
-    items: [],
-    address: {
-      fullName: "Anaya Rao",
-      phone: "9876543210",
-      line1: "Street",
-      city: "Hyderabad",
-      state: "Telangana",
-      pincode: "500001",
-    },
-    delivery: { chargeInPaise: 7000 },
-    status: "placed",
-    subtotalInPaise: 120000,
-    deliveryChargeInPaise: 7000,
-    discountInPaise: 0,
-    totalInPaise: 127000,
-    timeline: [],
-  } as Order;
-
-  it("creates encoded WhatsApp manual-send links", () => {
-    expect(createWhatsAppUrl("+91 98765 43210", "Order ready"))
-      .toBe("https://wa.me/919876543210?text=Order%20ready");
-  });
-
-  it("builds order placed notification payloads for WhatsApp and web push", () => {
-    const payloads = createOrderPlacedNotificationPayloads(notificationOrder, "919030200263");
-
-    expect(payloads).toHaveLength(4);
-    expect(payloads).toEqual(expect.arrayContaining([
-      expect.objectContaining({ channel: "whatsapp", audience: "customer", eventType: "order-placed", status: "manual-ready" }),
-      expect.objectContaining({ channel: "web-push", audience: "customer", eventType: "order-placed", status: "pending" }),
-      expect.objectContaining({ channel: "whatsapp", audience: "admin", whatsappNumber: "919030200263" }),
-      expect.objectContaining({ channel: "web-push", audience: "admin", recipientRole: "admin" }),
-    ]));
-  });
-
-  it("builds status update notification payloads", () => {
-    expect(createOrderStatusNotificationPayload(notificationOrder, "confirmed")).toMatchObject({
-      audience: "customer",
-      eventType: "order-status-updated",
-      title: "Order Confirmed",
-    });
-  });
-});

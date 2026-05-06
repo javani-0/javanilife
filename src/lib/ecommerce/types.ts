@@ -35,10 +35,6 @@ export interface ProductDeliveryProfile {
 
 export type DeliveryProvider = "manual" | "delivery-one";
 export type DeliverySyncStatus = "manual-ready" | "pending" | "synced" | "failed";
-export type NotificationChannel = "whatsapp" | "web-push";
-export type NotificationAudience = "customer" | "admin";
-export type NotificationEventType = "order-placed" | "order-status-updated" | "payment-status-updated";
-export type NotificationStatus = "manual-ready" | "pending" | "sent" | "failed" | "skipped";
 
 export interface DeliveryPricingSettings {
   baseChargeInPaise?: number;
@@ -221,34 +217,3 @@ export interface CustomerRevenueSummary {
   averageOrderValueInPaise: number;
 }
 
-export interface NotificationLog {
-  id: string;
-  channel: NotificationChannel;
-  audience: NotificationAudience;
-  eventType: NotificationEventType;
-  status: NotificationStatus;
-  title: string;
-  message: string;
-  whatsappNumber: string;
-  whatsappUrl: string;
-  whatsappTemplateName?: string;
-  whatsappTemplateLanguage?: string;
-  whatsappTemplateParams?: string[];
-  whatsappTemplateUrlSuffix?: string;
-  webTitle?: string;
-  webBody?: string;
-  webLink?: string;
-  orderId?: string;
-  orderNumber?: string;
-  customerId?: string;
-  recipientUserId?: string;
-  recipientRole?: UserRole;
-  customerName?: string;
-  customerPhone?: string;
-  dispatchProviderMessageId?: string;
-  errorMessage?: string;
-  sentAt?: unknown;
-  lastAttemptAt?: unknown;
-  createdAt?: unknown;
-  updatedAt?: unknown;
-}

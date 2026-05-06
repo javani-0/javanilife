@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { addDoc, arrayUnion, collection, deleteDoc, doc, onSnapshot, serverTimestamp, updateDoc } from "firebase/firestore";
+import { arrayUnion, collection, deleteDoc, doc, onSnapshot, serverTimestamp, updateDoc } from "firebase/firestore";
 import { AlertTriangle, ChevronRight, Clock, CreditCard, Filter, Mail, MapPin, PackageCheck, Phone, Save, Search, Truck, UserRound, Trash2 } from "lucide-react";
 import {
   AlertDialog,
@@ -18,8 +18,6 @@ import { db } from "@/lib/firebase";
 import {
   ADMIN_ORDER_STATUS_OPTIONS,
   ADMIN_PAYMENT_STATUS_OPTIONS,
-  createOrderStatusNotificationPayloads,
-  createPaymentStatusNotificationPayloads,
   filterAdminOrders,
   formatAccountDate,
   formatAccountDateTime,
@@ -27,7 +25,7 @@ import {
   getAdminOrderMetrics,
   normalizeCustomerOrder,
   ORDER_STATUS_LABELS,
-  queueNotificationPayloads,
+  sendOrderAutomation,
   sortOrdersNewestFirst,
   type AdminOrderDateFilter,
   type AdminOrderFilters,
@@ -200,28 +198,18 @@ const AdminOrders = () => {
     setSaving(true);
     try {
       await updateDoc(doc(db, "orders", selectedOrder.id), payload);
-      const notificationPayloads = [
-        ...(statusChanged ? createOrderStatusNotificationPayloads(selectedOrder, selectedStatus) : []),
-        ...(paymentChanged ? createPaymentStatusNotificationPayloads(selectedOrder, selectedPaymentStatus) : []),
-      ];
-
-      try {
-        if (notificationPayloads.length > 0) {
-          const notificationIdToken = await user?.getIdToken();
-          if (!notificationIdToken) throw new Error("Admin authentication token was unavailable.");
-
-          try {
-            await queueNotificationPayloads(notificationIdToken, notificationPayloads);
-          } catch (apiNotificationError) {
-            console.error("Notification API was unavailable; falling back to Firestore queue", apiNotificationError);
-            await Promise.all(notificationPayloads.map((notification) => {
-              const safe = Object.fromEntries(Object.entries(notification).filter(([, v]) => v !== undefined));
-              return addDoc(collection(db, "notifications"), { ...safe, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
-            }));
-          }
-        }
-      } catch (notificationError) {
-        console.error("Order was updated but notifications could not be queued", notificationError);
+      const notificationIdToken = await user?.getIdToken();
+      if (notificationIdToken && statusChanged) {
+        void sendOrderAutomation(notificationIdToken, { orderId: selectedOrder.id, event: "order-status-updated", status: selectedStatus })
+          .catch((notificationError) => {
+            console.error("Order was updated but status automations could not be sent", notificationError);
+          });
+      }
+      if (notificationIdToken && paymentChanged) {
+        void sendOrderAutomation(notificationIdToken, { orderId: selectedOrder.id, event: "payment-status-updated", paymentStatus: selectedPaymentStatus })
+          .catch((notificationError) => {
+            console.error("Order was updated but payment automations could not be sent", notificationError);
+          });
       }
       toast({ title: "Order updated", description: selectedOrder.orderNumber || selectedOrder.id });
     } catch (error) {

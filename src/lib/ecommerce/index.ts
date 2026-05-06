@@ -3,7 +3,6 @@ export * from "./cart";
 export * from "./customers";
 export * from "./delivery";
 export * from "./notificationClient";
-export * from "./notifications";
 export * from "./orders";
 export * from "./payments";
 export * from "./pricing";

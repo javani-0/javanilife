@@ -20,45 +20,6 @@ service cloud.firestore {
       return hasRole('admin');
     }
 
-    function isSafeNotificationCreate() {
-      return signedIn()
-        && request.resource.data.customerId == request.auth.uid
-        && request.resource.data.channel in ['whatsapp', 'web-push']
-        && request.resource.data.status in ['manual-ready', 'pending']
-        && request.resource.data.eventType == 'order-placed'
-        && request.resource.data.keys().hasOnly([
-          'channel',
-          'audience',
-          'eventType',
-          'status',
-          'title',
-          'message',
-          'whatsappNumber',
-          'whatsappUrl',
-          'whatsappTemplateName',
-          'whatsappTemplateLanguage',
-          'whatsappTemplateParams',
-          'whatsappTemplateUrlSuffix',
-          'webTitle',
-          'webBody',
-          'webLink',
-          'orderId',
-          'orderNumber',
-          'customerId',
-          'recipientUserId',
-          'recipientRole',
-          'customerName',
-          'customerPhone',
-          'createdAt',
-          'updatedAt'
-        ])
-        && (
-          request.resource.data.audience == 'admin'
-          || (request.resource.data.audience == 'customer'
-            && request.resource.data.recipientUserId == request.auth.uid)
-        );
-    }
-
     function isSafeOwnUserProfileWrite(userId) {
       return isOwner(userId)
         && request.resource.data.uid == userId
@@ -95,13 +56,6 @@ service cloud.firestore {
         && request.resource.data.customerId == request.auth.uid;
       allow read: if isAdmin()
         || (signedIn() && resource.data.customerId == request.auth.uid);
-      allow update, delete: if isAdmin();
-    }
-
-    match /notifications/{id} {
-      allow create: if isAdmin() || isSafeNotificationCreate();
-      allow read: if isAdmin()
-        || (signedIn() && resource.data.recipientUserId == request.auth.uid);
       allow update, delete: if isAdmin();
     }
 

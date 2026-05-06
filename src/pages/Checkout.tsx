@@ -8,6 +8,7 @@ import SEO from "@/components/SEO";
 import { useAuth } from "@/contexts/AuthContext";
 import { useCart } from "@/contexts/cart-context";
 import { useToast } from "@/hooks/use-toast";
+import { useWebNotifications } from "@/hooks/useWebNotifications";
 import { db } from "@/lib/firebase";
 import {
   calculateCartTotals,
@@ -18,20 +19,17 @@ import {
   DEFAULT_DELIVERY_PROVIDER,
   DELIVERY_SETTINGS_DOCUMENT_ID,
   formatPaiseAsRupees,
-  createOrderPlacedNotificationPayloads,
   normalizeCustomerAddress,
   normalizeDeliveryProfile,
   normalizeDeliveryPricingSettings,
   openRazorpayCheckout,
-  queueNotificationPayloads,
+  sendOrderAutomation,
   verifyRazorpayPayment,
   type CheckoutAddress,
   type DeliveryPricingSettings,
   type DeliveryProfileMap,
-  type Order,
   type PaymentMethod,
 } from "@/lib/ecommerce";
-import { useContactInfo } from "@/hooks/useContactInfo";
 import heroTemple from "@/assets/hero-temple.jpg";
 
 type FirestoreSafeValue =
@@ -150,7 +148,7 @@ const Checkout = () => {
   const { user, userProfile, loading: authLoading } = useAuth();
   const { items, loading: cartLoading, clearCart, clearBuyNowItem } = useCart();
   const { toast } = useToast();
-  const { whatsappNumber, orderNotificationPhone } = useContactInfo();
+  const webNotifications = useWebNotifications();
   const [address, setAddress] = useState<CheckoutAddress>(emptyAddress);
   const [savedAddresses, setSavedAddresses] = useState<CheckoutAddress[]>([]);
   const [selectedSavedAddressId, setSelectedSavedAddressId] = useState<string>("custom");
@@ -332,6 +330,14 @@ const Checkout = () => {
     const orderNumber = createOrderNumber();
     const paymentLabel = paymentMethod === "razorpay" ? "Razorpay Online" : "Cash on Delivery";
 
+    if (webNotifications.supported && webNotifications.configured && webNotifications.permission !== "denied") {
+      try {
+        await webNotifications.enableNotifications();
+      } catch (notificationPermissionError) {
+        console.warn("Web notification permission was not enabled", notificationPermissionError);
+      }
+    }
+
     setSubmitting(true);
     try {
       const idToken = paymentMethod === "razorpay" ? await user.getIdToken() : "";
@@ -423,50 +429,11 @@ const Checkout = () => {
         }
       }
 
-      try {
-        const notificationOrder = {
-          id: orderDocument.id,
-          orderNumber,
-          customerId: user.uid,
-          customerName: normalizedAddress.fullName,
-          customerEmail: normalizedAddress.email || user.email || "",
-          customerPhone: normalizedAddress.phone,
-          items: orderItems as Order["items"],
-          address: normalizedAddress,
-          payment: paymentMethod === "razorpay"
-            ? { method: "razorpay", status: "paid", razorpayOrderId: razorpayOrder?.orderId, razorpaySignatureVerified: true }
-            : { method: "cod", status: "cod-pending" },
-          delivery: {
-            chargeInPaise: checkoutTotals.deliveryChargeInPaise,
-            status: "placed",
-            provider: DEFAULT_DELIVERY_PROVIDER,
-            syncStatus: "manual-ready",
-            shipmentWeightInGrams: deliveryEstimate.weightInGrams,
-            usesFallbackWeight: deliveryEstimate.usesFallbackWeight,
-          },
-          status: "placed",
-          subtotalInPaise: checkoutTotals.subtotalInPaise,
-          deliveryChargeInPaise: checkoutTotals.deliveryChargeInPaise,
-          discountInPaise: checkoutTotals.discountInPaise,
-          totalInPaise: checkoutTotals.totalInPaise,
-          timeline: [],
-        } as Order;
-
-        const notificationPayloads = createOrderPlacedNotificationPayloads(notificationOrder, orderNotificationPhone || whatsappNumber);
-        const notificationIdToken = idToken || await user.getIdToken();
-
-        try {
-          await queueNotificationPayloads(notificationIdToken, notificationPayloads);
-        } catch (apiNotificationError) {
-          console.error("Notification API was unavailable; falling back to Firestore queue", apiNotificationError);
-          await Promise.all(notificationPayloads.map((notification) => {
-            const safe = Object.fromEntries(Object.entries(notification).filter(([, v]) => v !== undefined));
-            return addDoc(collection(db, "notifications"), { ...safe, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
-          }));
-        }
-      } catch (notificationError) {
-        console.error("Order was created but notifications could not be queued", notificationError);
-      }
+      const notificationIdToken = idToken || await user.getIdToken();
+      void sendOrderAutomation(notificationIdToken, { orderId: orderDocument.id, event: "order-placed" })
+        .catch((notificationError) => {
+          console.error("Order was created but automatic messages could not be sent", notificationError);
+        });
 
       try {
         await clearCart();

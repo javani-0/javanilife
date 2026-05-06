@@ -2,9 +2,10 @@ import { useState, useEffect } from "react";
 import { collection, onSnapshot, query, orderBy, limit, deleteDoc, doc, updateDoc, Timestamp } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useNavigate } from "react-router-dom";
-import { ClipboardList, TrendingUp, Clock, ShoppingBag, Check, Trash2, LayoutGrid, List } from "lucide-react";
+import { BellRing, ClipboardList, TrendingUp, Clock, ShoppingBag, Check, Trash2, LayoutGrid, List } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 import { useToast } from "@/hooks/use-toast";
+import { useWebNotifications } from "@/hooks/useWebNotifications";
 
 interface Enquiry {
   id: string;
@@ -31,6 +32,7 @@ const AdminDashboard = () => {
   const [productsCount, setProductsCount] = useState(0);
   const [viewMode, setViewMode] = useState<"grid" | "table">("grid");
   const { toast } = useToast();
+  const webNotifications = useWebNotifications();
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -88,6 +90,14 @@ const AdminDashboard = () => {
     } catch { toast({ title: "Error deleting", variant: "destructive" }); }
   };
 
+  const enableWebNotifications = async () => {
+    try {
+      await webNotifications.enableNotifications();
+    } catch (error) {
+      toast({ title: "Web alerts not enabled", description: error instanceof Error ? error.message : "Try again from a supported browser.", variant: "destructive" });
+    }
+  };
+
   const stats = [
     { label: "Total Enquiries", value: allEnquiries.length, icon: ClipboardList, color: "text-primary", link: "/admin/enquiries" },
     { label: "Today Enquiries", value: newToday, icon: TrendingUp, color: "text-green-600", link: "/admin/enquiries" },
@@ -97,6 +107,23 @@ const AdminDashboard = () => {
 
   return (
     <div className="space-y-6 sm:space-y-8">
+      {webNotifications.supported && webNotifications.configured && webNotifications.permission !== "granted" && (
+        <div className="flex flex-col gap-4 rounded-lg border border-gold/30 bg-card p-4 shadow-card sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-3">
+            <span className="flex h-10 w-10 items-center justify-center rounded-full bg-gold/15 text-gold">
+              <BellRing className="h-5 w-5" />
+            </span>
+            <div>
+              <p className="font-display text-[1.05rem] font-semibold text-foreground">Browser Alerts</p>
+              <p className="font-body text-[0.82rem] text-muted-foreground">Receive new-order alerts on this admin browser.</p>
+            </div>
+          </div>
+          <button type="button" onClick={enableWebNotifications} disabled={webNotifications.loading} className="inline-flex h-10 items-center justify-center gap-2 rounded-sm border border-gold/40 px-4 font-body text-sm font-semibold text-gold transition-colors hover:bg-gold hover:text-white disabled:opacity-60">
+            <BellRing className="h-4 w-4" /> {webNotifications.loading ? "Enabling..." : "Enable"}
+          </button>
+        </div>
+      )}
+
       {/* Stat Cards */}
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 sm:gap-6">
         {stats.map((s) => (

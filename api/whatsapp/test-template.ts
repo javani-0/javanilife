@@ -1,5 +1,5 @@
 import { getBearerToken, readJsonBody, requirePost, sendError, sendJson, type ApiRequest, type ApiResponse } from "../_lib/http.ts";
-import { getRequesterContext } from "../_lib/notification-dispatch.ts";
+import { getFirebaseAdminAuth, getFirebaseAdminDb } from "../_lib/firebase-admin.ts";
 import { sendWhatsAppOtpTemplate } from "../_lib/whatsapp.ts";
 
 interface TestTemplateBody {
@@ -17,8 +17,9 @@ export default async function handler(request: ApiRequest, response: ApiResponse
   }
 
   try {
-    const requester = await getRequesterContext(token);
-    if (requester.role !== "admin") {
+    const decoded = await getFirebaseAdminAuth().verifyIdToken(token);
+    const requester = await getFirebaseAdminDb().doc(`users/${decoded.uid}`).get();
+    if (requester.data()?.role !== "admin") {
       sendError(response, 403, "Only admins can test WhatsApp templates.");
       return;
     }

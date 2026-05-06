@@ -1,16 +1,22 @@
-import type { NotificationPayload } from "./notifications";
+import type { OrderStatus, PaymentStatus } from "./types";
 
-export interface QueueNotificationsResponse {
-  queued: number;
-  results: Array<{
-    id?: string;
-    channel?: string;
-    status?: string;
-    errorMessage?: string;
-  }>;
+export type OrderAutomationEvent = "order-placed" | "order-status-updated" | "payment-status-updated";
+
+export interface OrderAutomationRequest {
+  orderId: string;
+  event: OrderAutomationEvent;
+  status?: OrderStatus;
+  paymentStatus?: PaymentStatus;
 }
 
-const postNotificationJson = async <T>(url: string, idToken: string, payload: unknown): Promise<T> => {
+export interface OrderAutomationResponse {
+  ok: boolean;
+  event: OrderAutomationEvent;
+  orderId: string;
+  result: unknown;
+}
+
+const postAutomationJson = async <T>(url: string, idToken: string, payload: unknown): Promise<T> => {
   const response = await fetch(url, {
     method: "POST",
     headers: {
@@ -29,14 +35,6 @@ const postNotificationJson = async <T>(url: string, idToken: string, payload: un
   return data as T;
 };
 
-export const queueNotificationPayloads = (idToken: string, notifications: NotificationPayload[]) => (
-  postNotificationJson<QueueNotificationsResponse>("/api/notifications/queue", idToken, { notifications })
-);
-
-export const dispatchNotificationById = (idToken: string, notificationId: string) => (
-  postNotificationJson<{ id: string; status: string; errorMessage?: string }>("/api/notifications/dispatch", idToken, { notificationId })
-);
-
-export const sendTestWebPush = (idToken: string) => (
-  postNotificationJson<QueueNotificationsResponse>("/api/notifications/test-web-push", idToken, {})
+export const sendOrderAutomation = (idToken: string, payload: OrderAutomationRequest) => (
+  postAutomationJson<OrderAutomationResponse>("/api/orders/notify", idToken, payload)
 );
