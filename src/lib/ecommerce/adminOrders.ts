@@ -38,6 +38,8 @@ const getSearchText = (order: Order) => [
   order.customerName,
   order.customerEmail,
   order.customerPhone,
+  order.customerWhatsAppNumber,
+  order.customerCallNumber,
   order.address?.city,
   order.address?.state,
   ...(order.items || []).map((item) => item.name),

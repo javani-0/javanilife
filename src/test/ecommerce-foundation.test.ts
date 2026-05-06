@@ -16,10 +16,12 @@ import {
   isProductActive,
   isProductPurchasable,
   mergeCartItems,
+  normalizeCustomerProfile,
   normalizeDeliveryProfile,
   normalizeProduct,
   normalizeWishlistItem,
   parsePriceToPaise,
+  type Order,
   type Product,
 } from "@/lib/ecommerce";
 
@@ -250,6 +252,30 @@ describe("e-commerce payment foundation", () => {
 });
 
 describe("customer account foundation", () => {
+  it("normalizes explicit WhatsApp and call numbers with legacy phone fallback", () => {
+    expect(normalizeCustomerProfile("customer-1", {
+      username: "Anaya Rao",
+      email: "anaya@example.com",
+      phone: "9876543210",
+    })).toMatchObject({
+      phone: "9876543210",
+      whatsappNumber: "9876543210",
+      callNumber: "9876543210",
+    });
+
+    expect(normalizeCustomerProfile("customer-2", {
+      username: "Maya Sen",
+      email: "maya@example.com",
+      phone: "9876500000",
+      whatsappNumber: "919876500001",
+      callNumber: "9876500002",
+    })).toMatchObject({
+      phone: "9876500000",
+      whatsappNumber: "919876500001",
+      callNumber: "9876500002",
+    });
+  });
+
   it("creates wishlist snapshots from products", () => {
     expect(createWishlistItemFromProduct(product)).toMatchObject({
       productId: "product-1",
@@ -305,6 +331,7 @@ describe("admin order foundation", () => {
       paymentMethod: "cod",
       paymentStatus: "cod-pending",
       dateRange: "all",
+      specificDate: "",
     })).toHaveLength(1);
   });
 

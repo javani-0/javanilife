@@ -29,6 +29,8 @@ service cloud.firestore {
           'username',
           'email',
           'phone',
+          'whatsappNumber',
+          'callNumber',
           'role',
           'createdAt',
           'updatedAt'
@@ -42,6 +44,8 @@ service cloud.firestore {
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'username',
           'phone',
+          'whatsappNumber',
+          'callNumber',
           'updatedAt'
         ]);
     }

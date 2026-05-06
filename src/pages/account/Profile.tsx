@@ -9,19 +9,37 @@ import { useToast } from "@/hooks/use-toast";
 import { useWebNotifications } from "@/hooks/useWebNotifications";
 import { db } from "@/lib/firebase";
 
+const sanitizeDigits = (value: string) => value.replace(/\D/g, "");
+
 const Profile = () => {
   const { user, userProfile } = useAuth();
   const { toast } = useToast();
   const webNotifications = useWebNotifications();
   const [username, setUsername] = useState("");
-  const [phone, setPhone] = useState("");
+  const [whatsappNumber, setWhatsappNumber] = useState("");
+  const [callNumber, setCallNumber] = useState("");
+  const [callNumberEdited, setCallNumberEdited] = useState(false);
   const [saving, setSaving] = useState(false);
   const [counts, setCounts] = useState({ orders: 0, wishlist: 0, addresses: 0 });
 
   useEffect(() => {
     setUsername(userProfile?.username || user?.displayName || "");
-    setPhone(userProfile?.phone || "");
+    const nextWhatsappNumber = userProfile?.whatsappNumber || userProfile?.phone || "";
+    const nextCallNumber = userProfile?.callNumber || userProfile?.phone || nextWhatsappNumber;
+    setWhatsappNumber(nextWhatsappNumber);
+    setCallNumber(nextCallNumber);
+    setCallNumberEdited(Boolean(userProfile?.callNumber && sanitizeDigits(userProfile.callNumber) !== sanitizeDigits(nextWhatsappNumber)));
   }, [user, userProfile]);
+
+  const updateWhatsAppNumber = (value: string) => {
+    setWhatsappNumber(value);
+    if (!callNumberEdited) setCallNumber(value);
+  };
+
+  const updateCallNumber = (value: string) => {
+    setCallNumberEdited(true);
+    setCallNumber(value);
+  };
 
   useEffect(() => {
     if (!user) return;
@@ -53,6 +71,19 @@ const Profile = () => {
       return;
     }
 
+    const normalizedWhatsAppNumber = sanitizeDigits(whatsappNumber);
+    const normalizedCallNumber = sanitizeDigits(callNumber) || normalizedWhatsAppNumber;
+
+    if (normalizedWhatsAppNumber.length < 10) {
+      toast({ title: "WhatsApp number required", description: "Please enter only your active WhatsApp number in Account Details.", variant: "destructive" });
+      return;
+    }
+
+    if (normalizedCallNumber.length < 10) {
+      toast({ title: "Call number invalid", description: "Please enter a valid call number or leave it same as WhatsApp.", variant: "destructive" });
+      return;
+    }
+
     setSaving(true);
     try {
       await updateProfile(user, { displayName: trimmedName });
@@ -60,7 +91,9 @@ const Profile = () => {
         uid: user.uid,
         username: trimmedName,
         email: user.email || userProfile?.email || "",
-        phone: phone.trim(),
+        phone: normalizedWhatsAppNumber,
+        whatsappNumber: normalizedWhatsAppNumber,
+        callNumber: normalizedCallNumber,
         role: userProfile?.role || "user",
         updatedAt: serverTimestamp(),
       }, { merge: true });
@@ -80,6 +113,15 @@ const Profile = () => {
       toast({ title: "Web notifications not enabled", description: error instanceof Error ? error.message : "Try again from a supported browser.", variant: "destructive" });
     }
   };
+
+  const notificationsConnected = webNotifications.permission === "granted" && Boolean(webNotifications.token);
+  const notificationButtonLabel = webNotifications.loading
+    ? "Connecting..."
+    : notificationsConnected
+      ? "Connected"
+      : webNotifications.permission === "granted"
+        ? "Connect This Browser"
+        : "Enable This Browser";
 
   return (
     <AccountLayout title="Profile Dashboard" description="Manage your Javani account, orders, wishlist, and delivery addresses.">
@@ -113,8 +155,8 @@ const Profile = () => {
                 Permission: {webNotifications.permission}. {webNotifications.configError || "Ready to connect this browser."}
               </p>
             </div>
-            <button type="button" onClick={enableWebNotifications} disabled={!webNotifications.supported || !webNotifications.configured || webNotifications.loading} className="inline-flex h-11 items-center justify-center gap-2 rounded-sm border border-gold/40 px-5 font-body text-sm font-semibold text-gold transition-colors hover:bg-gold hover:text-white disabled:opacity-60">
-              <BellRing className="h-4 w-4" /> {webNotifications.loading ? "Enabling..." : "Enable This Browser"}
+            <button type="button" onClick={enableWebNotifications} disabled={!webNotifications.supported || !webNotifications.configured || webNotifications.loading || notificationsConnected} className="inline-flex h-11 items-center justify-center gap-2 rounded-sm border border-gold/40 px-5 font-body text-sm font-semibold text-gold transition-colors hover:bg-gold hover:text-white disabled:opacity-60">
+              <BellRing className="h-4 w-4" /> {notificationButtonLabel}
             </button>
           </div>
         </section>
@@ -129,8 +171,14 @@ const Profile = () => {
               <input value={username} onChange={(event) => setUsername(event.target.value)} className="mt-2 h-11 w-full rounded-md border border-border bg-background px-3 font-body text-sm outline-none transition-colors focus:border-gold focus:ring-2 focus:ring-gold/20" />
             </label>
             <label className="font-body text-sm font-semibold text-foreground">
-              Phone
-              <input value={phone} onChange={(event) => setPhone(event.target.value)} className="mt-2 h-11 w-full rounded-md border border-border bg-background px-3 font-body text-sm outline-none transition-colors focus:border-gold focus:ring-2 focus:ring-gold/20" placeholder="Optional" />
+              WhatsApp number
+              <input value={whatsappNumber} onChange={(event) => updateWhatsAppNumber(event.target.value)} className="mt-2 h-11 w-full rounded-md border border-border bg-background px-3 font-body text-sm outline-none transition-colors focus:border-gold focus:ring-2 focus:ring-gold/20" placeholder="Enter only WhatsApp number" inputMode="tel" />
+              <span className="mt-1 block text-xs font-normal text-muted-foreground">Required for order updates. Enter only your active WhatsApp number.</span>
+            </label>
+            <label className="font-body text-sm font-semibold text-foreground">
+              Call number
+              <input value={callNumber} onChange={(event) => updateCallNumber(event.target.value)} className="mt-2 h-11 w-full rounded-md border border-border bg-background px-3 font-body text-sm outline-none transition-colors focus:border-gold focus:ring-2 focus:ring-gold/20" placeholder="Same as WhatsApp" inputMode="tel" />
+              <span className="mt-1 block text-xs font-normal text-muted-foreground">By default this stays same as WhatsApp unless you change it.</span>
             </label>
             <label className="font-body text-sm font-semibold text-foreground sm:col-span-2">
               Email

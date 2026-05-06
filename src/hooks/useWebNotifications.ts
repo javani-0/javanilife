@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { doc, serverTimestamp, setDoc } from "firebase/firestore";
 import { getToken, onMessage } from "firebase/messaging";
 import { useAuth } from "@/contexts/AuthContext";
@@ -60,6 +60,7 @@ const waitForActivation = async (registration: ServiceWorkerRegistration) => {
 export const useWebNotifications = () => {
   const { user } = useAuth();
   const { toast } = useToast();
+  const autoRegisteringRef = useRef(false);
   const [permission, setPermission] = useState<NotificationPermission>(() => (
     typeof window !== "undefined" && "Notification" in window ? Notification.permission : "default"
   ));
@@ -68,6 +69,11 @@ export const useWebNotifications = () => {
   const supported = useMemo(getSupportStatus, []);
   const configError = useMemo(() => getVapidKeyError(vapidKey), []);
   const configured = !configError;
+
+  useEffect(() => {
+    if (!supported || !("Notification" in window)) return;
+    setPermission(Notification.permission);
+  }, [supported]);
 
   useEffect(() => {
     if (!supported) return undefined;
@@ -85,6 +91,58 @@ export const useWebNotifications = () => {
     return () => unsubscribe?.();
   }, [supported, toast]);
 
+  const registerBrowserToken = useCallback(async (options: { showToast?: boolean } = {}) => {
+    const { showToast = true } = options;
+    if (!user) throw new Error("Please sign in before enabling web notifications.");
+    if (!supported) throw new Error("This browser does not support web push notifications.");
+    if (configError) throw new Error(configError);
+
+    const registration = await navigator.serviceWorker.register(createServiceWorkerUrl(), { scope: "/" });
+    await waitForActivation(registration);
+    const messaging = await getFirebaseMessaging();
+    if (!messaging) throw new Error("Firebase Messaging is not available in this browser.");
+
+    const nextToken = await getToken(messaging, { vapidKey, serviceWorkerRegistration: registration });
+    if (!nextToken) throw new Error("Firebase did not return a web push token.");
+    const tokenDocumentId = await createTokenDocumentId(nextToken);
+    const tokenPayload = {
+      token: nextToken,
+      uid: user.uid,
+      enabled: true,
+      platform: "web",
+      userAgent: navigator.userAgent,
+      browserPlatform: navigator.platform,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    };
+
+    await Promise.all([
+      setDoc(doc(db, "users", user.uid, "webPushTokens", tokenDocumentId), tokenPayload, { merge: true }),
+      setDoc(doc(db, "userTokens", tokenDocumentId), tokenPayload, { merge: true }),
+    ]);
+
+    setToken(nextToken);
+    if (showToast) {
+      toast({ title: "Web notifications enabled", description: "This browser can now receive Javani order updates." });
+    }
+    return nextToken;
+  }, [configError, supported, toast, user]);
+
+  useEffect(() => {
+    if (!user || !supported || !configured || permission !== "granted" || token || autoRegisteringRef.current) return;
+
+    autoRegisteringRef.current = true;
+    setLoading(true);
+    registerBrowserToken({ showToast: false })
+      .catch((error) => {
+        console.warn("Unable to register web notification token", error);
+      })
+      .finally(() => {
+        autoRegisteringRef.current = false;
+        setLoading(false);
+      });
+  }, [configured, permission, registerBrowserToken, supported, token, user]);
+
   const enableNotifications = useCallback(async () => {
     if (!user) throw new Error("Please sign in before enabling web notifications.");
     if (!supported) throw new Error("This browser does not support web push notifications.");
@@ -96,37 +154,11 @@ export const useWebNotifications = () => {
       setPermission(nextPermission);
       if (nextPermission !== "granted") throw new Error("Notification permission was not granted.");
 
-      const registration = await navigator.serviceWorker.register(createServiceWorkerUrl(), { scope: "/" });
-      await waitForActivation(registration);
-      const messaging = await getFirebaseMessaging();
-      if (!messaging) throw new Error("Firebase Messaging is not available in this browser.");
-
-      const nextToken = await getToken(messaging, { vapidKey, serviceWorkerRegistration: registration });
-      if (!nextToken) throw new Error("Firebase did not return a web push token.");
-      const tokenDocumentId = await createTokenDocumentId(nextToken);
-      const tokenPayload = {
-        token: nextToken,
-        uid: user.uid,
-        enabled: true,
-        platform: "web",
-        userAgent: navigator.userAgent,
-        browserPlatform: navigator.platform,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      };
-
-      await Promise.all([
-        setDoc(doc(db, "users", user.uid, "webPushTokens", tokenDocumentId), tokenPayload, { merge: true }),
-        setDoc(doc(db, "userTokens", tokenDocumentId), tokenPayload, { merge: true }),
-      ]);
-
-      setToken(nextToken);
-      toast({ title: "Web notifications enabled", description: "This browser can now receive Javani order updates." });
-      return nextToken;
+      return await registerBrowserToken({ showToast: true });
     } finally {
       setLoading(false);
     }
-  }, [configError, supported, toast, user]);
+  }, [configError, registerBrowserToken, supported, user]);
 
   return {
     supported,

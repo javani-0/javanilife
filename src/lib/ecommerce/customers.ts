@@ -18,6 +18,8 @@ export const normalizeCustomerProfile = (uid: string, data: unknown): CustomerPr
     username: getString(profile.username, getString(profile.displayName, email || "Javani Member")),
     email,
     phone: getString(profile.phone) || undefined,
+    whatsappNumber: getString(profile.whatsappNumber, getString(profile.phone)) || undefined,
+    callNumber: getString(profile.callNumber, getString(profile.phone)) || undefined,
     role: profile.role === "admin" ? "admin" : "user",
     totalSpendInPaise: getNumber(profile.totalSpendInPaise, 0),
     orderCount: getNumber(profile.orderCount, 0),

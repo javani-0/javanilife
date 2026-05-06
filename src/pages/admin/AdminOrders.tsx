@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { arrayUnion, collection, deleteDoc, doc, onSnapshot, serverTimestamp, updateDoc } from "firebase/firestore";
-import { AlertTriangle, ChevronRight, Clock, CreditCard, Filter, Mail, MapPin, PackageCheck, Phone, Save, Search, Truck, UserRound, Trash2 } from "lucide-react";
+import { AlertTriangle, CalendarDays, ChevronRight, Clock, CreditCard, Filter, Mail, MapPin, MessageCircle, PackageCheck, Phone, Save, Search, Truck, UserRound, Trash2 } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -383,7 +383,15 @@ const AdminOrders = () => {
                         <p className="font-display text-lg text-foreground">{order.orderNumber || order.id}</p>
                         <span className="rounded-full bg-gold/10 px-2.5 py-1 font-body text-xs font-semibold text-gold">{ORDER_STATUS_LABELS[order.status] || order.status}</span>
                       </div>
-                      <p className="mt-1 font-body text-sm text-muted-foreground">{order.customerName} · {formatAccountDateTime(order.createdAt)} · {paymentMethodLabels[order.payment?.method] || order.payment?.method} / {paymentStatusLabels[order.payment?.status] || order.payment?.status}</p>
+                      <p className="mt-1 font-body text-sm text-muted-foreground">{order.customerName}</p>
+                      <div className="mt-3 flex flex-wrap gap-2 font-body text-xs">
+                        <span className="inline-flex items-center gap-1.5 rounded-full border border-gold/25 bg-gold/10 px-2.5 py-1 font-semibold text-gold">
+                          <CalendarDays className="h-3.5 w-3.5" /> Placed: {formatAccountDateTime(order.createdAt)}
+                        </span>
+                        <span className="inline-flex items-center rounded-full border border-border/70 bg-card px-2.5 py-1 text-muted-foreground">
+                          {paymentMethodLabels[order.payment?.method] || order.payment?.method} / {paymentStatusLabels[order.payment?.status] || order.payment?.status}
+                        </span>
+                      </div>
                     </div>
                     <div className="flex items-center justify-between gap-4 sm:justify-end">
                       <span className="font-body font-semibold text-gold">{formatPaiseAsRupees(order.totalInPaise || 0)}</span>
@@ -408,13 +416,19 @@ const AdminOrders = () => {
               <div>
                 <p className="font-body text-xs font-semibold uppercase tracking-[0.2em] text-gold">Order Detail</p>
                 <h2 className="mt-1 font-display text-2xl text-foreground">{selectedOrder.orderNumber || selectedOrder.id}</h2>
-                <p className="mt-1 font-body text-sm text-muted-foreground">{formatAccountDateTime(selectedOrder.createdAt)}</p>
+                <div className="mt-3 grid gap-2 rounded-xl border border-gold/20 bg-gold/10 p-3 font-body text-sm">
+                  <div className="flex items-center gap-2 text-foreground"><CalendarDays className="h-4 w-4 text-gold" /><span className="font-semibold">Placed:</span> {formatAccountDateTime(selectedOrder.createdAt)}</div>
+                  <div className="flex items-center gap-2 text-muted-foreground"><Clock className="h-4 w-4 text-gold" /><span className="font-semibold text-foreground">Updated:</span> {formatAccountDateTime(selectedOrder.updatedAt)}</div>
+                  {selectedOrder.payment?.paidAt && <div className="flex items-center gap-2 text-muted-foreground"><CreditCard className="h-4 w-4 text-gold" /><span className="font-semibold text-foreground">Paid:</span> {formatAccountDateTime(selectedOrder.payment.paidAt)}</div>}
+                </div>
               </div>
 
               <div className="grid gap-3 rounded-xl border border-border/70 bg-background/70 p-4 font-body text-sm">
                 <div className="flex items-start gap-2"><UserRound className="mt-0.5 h-4 w-4 text-gold" /><span><strong className="text-foreground">{selectedOrder.customerName}</strong><br />{selectedOrder.customerId}</span></div>
                 {selectedOrder.customerEmail && <div className="flex items-center gap-2"><Mail className="h-4 w-4 text-gold" />{selectedOrder.customerEmail}</div>}
-                <div className="flex items-center gap-2"><Phone className="h-4 w-4 text-gold" />{selectedOrder.customerPhone}</div>
+                <div className="flex items-center gap-2"><MessageCircle className="h-4 w-4 text-gold" />WhatsApp: {selectedOrder.customerWhatsAppNumber || selectedOrder.customerPhone || "Not saved"}</div>
+                <div className="flex items-center gap-2"><Phone className="h-4 w-4 text-gold" />Call: {selectedOrder.customerCallNumber || selectedOrder.customerPhone || "Not saved"}</div>
+                <div className="flex items-center gap-2"><Truck className="h-4 w-4 text-gold" />Delivery phone: {selectedOrder.address?.phone || selectedOrder.customerPhone || "Not saved"}</div>
                 <div className="flex items-start gap-2"><MapPin className="mt-0.5 h-4 w-4 text-gold" /><span>{selectedOrder.address?.line1}{selectedOrder.address?.line2 ? `, ${selectedOrder.address.line2}` : ""}<br />{selectedOrder.address?.city}, {selectedOrder.address?.state} {selectedOrder.address?.pincode}</span></div>
               </div>
 

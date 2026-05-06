@@ -162,6 +162,8 @@ export interface Order {
   customerName: string;
   customerEmail?: string;
   customerPhone: string;
+  customerWhatsAppNumber?: string;
+  customerCallNumber?: string;
   items: OrderItem[];
   address: CheckoutAddress;
   payment: PaymentInfo;
@@ -193,6 +195,8 @@ export interface CustomerProfile {
   username: string;
   email: string;
   phone?: string;
+  whatsappNumber?: string;
+  callNumber?: string;
   role: UserRole;
   totalSpendInPaise?: number;
   orderCount?: number;

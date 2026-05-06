@@ -1,7 +1,17 @@
 import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { addDoc, collection, doc, getDoc, getDocs, onSnapshot, serverTimestamp } from "firebase/firestore";
-import { ArrowLeft, CheckCircle2, CreditCard, LockKeyhole, MapPin, PackageCheck, ShieldCheck, Truck } from "lucide-react";
+import { ArrowLeft, CheckCircle2, CreditCard, LockKeyhole, MapPin, MessageCircle, PackageCheck, ShieldCheck, Truck } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import Footer from "@/components/Footer";
 import PageHero from "@/components/PageHero";
 import SEO from "@/components/SEO";
@@ -67,6 +77,14 @@ const createOrderNumber = () => {
 };
 
 const sanitizeDigits = (value: string) => value.replace(/\D/g, "");
+
+const getAccountWhatsAppNumber = (profile?: { whatsappNumber?: string; phone?: string } | null) => (
+  sanitizeDigits(profile?.whatsappNumber || profile?.phone || "")
+);
+
+const getAccountCallNumber = (profile: { callNumber?: string; phone?: string } | null | undefined, fallback: string) => (
+  sanitizeDigits(profile?.callNumber || profile?.phone || fallback)
+);
 
 const sanitizeForFirestore = (value: unknown): FirestoreSafeValue | undefined => {
   if (value === undefined) return undefined;
@@ -159,6 +177,7 @@ const Checkout = () => {
   const [savedAddressHydrated, setSavedAddressHydrated] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
+  const [accountWhatsAppDialogOpen, setAccountWhatsAppDialogOpen] = useState(false);
   const [placedOrder, setPlacedOrder] = useState<{ id: string; orderNumber: string; totalInPaise: number; paymentLabel: string } | null>(null);
 
   const applySavedAddress = (savedAddress?: CheckoutAddress | null) => {
@@ -320,6 +339,15 @@ const Checkout = () => {
       return;
     }
 
+    const accountWhatsAppNumber = getAccountWhatsAppNumber(userProfile);
+    if (accountWhatsAppNumber.length < 10) {
+      setFormError("Please add your active WhatsApp number in Account Details before placing an order.");
+      setAccountWhatsAppDialogOpen(true);
+      return;
+    }
+
+    const accountCallNumber = getAccountCallNumber(userProfile, accountWhatsAppNumber);
+
     const validationError = validateAddress(address);
     if (validationError) {
       setFormError(validationError);
@@ -358,6 +386,8 @@ const Checkout = () => {
         customerName: normalizedAddress.fullName,
         customerEmail: normalizedAddress.email || user.email || "",
         customerPhone: normalizedAddress.phone,
+        customerWhatsAppNumber: accountWhatsAppNumber,
+        customerCallNumber: accountCallNumber,
         items: orderItems,
         address: normalizedAddress,
         customerNotes: normalizedAddress.notes,
@@ -457,7 +487,7 @@ const Checkout = () => {
     }
   };
 
-  const showLoading = authLoading || cartLoading || (Boolean(user) && !savedAddressHydrated);
+  const showLoading = authLoading || cartLoading || (Boolean(user) && (!savedAddressHydrated || !userProfile));
 
   if (placedOrder) {
     return (
@@ -721,6 +751,13 @@ const Checkout = () => {
 
               <div className="mt-5 rounded-xl border border-gold/20 bg-gold/10 p-3 font-body text-xs leading-relaxed text-foreground">
                 <div className="mb-1 flex items-center gap-2 font-semibold">
+                  <MessageCircle className="h-4 w-4 text-gold" /> WhatsApp updates
+                </div>
+                Order messages are sent to the WhatsApp number saved in Account Details, not this delivery phone field.
+              </div>
+
+              <div className="mt-4 rounded-xl border border-gold/20 bg-gold/10 p-3 font-body text-xs leading-relaxed text-foreground">
+                <div className="mb-1 flex items-center gap-2 font-semibold">
                   <Truck className="h-4 w-4 text-gold" /> Delivery estimate
                 </div>
                 Charges are calculated from product weight. {deliveryEstimate.usesFallbackWeight ? "Some products are using the default 500 g fallback until admin saves exact shipment weight." : "All items have shipment weight snapshots for Delivery One."}
@@ -747,6 +784,25 @@ const Checkout = () => {
           </form>
         )}
       </main>
+
+      <AlertDialog open={accountWhatsAppDialogOpen} onOpenChange={setAccountWhatsAppDialogOpen}>
+        <AlertDialogContent className="w-[calc(100vw-1.5rem)] max-w-md rounded-xl border-gold/25 bg-card">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="font-display text-2xl text-foreground">WhatsApp number required</AlertDialogTitle>
+            <AlertDialogDescription className="font-body leading-6 text-muted-foreground">
+              Please enter only your active WhatsApp number in Account Details before placing this order. Javani sends order confirmation and updates to that WhatsApp number.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="gap-2 sm:justify-start sm:space-x-0">
+            <AlertDialogAction onClick={() => navigate("/account/profile")} className="rounded-sm bg-gradient-primary px-5 font-display tracking-[0.08em] text-primary-foreground hover:brightness-110">
+              Open Account Details
+            </AlertDialogAction>
+            <AlertDialogCancel className="mt-0 rounded-sm border-border font-body">
+              Stay on Checkout
+            </AlertDialogCancel>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <Footer />
     </div>

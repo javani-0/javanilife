@@ -11,7 +11,6 @@ import {
 import {
   doc,
   setDoc,
-  getDoc,
   collection,
   query,
   where,
@@ -30,6 +29,8 @@ export interface UserProfile {
   username: string;
   email: string;
   phone?: string;
+  whatsappNumber?: string;
+  callNumber?: string;
   role: "admin" | "user";
   createdAt?: Timestamp;
 }
@@ -75,29 +76,49 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   // Listen to auth state
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, async (u) => {
+    const unsub = onAuthStateChanged(auth, (u) => {
       setUser(u);
-      if (u) {
-        // Fetch user profile from Firestore
-        const profileDoc = await getDoc(doc(db, "users", u.uid));
-        if (profileDoc.exists()) {
-          setUserProfile(profileDoc.data() as UserProfile);
-        } else {
-          setUserProfile({
-            uid: u.uid,
-            username: u.displayName || "User",
-            email: u.email || "",
-            role: "user",
-          });
-        }
-      } else {
+      if (!u) {
         setUserProfile(null);
         setHistory([]);
+        setLoading(false);
+        return;
       }
-      setLoading(false);
+      setLoading(true);
     });
     return unsub;
   }, []);
+
+  useEffect(() => {
+    if (!user) return;
+
+    const unsubscribe = onSnapshot(doc(db, "users", user.uid), (profileDoc) => {
+      if (profileDoc.exists()) {
+        setUserProfile(profileDoc.data() as UserProfile);
+        setLoading(false);
+        return;
+      }
+
+      setUserProfile({
+        uid: user.uid,
+        username: user.displayName || "User",
+        email: user.email || "",
+        role: "user",
+      });
+      setLoading(false);
+    }, (error) => {
+      console.error("Error fetching user profile:", error);
+      setUserProfile({
+        uid: user.uid,
+        username: user.displayName || "User",
+        email: user.email || "",
+        role: "user",
+      });
+      setLoading(false);
+    });
+
+    return unsubscribe;
+  }, [user]);
 
   // Listen to user history when logged in
   useEffect(() => {

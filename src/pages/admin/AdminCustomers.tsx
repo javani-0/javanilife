@@ -45,7 +45,7 @@ const AdminCustomers = () => {
     const queryText = search.trim().toLowerCase();
     if (!queryText) return customers;
 
-    return customers.filter((customer) => [customer.username, customer.email, customer.phone, customer.uid].filter(Boolean).join(" ").toLowerCase().includes(queryText));
+    return customers.filter((customer) => [customer.username, customer.email, customer.phone, customer.whatsappNumber, customer.callNumber, customer.uid].filter(Boolean).join(" ").toLowerCase().includes(queryText));
   }, [customers, search]);
 
   const selectedCustomer = useMemo(() => customers.find((customer) => customer.uid === selectedCustomerId) || null, [customers, selectedCustomerId]);
@@ -128,7 +128,8 @@ const AdminCustomers = () => {
 
               <div className="grid gap-3 rounded-xl border border-border/70 bg-background/70 p-4 font-body text-sm">
                 <div className="flex items-center gap-2"><Mail className="h-4 w-4 text-gold" />{selectedCustomer.email || "No email"}</div>
-                <div className="flex items-center gap-2"><Phone className="h-4 w-4 text-gold" />{selectedCustomer.phone || "No phone saved"}</div>
+                <div className="flex items-center gap-2"><Phone className="h-4 w-4 text-gold" />WhatsApp: {selectedCustomer.whatsappNumber || selectedCustomer.phone || "Not saved"}</div>
+                <div className="flex items-center gap-2"><Phone className="h-4 w-4 text-gold" />Call: {selectedCustomer.callNumber || selectedCustomer.phone || "Not saved"}</div>
                 <div className="grid grid-cols-2 gap-3 pt-2">
                   <div className="rounded-lg bg-card p-3"><p className="font-display text-2xl text-foreground">{selectedStats?.orderCount || 0}</p><p className="text-xs text-muted-foreground">Orders</p></div>
                   <div className="rounded-lg bg-card p-3"><p className="font-display text-lg text-gold">{formatPaiseAsRupees(selectedStats?.totalSpendInPaise || 0)}</p><p className="text-xs text-muted-foreground">Spend</p></div>

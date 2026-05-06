@@ -15,6 +15,7 @@ import AccountRoute from "./components/account/AccountRoute";
 import ProtectedRoute from "./components/admin/ProtectedRoute";
 import AdminLayout from "./components/admin/AdminLayout";
 import PageLoader from "./components/PageLoader";
+import NotificationPermissionPrompt from "./components/NotificationPermissionPrompt";
 
 // Public pages — eagerly imported so Suspense never flashes on navigation
 import Index from "./pages/Index";
@@ -119,6 +120,7 @@ const App = () => {
             {showLoader && <PageLoader />}
             <BrowserRouter>
               <ScrollToTop />
+              <NotificationPermissionPrompt />
               <PublicNavbar />
               <CartDrawer />
               <PublicFloatingButtons />

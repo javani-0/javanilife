@@ -22,6 +22,8 @@ interface OrderSnapshot {
   customerId?: string;
   customerName?: string;
   customerPhone?: string;
+  customerWhatsAppNumber?: string;
+  customerCallNumber?: string;
   orderNumber?: string;
   totalInPaise?: number;
   items?: OrderItemSnapshot[];
@@ -118,6 +120,20 @@ const getAdminWhatsAppNumber = async () => {
   return sanitizeWhatsAppNumber(getString(data?.orderNotificationPhone) || getString(data?.whatsappNumber));
 };
 
+const getCustomerWhatsAppNumber = async (order: OrderSnapshot) => {
+  const orderWhatsAppNumber = sanitizeWhatsAppNumber(order.customerWhatsAppNumber || "");
+  if (orderWhatsAppNumber) return orderWhatsAppNumber;
+
+  if (order.customerId) {
+    const customerSnapshot = await getFirebaseAdminDb().doc(`users/${order.customerId}`).get();
+    const customerData = customerSnapshot.exists ? customerSnapshot.data() : null;
+    const profileWhatsAppNumber = sanitizeWhatsAppNumber(getString(customerData?.whatsappNumber) || getString(customerData?.phone));
+    if (profileWhatsAppNumber) return profileWhatsAppNumber;
+  }
+
+  return sanitizeWhatsAppNumber(order.customerPhone || order.address?.phone || "");
+};
+
 const sendWebPush = async ({
   tokens,
   title,
@@ -166,8 +182,10 @@ const sendOrderPlacedMessages = async (orderId: string, order: OrderSnapshot) =>
   const customerName = order.customerName || "Customer";
   const summary = itemsSummary(order.items);
   const total = rupeesFromPaise(order.totalInPaise);
-  const customerPhone = sanitizeWhatsAppNumber(order.customerPhone || order.address?.phone || "");
-  const adminPhone = await getAdminWhatsAppNumber();
+  const [customerPhone, adminPhone] = await Promise.all([
+    getCustomerWhatsAppNumber(order),
+    getAdminWhatsAppNumber(),
+  ]);
 
   const [customerWhatsApp, adminWhatsApp, customerPush, adminPush] = await Promise.allSettled([
     customerPhone
@@ -216,7 +234,7 @@ const sendStatusMessages = async (orderId: string, order: OrderSnapshot, status?
   const customerName = order.customerName || "Customer";
   const statusLabel = statusLabels[status] || status;
   const summary = itemsSummary(order.items);
-  const customerPhone = sanitizeWhatsAppNumber(order.customerPhone || order.address?.phone || "");
+  const customerPhone = await getCustomerWhatsAppNumber(order);
   const templateName = customerStatusTemplates[status];
 
   const [customerWhatsApp, customerPush] = await Promise.allSettled([
@@ -250,7 +268,7 @@ const sendPaymentMessages = async (orderId: string, order: OrderSnapshot, paymen
   const statusLabel = paymentStatusLabels[paymentStatus] || paymentStatus;
   const customerName = order.customerName || "Customer";
   const summary = itemsSummary(order.items);
-  const customerPhone = sanitizeWhatsAppNumber(order.customerPhone || order.address?.phone || "");
+  const customerPhone = await getCustomerWhatsAppNumber(order);
 
   const [customerWhatsApp, customerPush] = await Promise.allSettled([
     customerPhone && paymentStatus === "refunded"
