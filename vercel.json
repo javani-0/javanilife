@@ -1,6 +1,6 @@
 {
   "crons": [
-    { "path": "/api/cron/dispatch-notifications", "schedule": "* * * * *" }
+    { "path": "/api/cron/dispatch-notifications", "schedule": "0 9 * * *" }
   ],
   "redirects": [
     {
