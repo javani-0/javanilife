@@ -1,6 +1,6 @@
-import { getFirebaseAdminAuth, getFirebaseAdminDb, getFirebaseAdminMessaging, FieldValue } from "../_lib/firebase-admin.ts";
-import { getBearerToken, readJsonBody, requirePost, sendError, sendJson, type ApiRequest, type ApiResponse } from "../_lib/http.ts";
-import { sendWhatsAppTemplate, sanitizeWhatsAppNumber } from "../_lib/whatsapp.ts";
+import { getFirebaseAdminAuth, getFirebaseAdminDb, getFirebaseAdminMessaging, FieldValue } from "../_lib/firebase-admin.js";
+import { getBearerToken, readJsonBody, requirePost, sendError, sendJson, type ApiRequest, type ApiResponse } from "../_lib/http.js";
+import { sendWhatsAppTemplate, sanitizeWhatsAppNumber } from "../_lib/whatsapp.js";
 
 type OrderAutomationEvent = "order-placed" | "order-status-updated" | "payment-status-updated";
 type OrderStatus = "placed" | "confirmed" | "packed" | "shipped" | "out-for-delivery" | "delivered" | "cancelled" | "returned";

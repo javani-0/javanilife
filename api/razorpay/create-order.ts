@@ -1,6 +1,6 @@
-import { getFirebaseAdminAuth } from "../_lib/firebase-admin.ts";
-import { getBearerToken, readJsonBody, requirePost, sendError, sendJson, type ApiRequest, type ApiResponse } from "../_lib/http.ts";
-import { createRazorpayClient, getRazorpayCredentials, getRazorpayCurrency } from "../_lib/razorpay.ts";
+import { getFirebaseAdminAuth } from "../_lib/firebase-admin.js";
+import { getBearerToken, readJsonBody, requirePost, sendError, sendJson, type ApiRequest, type ApiResponse } from "../_lib/http.js";
+import { createRazorpayClient, getRazorpayCredentials, getRazorpayCurrency } from "../_lib/razorpay.js";
 
 interface CreateRazorpayOrderBody {
   amountInPaise?: number;

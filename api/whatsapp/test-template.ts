@@ -1,6 +1,6 @@
-import { getBearerToken, readJsonBody, requirePost, sendError, sendJson, type ApiRequest, type ApiResponse } from "../_lib/http.ts";
-import { getFirebaseAdminAuth, getFirebaseAdminDb } from "../_lib/firebase-admin.ts";
-import { sendWhatsAppOtpTemplate } from "../_lib/whatsapp.ts";
+import { getBearerToken, readJsonBody, requirePost, sendError, sendJson, type ApiRequest, type ApiResponse } from "../_lib/http.js";
+import { getFirebaseAdminAuth, getFirebaseAdminDb } from "../_lib/firebase-admin.js";
+import { sendWhatsAppOtpTemplate } from "../_lib/whatsapp.js";
 
 interface TestTemplateBody {
   to?: string;
