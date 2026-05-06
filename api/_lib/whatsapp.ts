@@ -1,0 +1,204 @@
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+
+export interface WhatsAppSendResult {
+  status: "sent" | "manual-ready" | "failed";
+  providerMessageId?: string;
+  errorMessage?: string;
+}
+
+let localEnvCache: Record<string, string> | null = null;
+
+const getLocalEnvValue = (key: string) => {
+  if (localEnvCache) return localEnvCache[key] || "";
+
+  localEnvCache = {};
+  for (const fileName of [".env.local", ".env"]) {
+    const envPath = join(process.cwd(), fileName);
+    if (!existsSync(envPath)) continue;
+
+    const content = readFileSync(envPath, "utf8");
+    for (const rawLine of content.split(/\r?\n/)) {
+      const line = rawLine.trim();
+      if (!line || line.startsWith("#")) continue;
+      const separatorIndex = line.indexOf("=");
+      if (separatorIndex <= 0) continue;
+      const envKey = line.slice(0, separatorIndex).trim();
+      const envValue = line.slice(separatorIndex + 1).trim().replace(/^['"]|['"]$/g, "");
+      localEnvCache[envKey] = envValue;
+    }
+  }
+
+  return localEnvCache[key] || "";
+};
+
+const getEnvValue = (key: string, fallback = "") => process.env[key] || getLocalEnvValue(key) || fallback;
+
+export const sanitizeWhatsAppNumber = (phone: string) => {
+  const digits = phone.replace(/\D/g, "");
+  return digits.length === 10 ? `91${digits}` : digits;
+};
+
+const getWhatsAppConfig = () => ({
+  token: getEnvValue("WHATSAPP_TOKEN"),
+  phoneId: getEnvValue("WHATSAPP_PHONE_ID"),
+});
+
+const readWhatsAppError = (data: unknown) => {
+  if (typeof data === "object" && data !== null && "error" in data) {
+    const error = (data as { error?: { message?: string; code?: number } }).error;
+    return [error?.message, error?.code ? `code ${error.code}` : ""].filter(Boolean).join(" ");
+  }
+  return "WhatsApp API request failed.";
+};
+
+const postWhatsAppMessage = async (body: Record<string, unknown>): Promise<WhatsAppSendResult> => {
+  const { token, phoneId } = getWhatsAppConfig();
+  if (!token || !phoneId) {
+    return {
+      status: "manual-ready",
+      errorMessage: "WhatsApp API env vars are missing. Set WHATSAPP_TOKEN and WHATSAPP_PHONE_ID.",
+    };
+  }
+
+  const graphApiVersion = getEnvValue("WHATSAPP_GRAPH_API_VERSION", "v21.0");
+  const response = await fetch(`https://graph.facebook.com/${graphApiVersion}/${phoneId}/messages`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ messaging_product: "whatsapp", ...body }),
+  });
+  const data = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    return { status: "failed", errorMessage: readWhatsAppError(data) };
+  }
+
+  const messages = typeof data === "object" && data !== null && "messages" in data
+    ? (data as { messages?: Array<{ id?: string }> }).messages
+    : undefined;
+
+  return { status: "sent", providerMessageId: messages?.[0]?.id };
+};
+
+const getTemplateComponents = (params: string[] = [], urlSuffix?: string) => {
+  const components: Record<string, unknown>[] = [];
+
+  if (params.length > 0) {
+    components.push({
+      type: "body",
+      parameters: params.map((text) => ({ type: "text", text })),
+    });
+  }
+
+  if (urlSuffix) {
+    components.push({
+      type: "button",
+      sub_type: "url",
+      index: "0",
+      parameters: [{ type: "text", text: urlSuffix }],
+    });
+  }
+
+  return components;
+};
+
+export const sendWhatsAppTemplate = ({
+  to,
+  templateName,
+  languageCode = "en",
+  params = [],
+  urlSuffix,
+}: {
+  to: string;
+  templateName: string;
+  languageCode?: string;
+  params?: string[];
+  urlSuffix?: string;
+}) => {
+  const safeNumber = sanitizeWhatsAppNumber(to);
+  if (!safeNumber) {
+    return Promise.resolve({ status: "failed", errorMessage: "WhatsApp recipient phone number is missing." } as WhatsAppSendResult);
+  }
+
+  const safeTemplateName = templateName.trim();
+  if (!safeTemplateName) {
+    return Promise.resolve({ status: "failed", errorMessage: "WhatsApp template name is missing." } as WhatsAppSendResult);
+  }
+
+  return postWhatsAppMessage({
+    to: safeNumber,
+    type: "template",
+    template: {
+      name: safeTemplateName,
+      language: { code: languageCode || "en" },
+      components: getTemplateComponents(params.map(String), urlSuffix),
+    },
+  });
+};
+
+export const sendWhatsAppText = (to: string, message: string) => {
+  const safeNumber = sanitizeWhatsAppNumber(to);
+  if (!safeNumber) {
+    return Promise.resolve({ status: "failed", errorMessage: "WhatsApp recipient phone number is missing." } as WhatsAppSendResult);
+  }
+
+  return postWhatsAppMessage({
+    to: safeNumber,
+    type: "text",
+    text: {
+      preview_url: false,
+      body: message,
+    },
+  });
+};
+
+export const sendWhatsAppOtpTemplate = ({ to, code }: { to: string; code: string }) => {
+  const resolvedTemplateName = getEnvValue("WHATSAPP_OTP_TEMPLATE", "otp_login");
+  const languageCode = getEnvValue("WHATSAPP_OTP_LANG", "en");
+  const safeNumber = sanitizeWhatsAppNumber(to);
+
+  if (!safeNumber) {
+    return Promise.resolve({ status: "failed", errorMessage: "WhatsApp recipient phone number is missing." } as WhatsAppSendResult);
+  }
+
+  const sendWithButton = () => postWhatsAppMessage({
+    to: safeNumber,
+    type: "template",
+    template: {
+      name: resolvedTemplateName,
+      language: { code: languageCode },
+      components: [
+        {
+          type: "body",
+          parameters: [{ type: "text", text: code }],
+        },
+        {
+          type: "button",
+          sub_type: "url",
+          index: "0",
+          parameters: [{ type: "text", text: code }],
+        },
+      ],
+    },
+  });
+
+  const sendWithoutButton = () => postWhatsAppMessage({
+    to: safeNumber,
+    type: "template",
+    template: {
+      name: resolvedTemplateName,
+      language: { code: languageCode },
+      components: [
+        {
+          type: "body",
+          parameters: [{ type: "text", text: code }],
+        },
+      ],
+    },
+  });
+
+  return sendWithButton().then((result) => result.status === "failed" ? sendWithoutButton() : result);
+};

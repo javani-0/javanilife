@@ -1,0 +1,150 @@
+import { useEffect, useState, type FormEvent } from "react";
+import { Link } from "react-router-dom";
+import { collection, onSnapshot, query, serverTimestamp, setDoc, where, doc } from "firebase/firestore";
+import { updateProfile } from "firebase/auth";
+import { BellRing, Heart, MapPin, PackageCheck, Save } from "lucide-react";
+import AccountLayout from "@/components/account/AccountLayout";
+import { useAuth } from "@/contexts/AuthContext";
+import { useToast } from "@/hooks/use-toast";
+import { useWebNotifications } from "@/hooks/useWebNotifications";
+import { db } from "@/lib/firebase";
+
+const Profile = () => {
+  const { user, userProfile } = useAuth();
+  const { toast } = useToast();
+  const webNotifications = useWebNotifications();
+  const [username, setUsername] = useState("");
+  const [phone, setPhone] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [counts, setCounts] = useState({ orders: 0, wishlist: 0, addresses: 0 });
+
+  useEffect(() => {
+    setUsername(userProfile?.username || user?.displayName || "");
+    setPhone(userProfile?.phone || "");
+  }, [user, userProfile]);
+
+  useEffect(() => {
+    if (!user) return;
+
+    const unsubscribeOrders = onSnapshot(query(collection(db, "orders"), where("customerId", "==", user.uid)), (snapshot) => {
+      setCounts((current) => ({ ...current, orders: snapshot.size }));
+    });
+    const unsubscribeWishlist = onSnapshot(collection(db, "users", user.uid, "wishlist"), (snapshot) => {
+      setCounts((current) => ({ ...current, wishlist: snapshot.size }));
+    });
+    const unsubscribeAddresses = onSnapshot(collection(db, "users", user.uid, "addresses"), (snapshot) => {
+      setCounts((current) => ({ ...current, addresses: snapshot.size }));
+    });
+
+    return () => {
+      unsubscribeOrders();
+      unsubscribeWishlist();
+      unsubscribeAddresses();
+    };
+  }, [user]);
+
+  const saveProfile = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!user) return;
+
+    const trimmedName = username.trim();
+    if (!trimmedName) {
+      toast({ title: "Name required", description: "Please enter your full name.", variant: "destructive" });
+      return;
+    }
+
+    setSaving(true);
+    try {
+      await updateProfile(user, { displayName: trimmedName });
+      await setDoc(doc(db, "users", user.uid), {
+        uid: user.uid,
+        username: trimmedName,
+        email: user.email || userProfile?.email || "",
+        phone: phone.trim(),
+        role: userProfile?.role || "user",
+        updatedAt: serverTimestamp(),
+      }, { merge: true });
+      toast({ title: "Profile updated", description: "Your account details were saved." });
+    } catch (error) {
+      console.error("Unable to save profile", error);
+      toast({ title: "Unable to save profile", description: "Please try again.", variant: "destructive" });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const enableWebNotifications = async () => {
+    try {
+      await webNotifications.enableNotifications();
+    } catch (error) {
+      toast({ title: "Web notifications not enabled", description: error instanceof Error ? error.message : "Try again from a supported browser.", variant: "destructive" });
+    }
+  };
+
+  return (
+    <AccountLayout title="Profile Dashboard" description="Manage your Javani account, orders, wishlist, and delivery addresses.">
+      <div className="space-y-6">
+        <div className="grid gap-4 sm:grid-cols-3">
+          <Link to="/account/orders" className="rounded-2xl border border-gold/15 bg-card p-5 shadow-card transition-colors hover:border-gold/40">
+            <PackageCheck className="mb-3 h-6 w-6 text-gold" />
+            <p className="font-display text-3xl text-foreground">{counts.orders}</p>
+            <p className="font-body text-sm text-muted-foreground">Orders</p>
+          </Link>
+          <Link to="/account/wishlist" className="rounded-2xl border border-gold/15 bg-card p-5 shadow-card transition-colors hover:border-gold/40">
+            <Heart className="mb-3 h-6 w-6 text-gold" />
+            <p className="font-display text-3xl text-foreground">{counts.wishlist}</p>
+            <p className="font-body text-sm text-muted-foreground">Wishlist Items</p>
+          </Link>
+          <Link to="/account/addresses" className="rounded-2xl border border-gold/15 bg-card p-5 shadow-card transition-colors hover:border-gold/40">
+            <MapPin className="mb-3 h-6 w-6 text-gold" />
+            <p className="font-display text-3xl text-foreground">{counts.addresses}</p>
+            <p className="font-body text-sm text-muted-foreground">Saved Addresses</p>
+          </Link>
+        </div>
+
+        <section className="rounded-2xl border border-gold/15 bg-card p-5 shadow-card sm:p-6">
+          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div>
+              <div className="flex items-center gap-2">
+                <BellRing className="h-5 w-5 text-gold" />
+                <h2 className="font-display text-2xl text-foreground">Web Notifications</h2>
+              </div>
+              <p className="mt-1 font-body text-sm text-muted-foreground">
+                Permission: {webNotifications.permission}. {webNotifications.configError || "Ready to connect this browser."}
+              </p>
+            </div>
+            <button type="button" onClick={enableWebNotifications} disabled={!webNotifications.supported || !webNotifications.configured || webNotifications.loading} className="inline-flex h-11 items-center justify-center gap-2 rounded-sm border border-gold/40 px-5 font-body text-sm font-semibold text-gold transition-colors hover:bg-gold hover:text-white disabled:opacity-60">
+              <BellRing className="h-4 w-4" /> {webNotifications.loading ? "Enabling..." : "Enable This Browser"}
+            </button>
+          </div>
+        </section>
+
+        <form onSubmit={saveProfile} className="rounded-2xl border border-border/60 bg-card p-5 shadow-card sm:p-6">
+          <h2 className="font-display text-2xl text-foreground">Account Details</h2>
+          <p className="mt-1 font-body text-sm text-muted-foreground">These details connect checkout and future order history.</p>
+
+          <div className="mt-6 grid gap-4 sm:grid-cols-2">
+            <label className="font-body text-sm font-semibold text-foreground">
+              Full name
+              <input value={username} onChange={(event) => setUsername(event.target.value)} className="mt-2 h-11 w-full rounded-md border border-border bg-background px-3 font-body text-sm outline-none transition-colors focus:border-gold focus:ring-2 focus:ring-gold/20" />
+            </label>
+            <label className="font-body text-sm font-semibold text-foreground">
+              Phone
+              <input value={phone} onChange={(event) => setPhone(event.target.value)} className="mt-2 h-11 w-full rounded-md border border-border bg-background px-3 font-body text-sm outline-none transition-colors focus:border-gold focus:ring-2 focus:ring-gold/20" placeholder="Optional" />
+            </label>
+            <label className="font-body text-sm font-semibold text-foreground sm:col-span-2">
+              Email
+              <input value={user?.email || userProfile?.email || ""} disabled className="mt-2 h-11 w-full rounded-md border border-border bg-muted px-3 font-body text-sm text-muted-foreground" />
+            </label>
+          </div>
+
+          <button type="submit" disabled={saving} className="mt-6 inline-flex items-center justify-center gap-2 rounded-sm bg-gradient-primary px-6 py-3 font-display text-sm font-semibold tracking-[0.08em] text-primary-foreground transition-all hover:brightness-110 disabled:opacity-60">
+            <Save className="h-4 w-4" /> {saving ? "Saving..." : "Save Profile"}
+          </button>
+        </form>
+      </div>
+    </AccountLayout>
+  );
+};
+
+export default Profile;

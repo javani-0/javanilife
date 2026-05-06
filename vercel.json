@@ -1,0 +1,20 @@
+{
+  "redirects": [
+    {
+      "source": "/",
+      "has": [{ "type": "host", "value": "javanailife.store" }],
+      "destination": "/products",
+      "permanent": false
+    },
+    {
+      "source": "/",
+      "has": [{ "type": "host", "value": "www.javanailife.store" }],
+      "destination": "/products",
+      "permanent": false
+    }
+  ],
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": "/api/$1" },
+    { "source": "/((?!api/|@vite/|@react-refresh|.*\\..*).*)", "destination": "/" }
+  ]
+}
