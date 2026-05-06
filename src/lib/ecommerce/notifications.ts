@@ -34,8 +34,15 @@ const getPublicEnvValue = (key: string) => {
 const whatsappTemplateLanguage = getPublicEnvValue("VITE_WHATSAPP_TEMPLATE_LANGUAGE") || "en";
 const whatsappOrderPlacedCustomerTemplate = getPublicEnvValue("VITE_WHATSAPP_ORDER_PLACED_CUSTOMER_TEMPLATE");
 const whatsappOrderPlacedAdminTemplate = getPublicEnvValue("VITE_WHATSAPP_ORDER_PLACED_ADMIN_TEMPLATE");
-const whatsappOrderStatusTemplate = getPublicEnvValue("VITE_WHATSAPP_ORDER_STATUS_TEMPLATE");
-const whatsappPaymentStatusTemplate = getPublicEnvValue("VITE_WHATSAPP_PAYMENT_STATUS_TEMPLATE");
+
+// Per-status customer WhatsApp templates.
+// All take: {{1}}firstName {{2}}orderId {{3}}itemsSummary + a URL button suffix (orderId).
+const ORDER_STATUS_TEMPLATES: Partial<Record<OrderStatus, string>> = {
+  outForDelivery: "order_out_for_delivery",
+  delivered: "order_delivered",
+  cancelled: "order_cancelled",
+  refunded: "order_refunded",
+};
 
 const notificationChannels: NotificationChannel[] = ["whatsapp", "web-push"];
 const notificationEvents: NotificationEventType[] = ["order-placed", "order-status-updated", "payment-status-updated"];
@@ -229,10 +236,14 @@ export const createOrderPlacedNotificationPayloads = (order: Order, adminWhatsAp
 export const createOrderStatusNotificationPayload = (order: Order, nextStatus: OrderStatus): NotificationPayload => {
   const orderLabel = getOrderLabel(order);
   const statusLabel = ORDER_STATUS_LABELS[nextStatus] || nextStatus;
+  const itemsSummary = getItemsSummary(order);
   const message = [
     `Namaste ${order.customerName}, your Javani order ${orderLabel} is now ${statusLabel}.`,
     "Thank you for shopping with Javani Spiritual Hub.",
   ].join("\n");
+
+  // Pick the status-specific template (params: firstName, orderId, itemsSummary + URL button suffix)
+  const templateName = ORDER_STATUS_TEMPLATES[nextStatus] ?? "";
 
   return createBasePayload({
     order,
@@ -241,7 +252,7 @@ export const createOrderStatusNotificationPayload = (order: Order, nextStatus: O
     title: `Order ${statusLabel}`,
     message,
     whatsappNumber: order.customerPhone,
-    ...createTemplateFields(whatsappOrderStatusTemplate, [firstName(order.customerName), orderLabel, statusLabel], order.id),
+    ...createTemplateFields(templateName, [firstName(order.customerName), orderLabel, itemsSummary], order.id),
   });
 };
 
@@ -269,6 +280,7 @@ export const createPaymentStatusNotificationPayload = (order: Order, nextStatus:
     `Order total: ${formatPaiseAsRupees(order.totalInPaise || 0)}`,
   ].join("\n");
 
+  // No dedicated payment-status template — send as free-form text.
   return createBasePayload({
     order,
     eventType: "payment-status-updated",
@@ -276,7 +288,6 @@ export const createPaymentStatusNotificationPayload = (order: Order, nextStatus:
     title: `Payment ${statusLabel}`,
     message,
     whatsappNumber: order.customerPhone,
-    ...createTemplateFields(whatsappPaymentStatusTemplate, [firstName(order.customerName), orderLabel, statusLabel, formatPaiseAsRupees(order.totalInPaise || 0)], order.id),
   });
 };
 
