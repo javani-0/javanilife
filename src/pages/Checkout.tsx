@@ -150,7 +150,7 @@ const Checkout = () => {
   const { user, userProfile, loading: authLoading } = useAuth();
   const { items, loading: cartLoading, clearCart, clearBuyNowItem } = useCart();
   const { toast } = useToast();
-  const { whatsappNumber } = useContactInfo();
+  const { whatsappNumber, orderNotificationPhone } = useContactInfo();
   const [address, setAddress] = useState<CheckoutAddress>(emptyAddress);
   const [savedAddresses, setSavedAddresses] = useState<CheckoutAddress[]>([]);
   const [selectedSavedAddressId, setSelectedSavedAddressId] = useState<string>("custom");
@@ -452,7 +452,7 @@ const Checkout = () => {
           timeline: [],
         } as Order;
 
-        const notificationPayloads = createOrderPlacedNotificationPayloads(notificationOrder, whatsappNumber);
+        const notificationPayloads = createOrderPlacedNotificationPayloads(notificationOrder, orderNotificationPhone || whatsappNumber);
         const notificationIdToken = idToken || await user.getIdToken();
 
         try {

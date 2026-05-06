@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { doc, getDoc, setDoc, collection, onSnapshot, addDoc, updateDoc, deleteDoc, query, orderBy } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { Plus, Pencil, Trash2, X, Image, BarChart3, MessageSquare, Layers, Phone, Globe } from "lucide-react";
+import { Plus, Pencil, Trash2, X, Image, BarChart3, MessageSquare, Layers, Phone, Globe, Bell } from "lucide-react";
 import { contactInfoDefaults, type ContactInfo } from "@/hooks/useContactInfo";
 import { useToast } from "@/hooks/use-toast";
 
@@ -93,6 +93,7 @@ const AdminSiteSettings = () => {
         const data = snap.data();
         setContactInfo({
           whatsappNumber: data.whatsappNumber || contactInfoDefaults.whatsappNumber,
+          orderNotificationPhone: data.orderNotificationPhone || "",
           phone: data.phone || contactInfoDefaults.phone,
           email: data.email || contactInfoDefaults.email,
           address: data.address || contactInfoDefaults.address,
@@ -201,6 +202,22 @@ const AdminSiteSettings = () => {
   return (
     <div className="space-y-8">
       <h2 className="font-display font-semibold text-[1.5rem] text-foreground">Site Settings</h2>
+
+      {/* Order Notifications */}
+      <Section title="Order Notification Number" icon={Bell}>
+        <p className="font-body text-[0.8rem] text-muted-foreground">This WhatsApp number receives a message every time a customer places an order. Keep country code included, digits only (e.g. 919959935203).</p>
+        <div>
+          <label className="font-body text-[0.85rem] text-muted-foreground block mb-1">Admin WhatsApp Number for Order Alerts</label>
+          <input
+            value={contactInfo.orderNotificationPhone}
+            onChange={(e) => setContactInfo({ ...contactInfo, orderNotificationPhone: e.target.value.replace(/\D/g, "") })}
+            placeholder="919959935203"
+            className="w-full px-3 py-2 rounded-md border border-border font-body text-[0.85rem] outline-none focus:border-gold"
+          />
+          <p className="font-body text-[0.75rem] text-muted-foreground mt-1">Currently: {contactInfo.orderNotificationPhone || <span className="text-destructive">Not set — fallback to WhatsApp Number below</span>}</p>
+        </div>
+        <button onClick={saveContactInfo} className="px-4 py-2 rounded-md bg-gold text-gold-foreground font-body text-[0.85rem] font-medium hover:brightness-110">Save Notification Number</button>
+      </Section>
 
       {/* Contact Information */}
       <Section title="Contact Information" icon={Phone}>

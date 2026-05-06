@@ -4,6 +4,7 @@ import { db } from "@/lib/firebase";
 
 export interface ContactInfo {
   whatsappNumber: string;
+  orderNotificationPhone: string;
   phone: string;
   email: string;
   address: string;
@@ -15,6 +16,7 @@ export interface ContactInfo {
 
 const defaults: ContactInfo = {
   whatsappNumber: "919876543210",
+  orderNotificationPhone: "",
   phone: "+91 9030200263",
   email: "seva@javanilife.com, spiritualhub@javanilife.com",
   address: "JAVANI SPIRITUAL HUB, Plot # 7&8, Raghava Kalyan Estate, Chandragiri Colony, Yapral, Secunderabad, Telangana 500094",
@@ -36,6 +38,7 @@ export const useContactInfo = () => {
         const data = snap.data();
         const info: ContactInfo = {
           whatsappNumber: data.whatsappNumber || defaults.whatsappNumber,
+          orderNotificationPhone: data.orderNotificationPhone || "",
           phone: data.phone || defaults.phone,
           email: data.email || defaults.email,
           address: data.address || defaults.address,
