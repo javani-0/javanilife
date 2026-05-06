@@ -459,11 +459,10 @@ const Checkout = () => {
           await queueNotificationPayloads(notificationIdToken, notificationPayloads);
         } catch (apiNotificationError) {
           console.error("Notification API was unavailable; falling back to Firestore queue", apiNotificationError);
-          await Promise.all(notificationPayloads.map((notification) => addDoc(collection(db, "notifications"), {
-            ...notification,
-            createdAt: serverTimestamp(),
-            updatedAt: serverTimestamp(),
-          })));
+          await Promise.all(notificationPayloads.map((notification) => {
+            const safe = Object.fromEntries(Object.entries(notification).filter(([, v]) => v !== undefined));
+            return addDoc(collection(db, "notifications"), { ...safe, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+          }));
         }
       } catch (notificationError) {
         console.error("Order was created but notifications could not be queued", notificationError);

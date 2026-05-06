@@ -214,11 +214,10 @@ const AdminOrders = () => {
             await queueNotificationPayloads(notificationIdToken, notificationPayloads);
           } catch (apiNotificationError) {
             console.error("Notification API was unavailable; falling back to Firestore queue", apiNotificationError);
-            await Promise.all(notificationPayloads.map((notification) => addDoc(collection(db, "notifications"), {
-              ...notification,
-              createdAt: serverTimestamp(),
-              updatedAt: serverTimestamp(),
-            })));
+            await Promise.all(notificationPayloads.map((notification) => {
+              const safe = Object.fromEntries(Object.entries(notification).filter(([, v]) => v !== undefined));
+              return addDoc(collection(db, "notifications"), { ...safe, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+            }));
           }
         }
       } catch (notificationError) {
@@ -421,7 +420,7 @@ const AdminOrders = () => {
               <div>
                 <p className="font-body text-xs font-semibold uppercase tracking-[0.2em] text-gold">Order Detail</p>
                 <h2 className="mt-1 font-display text-2xl text-foreground">{selectedOrder.orderNumber || selectedOrder.id}</h2>
-                <p className="mt-1 font-body text-sm text-muted-foreground">{formatAccountDate(selectedOrder.createdAt)}</p>
+                <p className="mt-1 font-body text-sm text-muted-foreground">{formatAccountDateTime(selectedOrder.createdAt)}</p>
               </div>
 
               <div className="grid gap-3 rounded-xl border border-border/70 bg-background/70 p-4 font-body text-sm">
