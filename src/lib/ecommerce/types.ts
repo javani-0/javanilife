@@ -24,6 +24,7 @@ export type PaymentMethod = "cod" | "razorpay";
 export type PaymentStatus = "pending" | "paid" | "failed" | "refunded" | "cod-pending" | "cod-collected";
 export type OrderStatus = "placed" | "confirmed" | "packed" | "shipped" | "out-for-delivery" | "delivered" | "cancelled" | "returned";
 export type UserRole = "admin" | "user";
+export type OrderCancellationStatus = "none" | "requested" | "approved" | "rejected";
 
 export interface ProductDeliveryProfile {
   weightInGrams?: number;
@@ -131,11 +132,27 @@ export interface DeliveryInfo {
   trackingNumber?: string;
   trackingUrl?: string;
   providerStatus?: string;
+  providerStatusType?: string;
   shipmentWeightInGrams?: number;
   usesFallbackWeight?: boolean;
   lastSyncedAt?: unknown;
+  lastTrackedAt?: unknown;
   lastSyncError?: string;
   deliveredAt?: unknown;
+  cancelledAt?: unknown;
+}
+
+export interface OrderCancellationInfo {
+  status?: OrderCancellationStatus;
+  reason?: string;
+  requestedAt?: unknown;
+  requestedBy?: string;
+  approvedAt?: unknown;
+  approvedBy?: string;
+  rejectedAt?: unknown;
+  rejectedBy?: string;
+  adminNote?: string;
+  providerStatus?: string;
 }
 
 export interface OrderItem {
@@ -172,6 +189,7 @@ export interface Order {
   address: CheckoutAddress;
   payment: PaymentInfo;
   delivery: DeliveryInfo;
+  cancellation?: OrderCancellationInfo;
   status: OrderStatus;
   subtotalInPaise: number;
   deliveryChargeInPaise: number;

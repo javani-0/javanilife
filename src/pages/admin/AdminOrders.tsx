@@ -19,6 +19,7 @@ import {
   ADMIN_ORDER_STATUS_OPTIONS,
   ADMIN_PAYMENT_STATUS_OPTIONS,
   DELIVERY_SYNC_STATUS_LABELS,
+  approveOrderCancellation,
   filterAdminOrders,
   formatAccountDate,
   formatAccountDateTime,
@@ -30,6 +31,8 @@ import {
   getDeliveryOneSyncEligibility,
   normalizeCustomerOrder,
   ORDER_STATUS_LABELS,
+  refreshDeliveryOneTracking,
+  rejectOrderCancellation,
   sendOrderAutomation,
   syncDeliveryOneOrder,
   sortOrdersNewestFirst,
@@ -37,10 +40,18 @@ import {
   type AdminOrderFilters,
   type DeliverySyncStatus,
   type Order,
+  type OrderCancellationStatus,
   type OrderStatus,
   type PaymentMethod,
   type PaymentStatus,
 } from "@/lib/ecommerce";
+
+const cancellationStatusLabels: Record<OrderCancellationStatus, string> = {
+  none: "No request",
+  requested: "Pending approval",
+  approved: "Approved",
+  rejected: "Rejected",
+};
 
 const emptyFilters: AdminOrderFilters = {
   search: "",
@@ -92,6 +103,9 @@ const AdminOrders = () => {
   const [trackingUrl, setTrackingUrl] = useState("");
   const [saving, setSaving] = useState(false);
   const [syncingDelivery, setSyncingDelivery] = useState(false);
+  const [refreshingTracking, setRefreshingTracking] = useState(false);
+  const [processingCancellation, setProcessingCancellation] = useState(false);
+  const [cancellationAdminNote, setCancellationAdminNote] = useState("");
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [pendingDeleteOrderId, setPendingDeleteOrderId] = useState<string | null>(null);
   const [deleteCountdown, setDeleteCountdown] = useState<number | null>(null);
@@ -145,6 +159,8 @@ const AdminOrders = () => {
   const selectedOrder = useMemo(() => orders.find((order) => order.id === selectedOrderId) || null, [orders, selectedOrderId]);
   const deliveryEligibility = useMemo(() => getDeliveryOneSyncEligibility(selectedOrder), [selectedOrder]);
   const selectedDeliverySyncStatus = (selectedOrder?.delivery?.syncStatus || "manual-ready") as DeliverySyncStatus;
+  const selectedCancellationStatus = (selectedOrder?.cancellation?.status || "none") as OrderCancellationStatus;
+  const canAdminCancelSyncedOrder = Boolean(selectedOrder?.delivery?.trackingNumber && !["delivered", "cancelled", "returned"].includes(selectedOrder.status));
 
   useEffect(() => {
     if (!selectedOrder) setDeleteDialogOpen(false);
@@ -158,6 +174,7 @@ const AdminOrders = () => {
     setProviderOrderId(selectedOrder.delivery?.providerOrderId || "");
     setTrackingNumber(selectedOrder.delivery?.trackingNumber || "");
     setTrackingUrl(selectedOrder.delivery?.trackingUrl || "");
+    setCancellationAdminNote("");
   }, [selectedOrder]);
 
   const updateFilter = <Key extends keyof AdminOrderFilters>(key: Key, value: AdminOrderFilters[Key]) => {
@@ -179,6 +196,15 @@ const AdminOrders = () => {
 
     if (!statusChanged && !paymentChanged && !notesChanged && !deliveryTrackingChanged) {
       toast({ title: "No changes to save" });
+      return;
+    }
+
+    if (statusChanged && selectedStatus === "cancelled" && (selectedOrder.delivery?.trackingNumber || selectedCancellationStatus === "requested")) {
+      toast({
+        title: "Use cancellation approval",
+        description: "Approve the cancellation request from the cancellation panel so Delhivery is notified when a waybill exists.",
+        variant: "destructive",
+      });
       return;
     }
 
@@ -280,6 +306,63 @@ const AdminOrders = () => {
       toast({ title: "Delivery One sync failed", description: error instanceof Error ? error.message : "Try again after checking credentials.", variant: "destructive" });
     } finally {
       setSyncingDelivery(false);
+    }
+  };
+
+  const handleRefreshTracking = async () => {
+    if (!selectedOrder || !user) return;
+
+    if (!selectedOrder.delivery?.trackingNumber) {
+      toast({ title: "Tracking unavailable", description: "This order does not have a Delivery One tracking number yet.", variant: "destructive" });
+      return;
+    }
+
+    setRefreshingTracking(true);
+    try {
+      const idToken = await user.getIdToken();
+      const result = await refreshDeliveryOneTracking(idToken, selectedOrder.id);
+      toast({ title: "Tracking refreshed", description: result.providerStatus ? `Delhivery: ${result.providerStatus}` : result.message || selectedOrder.orderNumber || selectedOrder.id });
+    } catch (error) {
+      console.error("Unable to refresh Delivery One tracking", error);
+      toast({ title: "Tracking refresh failed", description: error instanceof Error ? error.message : "Try again after checking credentials.", variant: "destructive" });
+    } finally {
+      setRefreshingTracking(false);
+    }
+  };
+
+  const handleApproveCancellation = async () => {
+    if (!selectedOrder || !user) return;
+
+    setProcessingCancellation(true);
+    try {
+      const idToken = await user.getIdToken();
+      const result = await approveOrderCancellation(idToken, selectedOrder.id, cancellationAdminNote.trim());
+      void sendOrderAutomation(idToken, { orderId: selectedOrder.id, event: "order-status-updated", status: "cancelled" })
+        .catch((notificationError) => {
+          console.error("Cancellation was approved but status automations could not be sent", notificationError);
+        });
+      toast({ title: "Cancellation approved", description: result.message || selectedOrder.orderNumber || selectedOrder.id });
+    } catch (error) {
+      console.error("Unable to approve cancellation", error);
+      toast({ title: "Cancellation approval failed", description: error instanceof Error ? error.message : "Try again after checking Delivery One status.", variant: "destructive" });
+    } finally {
+      setProcessingCancellation(false);
+    }
+  };
+
+  const handleRejectCancellation = async () => {
+    if (!selectedOrder || !user) return;
+
+    setProcessingCancellation(true);
+    try {
+      const idToken = await user.getIdToken();
+      const result = await rejectOrderCancellation(idToken, selectedOrder.id, cancellationAdminNote.trim());
+      toast({ title: "Cancellation rejected", description: result.message || selectedOrder.orderNumber || selectedOrder.id });
+    } catch (error) {
+      console.error("Unable to reject cancellation", error);
+      toast({ title: "Cancellation rejection failed", description: error instanceof Error ? error.message : "Try again.", variant: "destructive" });
+    } finally {
+      setProcessingCancellation(false);
     }
   };
 
@@ -445,6 +528,7 @@ const AdminOrders = () => {
                       <div className="flex flex-wrap items-center gap-2">
                         <p className="font-display text-lg text-foreground">{order.orderNumber || order.id}</p>
                         <span className="rounded-full bg-gold/10 px-2.5 py-1 font-body text-xs font-semibold text-gold">{ORDER_STATUS_LABELS[order.status] || order.status}</span>
+                        {order.cancellation?.status === "requested" && <span className="rounded-full bg-destructive/10 px-2.5 py-1 font-body text-xs font-semibold text-destructive">Cancel requested</span>}
                       </div>
                       <p className="mt-1 font-body text-sm text-muted-foreground">{order.customerName}</p>
                       <div className="mt-3 flex flex-wrap gap-2 font-body text-xs">
@@ -504,14 +588,24 @@ const AdminOrders = () => {
                     </div>
                     <p className="font-body text-xs leading-relaxed text-muted-foreground">Prepare the shipment payload, push when API credentials are configured, or save manual tracking references.</p>
                   </div>
-                  <button
-                    type="button"
-                    onClick={handleSyncDelivery}
-                    disabled={syncingDelivery || !deliveryEligibility.eligible}
-                    className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-sm bg-gold px-4 font-display text-xs font-semibold tracking-[0.08em] text-charcoal transition-colors hover:bg-gold-light disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    <RefreshCw className={`h-4 w-4 ${syncingDelivery ? "animate-spin" : ""}`} /> {syncingDelivery ? "Syncing" : "Prepare Sync"}
-                  </button>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={handleSyncDelivery}
+                      disabled={syncingDelivery || !deliveryEligibility.eligible}
+                      className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-sm bg-gold px-4 font-display text-xs font-semibold tracking-[0.08em] text-charcoal transition-colors hover:bg-gold-light disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      <RefreshCw className={`h-4 w-4 ${syncingDelivery ? "animate-spin" : ""}`} /> {syncingDelivery ? "Syncing" : "Prepare Sync"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleRefreshTracking}
+                      disabled={refreshingTracking || !selectedOrder.delivery?.trackingNumber}
+                      className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-sm border border-gold/35 px-4 font-display text-xs font-semibold tracking-[0.08em] text-gold transition-colors hover:bg-gold/10 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      <RefreshCw className={`h-4 w-4 ${refreshingTracking ? "animate-spin" : ""}`} /> {refreshingTracking ? "Refreshing" : "Track"}
+                    </button>
+                  </div>
                 </div>
 
                 {!deliveryEligibility.eligible && <p className="mt-3 rounded-lg border border-destructive/20 bg-destructive/10 p-3 font-body text-xs text-destructive">{deliveryEligibility.reason}</p>}
@@ -530,6 +624,13 @@ const AdminOrders = () => {
                     <span className="mt-1 block font-semibold text-foreground">{formatPaiseAsRupees(selectedOrder.delivery?.chargeInPaise || 0)}</span>
                   </div>
                 </div>
+
+                {selectedOrder.delivery?.providerStatus && (
+                  <p className="mt-3 rounded-lg border border-gold/20 bg-card p-3 font-body text-xs text-muted-foreground">
+                    Delhivery status: <span className="font-semibold text-foreground">{selectedOrder.delivery.providerStatus}</span>
+                    {selectedOrder.delivery.providerStatusType ? ` (${selectedOrder.delivery.providerStatusType})` : ""}
+                  </p>
+                )}
 
                 {selectedOrder.delivery?.lastSyncError && <p className="mt-3 rounded-lg border border-destructive/20 bg-destructive/10 p-3 font-body text-xs text-destructive">{selectedOrder.delivery.lastSyncError}</p>}
 
@@ -554,6 +655,54 @@ const AdminOrders = () => {
                   </a>
                 )}
               </div>
+
+              {(selectedCancellationStatus !== "none" || canAdminCancelSyncedOrder) && (
+                <div className="rounded-xl border border-destructive/20 bg-destructive/10 p-4">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <div className="mb-1 flex items-center gap-2">
+                        <AlertTriangle className="h-4 w-4 text-destructive" />
+                        <h3 className="font-display text-lg text-foreground">Cancellation Request</h3>
+                      </div>
+                      <p className="font-body text-xs text-muted-foreground">Status: <span className="font-semibold text-foreground">{cancellationStatusLabels[selectedCancellationStatus] || selectedCancellationStatus}</span></p>
+                      {selectedCancellationStatus === "none" && <p className="mt-1 font-body text-xs text-muted-foreground">This synced shipment can be cancelled with Delhivery from here.</p>}
+                    </div>
+                  </div>
+
+                  {selectedOrder.cancellation?.reason && (
+                    <div className="mt-3 rounded-lg border border-destructive/20 bg-card p-3 font-body text-sm">
+                      <span className="block text-xs font-semibold uppercase tracking-[0.14em] text-destructive">Customer reason</span>
+                      <p className="mt-1 text-foreground">{selectedOrder.cancellation.reason}</p>
+                    </div>
+                  )}
+
+                  {selectedOrder.cancellation?.adminNote && selectedCancellationStatus !== "requested" && (
+                    <div className="mt-3 rounded-lg border border-border/70 bg-card p-3 font-body text-sm">
+                      <span className="block text-xs font-semibold uppercase tracking-[0.14em] text-gold">Admin note</span>
+                      <p className="mt-1 text-foreground">{selectedOrder.cancellation.adminNote}</p>
+                    </div>
+                  )}
+
+                  {(selectedCancellationStatus === "requested" || (selectedCancellationStatus === "none" && canAdminCancelSyncedOrder)) && (
+                    <div className="mt-4 grid gap-3">
+                      <label className="font-body text-sm font-semibold text-foreground">
+                        Admin note
+                        <textarea value={cancellationAdminNote} onChange={(event) => setCancellationAdminNote(event.target.value)} rows={3} className="mt-2 w-full rounded-md border border-border bg-background px-3 py-3 font-body text-sm outline-none focus:border-gold" placeholder="Optional note for approval or rejection" />
+                      </label>
+                      <div className={`grid gap-2 ${selectedCancellationStatus === "requested" ? "sm:grid-cols-2" : ""}`}>
+                        <button type="button" onClick={handleApproveCancellation} disabled={processingCancellation} className="inline-flex items-center justify-center gap-2 rounded-sm bg-destructive px-4 py-3 font-display text-xs font-semibold tracking-[0.08em] text-destructive-foreground transition-colors hover:bg-destructive/90 disabled:cursor-not-allowed disabled:opacity-60">
+                          <AlertTriangle className="h-4 w-4" /> {processingCancellation ? "Processing..." : "Approve Cancel"}
+                        </button>
+                        {selectedCancellationStatus === "requested" && (
+                          <button type="button" onClick={handleRejectCancellation} disabled={processingCancellation} className="inline-flex items-center justify-center gap-2 rounded-sm border border-border px-4 py-3 font-display text-xs font-semibold tracking-[0.08em] text-foreground transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60">
+                            Keep Order
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
 
               <div className="space-y-2">
                 <h3 className="font-display text-lg text-foreground">Items</h3>

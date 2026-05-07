@@ -1,9 +1,14 @@
 import { describe, expect, it, beforeEach, afterEach } from "vitest";
 import {
+  createDeliveryOneCancelShipmentRequest,
   createDeliveryOneCreateShipmentRequest,
+  createDeliveryOneTrackingRequest,
   createDeliveryOneShipmentPayload,
+  extractDeliveryOneTrackingUpdate,
+  extractDeliveryOneWebhookUpdate,
   extractDeliveryOneProviderResult,
   isDeliveryOnePincodeServiceable,
+  mapDeliveryOneStatusToOrderStatus,
 } from "../../api/_lib/delivery-one";
 
 const originalEnv = { ...process.env };
@@ -107,5 +112,74 @@ describe("Delhivery Delivery One API mapping", () => {
       providerStatus: "Success",
     });
     expect(result.trackingUrl).toContain("1234567890123");
+  });
+
+  it("creates a Delhivery cancellation request for a waybill", () => {
+    const request = createDeliveryOneCancelShipmentRequest("1234567890123");
+
+    expect(request.url).toBe("https://track.delhivery.com/api/p/edit");
+    expect(request.init.method).toBe("POST");
+    expect(request.init.headers).toMatchObject({
+      Accept: "application/json",
+      Authorization: "Token token_test_123",
+      "Content-Type": "application/json",
+    });
+    expect(JSON.parse(request.init.body)).toEqual({ waybill: "1234567890123", cancellation: "true" });
+  });
+
+  it("creates a Delhivery tracking request and extracts the latest shipment update", () => {
+    const request = createDeliveryOneTrackingRequest("1234567890123", "JAV-20260507-ABC12");
+
+    expect(request.url).toBe("https://track.delhivery.com/api/v1/packages/json/?waybill=1234567890123&ref_ids=JAV-20260507-ABC12");
+    expect(request.init.method).toBe("GET");
+    expect(request.init.headers.Authorization).toBe("Token token_test_123");
+
+    const update = extractDeliveryOneTrackingUpdate({
+      ShipmentData: [
+        {
+          Shipment: {
+            AWB: "1234567890123",
+            ReferenceNo: "JAV-20260507-ABC12",
+            Status: { Status: "Dispatched", StatusType: "UD" },
+            Scans: [{ ScanDetail: { Scan: "Manifested" } }],
+          },
+        },
+      ],
+    });
+
+    expect(update).toMatchObject({
+      trackingNumber: "1234567890123",
+      providerOrderId: "JAV-20260507-ABC12",
+      providerStatus: "Dispatched",
+      providerStatusType: "UD",
+      orderStatus: "out-for-delivery",
+    });
+  });
+
+  it("maps Delhivery statuses into local order statuses", () => {
+    expect(mapDeliveryOneStatusToOrderStatus("Delivered", "DL")).toBe("delivered");
+    expect(mapDeliveryOneStatusToOrderStatus("Dispatched", "UD")).toBe("out-for-delivery");
+    expect(mapDeliveryOneStatusToOrderStatus("In Transit", "UD")).toBe("shipped");
+    expect(mapDeliveryOneStatusToOrderStatus("RTO", "DL")).toBe("returned");
+    expect(mapDeliveryOneStatusToOrderStatus("Canceled", "CN")).toBe("cancelled");
+  });
+
+  it("extracts tracking data from Delhivery webhook payloads", () => {
+    const update = extractDeliveryOneWebhookUpdate({
+      waybill: "1234567890123",
+      order: "JAV-20260507-ABC12",
+      status: "Delivered",
+      status_type: "DL",
+      event_time: "2026-05-07T10:30:00+05:30",
+    });
+
+    expect(update).toMatchObject({
+      trackingNumber: "1234567890123",
+      providerOrderId: "JAV-20260507-ABC12",
+      providerStatus: "Delivered",
+      providerStatusType: "DL",
+      orderStatus: "delivered",
+      eventAt: "2026-05-07T10:30:00+05:30",
+    });
   });
 });

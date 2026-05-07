@@ -74,12 +74,20 @@ export interface DeliveryOneProviderResult {
   rawResponse?: unknown;
 }
 
+export type DeliveryOneMappedOrderStatus = "placed" | "confirmed" | "packed" | "shipped" | "out-for-delivery" | "delivered" | "cancelled" | "returned";
+
+export interface DeliveryOneTrackingUpdate extends DeliveryOneProviderResult {
+  providerStatusType?: string;
+  orderStatus?: DeliveryOneMappedOrderStatus;
+  eventAt?: string;
+}
+
 interface DeliveryOneRequest {
   url: string;
   init: {
-    method: "POST";
+    method: "GET" | "POST";
     headers: Record<string, string>;
-    body: string;
+    body?: string;
   };
 }
 
@@ -134,6 +142,20 @@ const getDeliveryOneCreateOrderUrl = () => getFirstEnvValue([
   "DELHIVERY_CREATE_ORDER_URL",
   "DELIVERY_ONE_API_URL",
 ]) || `${getDeliveryOneBaseUrl()}/api/cmu/create.json`;
+
+const getDeliveryOneEditOrderUrl = () => getFirstEnvValue([
+  "DELIVERY_ONE_EDIT_ORDER_URL",
+  "DELHIVERY_EDIT_ORDER_URL",
+]) || `${getDeliveryOneBaseUrl()}/api/p/edit`;
+
+const getDeliveryOneTrackingApiUrl = (waybill: string, orderReference = "") => {
+  const configuredUrl = getFirstEnvValue(["DELIVERY_ONE_TRACKING_API_URL", "DELHIVERY_TRACKING_API_URL"])
+    || `${getDeliveryOneBaseUrl()}/api/v1/packages/json/`;
+  const url = new URL(configuredUrl);
+  url.searchParams.set("waybill", waybill);
+  url.searchParams.set("ref_ids", orderReference);
+  return url.toString();
+};
 
 const getDeliveryOneServiceabilityUrl = (pincode: string) => {
   const configuredUrl = getFirstEnvValue(["DELIVERY_ONE_SERVICEABILITY_URL", "DELHIVERY_SERVICEABILITY_URL"])
@@ -203,11 +225,19 @@ const getMaxDimension = (items: DeliveryOneOrderItemSnapshot[] = [], key: "lengt
 
 export const hasDeliveryOneApiConfig = () => Boolean(getDeliveryOneApiToken() && getDeliveryOnePickupLocation());
 
-const requireDeliveryOneApiConfig = () => {
+const requireDeliveryOneApiToken = () => {
   const token = getDeliveryOneApiToken();
+  if (!token) {
+    throw new Error("Delhivery API token is not configured. Set DELIVERY_ONE_API_TOKEN in Vercel environment variables.");
+  }
+  return token;
+};
+
+const requireDeliveryOneApiConfig = () => {
+  const token = requireDeliveryOneApiToken();
   const pickupLocation = getDeliveryOnePickupLocation();
 
-  if (!token || !pickupLocation) {
+  if (!pickupLocation) {
     throw new Error("Delhivery credentials are not configured. Set DELIVERY_ONE_API_TOKEN and DELIVERY_ONE_PICKUP_LOCATION in Vercel environment variables.");
   }
 
@@ -300,6 +330,43 @@ export const createDeliveryOneCreateShipmentRequest = (payload: DeliveryOneShipm
   };
 };
 
+export const createDeliveryOneCancelShipmentRequest = (waybill: string): DeliveryOneRequest => {
+  const token = requireDeliveryOneApiToken();
+  const cleanWaybill = sanitizeDigits(waybill);
+  if (!cleanWaybill) throw new Error("A Delivery One tracking number is required to cancel a shipment.");
+
+  return {
+    url: getDeliveryOneEditOrderUrl(),
+    init: {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        Authorization: `Token ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ waybill: cleanWaybill, cancellation: "true" }),
+    },
+  };
+};
+
+export const createDeliveryOneTrackingRequest = (waybill: string, orderReference = ""): DeliveryOneRequest => {
+  const token = requireDeliveryOneApiToken();
+  const cleanWaybill = sanitizeDigits(waybill);
+  if (!cleanWaybill) throw new Error("A Delivery One tracking number is required to refresh shipment status.");
+
+  return {
+    url: getDeliveryOneTrackingApiUrl(cleanWaybill, orderReference),
+    init: {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+        Authorization: `Token ${token}`,
+        "Content-Type": "application/json",
+      },
+    },
+  };
+};
+
 export const isDeliveryOnePincodeServiceable = (data: unknown) => {
   const root = getRecord(data);
   const deliveryCodes = getArray(root.delivery_codes).length
@@ -377,6 +444,87 @@ export const extractDeliveryOneProviderResult = (data: unknown): DeliveryOneProv
   };
 };
 
+export const mapDeliveryOneStatusToOrderStatus = (status: unknown, statusType?: unknown): DeliveryOneMappedOrderStatus | undefined => {
+  const cleanStatus = getString(status).trim().toLowerCase();
+  const cleanStatusType = getString(statusType).trim().toUpperCase();
+
+  if (cleanStatusType === "CN" || ["canceled", "cancelled", "closed"].includes(cleanStatus)) return "cancelled";
+  if (cleanStatusType === "DL" && ["rto", "dto"].includes(cleanStatus)) return "returned";
+  if (cleanStatus === "rto" || cleanStatus === "dto" || cleanStatus.includes("return")) return "returned";
+  if (cleanStatusType === "DL" || cleanStatus === "delivered") return "delivered";
+  if (cleanStatus === "dispatched" || cleanStatus.includes("out for delivery")) return "out-for-delivery";
+  if (cleanStatus === "in transit" || cleanStatus === "pending") return "shipped";
+  if (cleanStatus === "manifested" || cleanStatus === "not picked") return "packed";
+
+  return undefined;
+};
+
+const getFirstRecord = (records: unknown[]) => records.map(getRecord).find((record) => Object.keys(record).length > 0) || {};
+
+const getShipmentRecordFromTrackingData = (data: unknown) => {
+  const root = getRecord(data);
+  const shipmentData = getArray(root.ShipmentData).length ? getArray(root.ShipmentData) : getArray(root.shipmentData);
+  const firstShipmentData = getFirstRecord(shipmentData);
+  return getRecord(firstShipmentData.Shipment || firstShipmentData.shipment || firstShipmentData);
+};
+
+const getStatusRecordFromShipment = (shipment: Record<string, unknown>) => {
+  const status = getRecord(shipment.Status || shipment.status);
+  if (Object.keys(status).length) return status;
+
+  const scans = getArray(shipment.Scans || shipment.scans).map(getRecord);
+  const firstScan = scans[0] || {};
+  return getRecord(firstScan.ScanDetail || firstScan.scanDetail || firstScan);
+};
+
+export const extractDeliveryOneTrackingUpdate = (data: unknown): DeliveryOneTrackingUpdate => {
+  const root = getRecord(data);
+  const shipment = getShipmentRecordFromTrackingData(data);
+  const statusRecord = getStatusRecordFromShipment(shipment);
+  const records = [statusRecord, shipment, root, getRecord(root.data), getRecord(root.shipment)];
+  const trackingNumber = pickString(records, ["AWB", "awb", "waybill", "wbn", "trackingNumber", "tracking_number"]);
+  const providerOrderId = pickString(records, ["ReferenceNo", "reference_no", "refnum", "order", "orderId", "order_id", "providerOrderId"]);
+  const providerStatus = pickString(records, ["Status", "status", "Scan", "scan", "shipment_status", "providerStatus"]);
+  const providerStatusType = pickString(records, ["StatusType", "status_type", "statusType"]);
+  const eventAt = pickString(records, ["StatusDateTime", "status_date_time", "ScanDateTime", "scan_date_time", "event_time", "eventAt"]);
+
+  return {
+    providerOrderId,
+    trackingNumber,
+    trackingUrl: trackingNumber ? getDeliveryOneTrackingUrl(trackingNumber) : "",
+    providerStatus,
+    providerStatusType,
+    orderStatus: mapDeliveryOneStatusToOrderStatus(providerStatus, providerStatusType),
+    eventAt,
+    rawResponse: data,
+  };
+};
+
+export const extractDeliveryOneWebhookUpdate = (data: unknown): DeliveryOneTrackingUpdate => {
+  const trackingUpdate = extractDeliveryOneTrackingUpdate(data);
+  if (trackingUpdate.trackingNumber || trackingUpdate.providerStatus) return trackingUpdate;
+
+  const root = getRecord(data);
+  const nested = getRecord(root.data || root.payload || root.shipment || root.Shipment);
+  const records = [root, nested];
+  const trackingNumber = pickString(records, ["waybill", "wbn", "awb", "AWB", "trackingNumber", "tracking_number"]);
+  const providerOrderId = pickString(records, ["order", "order_id", "orderId", "refnum", "ReferenceNo", "reference_no"]);
+  const providerStatus = pickString(records, ["status", "Status", "scan", "Scan", "shipment_status", "providerStatus"]);
+  const providerStatusType = pickString(records, ["status_type", "StatusType", "statusType"]);
+  const eventAt = pickString(records, ["event_time", "eventAt", "StatusDateTime", "status_date_time", "ScanDateTime", "scan_date_time"]);
+
+  return {
+    providerOrderId,
+    trackingNumber,
+    trackingUrl: trackingNumber ? getDeliveryOneTrackingUrl(trackingNumber) : "",
+    providerStatus,
+    providerStatusType,
+    orderStatus: mapDeliveryOneStatusToOrderStatus(providerStatus, providerStatusType),
+    eventAt,
+    rawResponse: data,
+  };
+};
+
 const isDeliveryOneCreateResponseFailed = (data: unknown) => {
   const root = getRecord(data);
   const packages = getArray(root.packages).map(getRecord);
@@ -406,4 +554,50 @@ export const pushDeliveryOneOrder = async (payload: DeliveryOneShipmentPayload):
   }
 
   return result;
+};
+
+const isDeliveryOneOperationFailed = (data: unknown) => {
+  const root = getRecord(data);
+  const success = root.success;
+  const status = getString(root.status).toLowerCase();
+  const message = getDeliveryOneErrorMessage(data).toLowerCase();
+
+  return success === false || status === "fail" || status === "failed" || message.includes("error") || message.includes("invalid");
+};
+
+export const cancelDeliveryOneShipment = async (waybill: string): Promise<DeliveryOneTrackingUpdate> => {
+  const request = createDeliveryOneCancelShipmentRequest(waybill);
+  const response = await fetch(request.url, request.init);
+  const data = await response.json().catch(() => ({}));
+
+  if (!response.ok || isDeliveryOneOperationFailed(data)) {
+    throw new Error(getDeliveryOneErrorMessage(data) || "Delhivery shipment cancellation failed.");
+  }
+
+  const update = extractDeliveryOneWebhookUpdate(data);
+
+  return {
+    ...update,
+    trackingNumber: update.trackingNumber || sanitizeDigits(waybill),
+    orderStatus: update.orderStatus || "cancelled",
+    providerStatus: update.providerStatus || "Cancellation requested",
+    rawResponse: data,
+  };
+};
+
+export const trackDeliveryOneShipment = async (waybill: string, orderReference = ""): Promise<DeliveryOneTrackingUpdate> => {
+  const request = createDeliveryOneTrackingRequest(waybill, orderReference);
+  const response = await fetch(request.url, request.init);
+  const data = await response.json().catch(() => ({}));
+
+  if (!response.ok || isDeliveryOneOperationFailed(data)) {
+    throw new Error(getDeliveryOneErrorMessage(data) || "Unable to refresh Delhivery tracking status.");
+  }
+
+  const update = extractDeliveryOneTrackingUpdate(data);
+  if (!update.trackingNumber && !update.providerStatus) {
+    throw new Error(getDeliveryOneErrorMessage(data) || "Delhivery did not return tracking details for this shipment.");
+  }
+
+  return update;
 };

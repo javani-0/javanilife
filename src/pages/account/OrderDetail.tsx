@@ -1,18 +1,42 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { doc, onSnapshot } from "firebase/firestore";
-import { ArrowLeft, CheckCircle2, ExternalLink, MapPin, PackageCheck, Truck } from "lucide-react";
+import { ArrowLeft, CheckCircle2, ExternalLink, MapPin, PackageCheck, Truck, XCircle } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import AccountLayout from "@/components/account/AccountLayout";
 import { useAuth } from "@/contexts/AuthContext";
+import { useToast } from "@/hooks/use-toast";
 import { db } from "@/lib/firebase";
-import { DELIVERY_SYNC_STATUS_LABELS, formatAccountDate, formatOrderPlacedDate, formatPaiseAsRupees, formatShipmentWeight, normalizeCustomerOrder, ORDER_STATUS_LABELS, type DeliverySyncStatus, type Order } from "@/lib/ecommerce";
+import { DELIVERY_SYNC_STATUS_LABELS, formatAccountDate, formatOrderPlacedDate, formatPaiseAsRupees, formatShipmentWeight, normalizeCustomerOrder, ORDER_STATUS_LABELS, requestOrderCancellation, type DeliverySyncStatus, type Order, type OrderCancellationStatus } from "@/lib/ecommerce";
+
+const cancellationStatusLabels: Record<OrderCancellationStatus, string> = {
+  none: "No request",
+  requested: "Waiting for admin approval",
+  approved: "Approved",
+  rejected: "Rejected",
+};
+
+const finalOrderStatuses = ["delivered", "cancelled", "returned"];
 
 const OrderDetail = () => {
   const { id } = useParams<{ id: string }>();
   const { user } = useAuth();
+  const { toast } = useToast();
   const [order, setOrder] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
+  const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
+  const [cancelReason, setCancelReason] = useState("");
+  const [requestingCancel, setRequestingCancel] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -38,6 +62,32 @@ const OrderDetail = () => {
   const ownsOrder = order && user && order.customerId === user.uid;
   const deliverySyncStatus = (order?.delivery?.syncStatus || "manual-ready") as DeliverySyncStatus;
   const hasTrackingInfo = Boolean(order?.delivery?.providerOrderId || order?.delivery?.trackingNumber || order?.delivery?.trackingUrl || order?.delivery?.providerStatus);
+  const cancellationStatus = (order?.cancellation?.status || "none") as OrderCancellationStatus;
+  const canRequestCancellation = Boolean(order && !finalOrderStatuses.includes(order.status) && cancellationStatus !== "requested" && cancellationStatus !== "approved");
+
+  const handleRequestCancellation = async () => {
+    if (!order || !user) return;
+
+    const reason = cancelReason.trim();
+    if (reason.length < 5) {
+      toast({ title: "Reason required", description: "Please enter a short reason before sending the request.", variant: "destructive" });
+      return;
+    }
+
+    setRequestingCancel(true);
+    try {
+      const idToken = await user.getIdToken();
+      const result = await requestOrderCancellation(idToken, order.id, reason);
+      setCancelDialogOpen(false);
+      setCancelReason("");
+      toast({ title: "Cancellation requested", description: result.message || "Admin will review your request." });
+    } catch (error) {
+      console.error("Unable to request cancellation", error);
+      toast({ title: "Unable to request cancellation", description: error instanceof Error ? error.message : "Try again later.", variant: "destructive" });
+    } finally {
+      setRequestingCancel(false);
+    }
+  };
 
   return (
     <AccountLayout title="Order Detail" description="Review your order items, payment, delivery address, and status timeline.">
@@ -157,6 +207,38 @@ const OrderDetail = () => {
                 </section>
 
                 <section className="rounded-2xl border border-border/60 bg-card p-5 shadow-card">
+                  <div className="mb-3 flex items-center gap-2">
+                    <XCircle className="h-5 w-5 text-gold" />
+                    <h3 className="font-display text-xl text-foreground">Cancellation</h3>
+                  </div>
+                  <div className="space-y-3 font-body text-sm text-muted-foreground">
+                    <div className="flex items-center justify-between gap-4">
+                      <span>Request status</span>
+                      <span className="font-semibold text-foreground">{cancellationStatusLabels[cancellationStatus] || cancellationStatus}</span>
+                    </div>
+                    {order.cancellation?.reason && (
+                      <div className="rounded-xl border border-border/70 bg-background/70 p-3">
+                        <span className="block text-xs font-semibold uppercase tracking-[0.14em] text-gold">Reason</span>
+                        <p className="mt-1 text-foreground">{order.cancellation.reason}</p>
+                      </div>
+                    )}
+                    {order.cancellation?.adminNote && (
+                      <div className="rounded-xl border border-border/70 bg-background/70 p-3">
+                        <span className="block text-xs font-semibold uppercase tracking-[0.14em] text-gold">Admin note</span>
+                        <p className="mt-1 text-foreground">{order.cancellation.adminNote}</p>
+                      </div>
+                    )}
+                    {canRequestCancellation ? (
+                      <button type="button" onClick={() => setCancelDialogOpen(true)} className="inline-flex w-full items-center justify-center gap-2 rounded-sm border border-destructive/35 px-4 py-3 font-display text-xs font-semibold tracking-[0.08em] text-destructive transition-colors hover:bg-destructive/10">
+                        <XCircle className="h-4 w-4" /> Request cancellation
+                      </button>
+                    ) : cancellationStatus === "requested" ? (
+                      <p className="rounded-xl border border-gold/20 bg-gold/10 p-3 text-xs leading-relaxed text-foreground">Your request is waiting for admin approval.</p>
+                    ) : null}
+                  </div>
+                </section>
+
+                <section className="rounded-2xl border border-border/60 bg-card p-5 shadow-card">
                   <div className="mb-4 flex items-center gap-2">
                     <CheckCircle2 className="h-5 w-5 text-gold" />
                     <h3 className="font-display text-xl text-foreground">Timeline</h3>
@@ -176,6 +258,27 @@ const OrderDetail = () => {
           </>
         )}
       </div>
+
+      <AlertDialog open={cancelDialogOpen} onOpenChange={setCancelDialogOpen}>
+        <AlertDialogContent className="w-[calc(100vw-1.5rem)] max-w-lg rounded-2xl border border-border bg-card">
+          <AlertDialogHeader className="text-left">
+            <AlertDialogTitle className="font-display text-2xl text-foreground">Request order cancellation</AlertDialogTitle>
+            <AlertDialogDescription className="font-body text-sm leading-6 text-muted-foreground">
+              Admin will review your request. If the shipment is already synced with Delivery One, admin approval will also send the cancellation to Delhivery.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <label className="font-body text-sm font-semibold text-foreground">
+            Reason
+            <textarea value={cancelReason} onChange={(event) => setCancelReason(event.target.value)} rows={4} className="mt-2 w-full rounded-md border border-border bg-background px-3 py-3 font-body text-sm outline-none focus:border-gold" placeholder="Tell us why you want to cancel this order" />
+          </label>
+          <AlertDialogFooter className="gap-3 sm:space-x-0">
+            <AlertDialogAction onClick={(event) => { event.preventDefault(); void handleRequestCancellation(); }} disabled={requestingCancel} className="rounded-sm bg-destructive px-5 font-display tracking-[0.08em] text-destructive-foreground hover:bg-destructive/90">
+              {requestingCancel ? "Sending..." : "Send request"}
+            </AlertDialogAction>
+            <AlertDialogCancel className="rounded-sm font-display tracking-[0.08em]">Close</AlertDialogCancel>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </AccountLayout>
   );
 };
