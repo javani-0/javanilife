@@ -112,7 +112,7 @@ export const createRazorpayOrder = ({
   orderNumber: string;
   customerId: string;
   customerName: string;
-}) => postJson<RazorpayCreateOrderResponse>("/api/create-order", idToken, {
+}) => postJson<RazorpayCreateOrderResponse>("/api/razorpay/create-order", idToken, {
   amountInPaise,
   amount: amountInPaise,
   orderNumber: createRazorpayReceipt(orderNumber),
@@ -130,7 +130,7 @@ export const verifyRazorpayPayment = ({
   idToken: string;
   orderDocumentId: string;
   response: RazorpaySuccessResponse;
-}) => postJson<RazorpayVerifyPaymentResponse>("/api/verify-payment", idToken, {
+}) => postJson<RazorpayVerifyPaymentResponse>("/api/razorpay/verify-payment", idToken, {
   orderDocumentId,
   razorpayOrderId: response.razorpay_order_id,
   razorpayPaymentId: response.razorpay_payment_id,
