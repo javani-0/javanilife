@@ -274,15 +274,16 @@ export const createDeliveryOneShipmentPayload = (orderDocumentId: string, order:
         shipment_height: getMaxDimension(order.items, "heightInCm"),
         shipping_mode: getFirstEnvValue(["DELIVERY_ONE_SHIPPING_MODE", "DELHIVERY_SHIPPING_MODE"]) || "Surface",
         address_type: getFirstEnvValue(["DELIVERY_ONE_ADDRESS_TYPE", "DELHIVERY_ADDRESS_TYPE"]),
-        return_name: getFirstEnvValue(["DELIVERY_ONE_RETURN_NAME", "DELHIVERY_RETURN_NAME", "DELIVERY_ONE_SELLER_NAME", "DELHIVERY_SELLER_NAME"]),
-        return_address: getFirstEnvValue(["DELIVERY_ONE_RETURN_ADDRESS", "DELHIVERY_RETURN_ADDRESS"]),
+
         return_city: getFirstEnvValue(["DELIVERY_ONE_RETURN_CITY", "DELHIVERY_RETURN_CITY"]),
         return_phone: sanitizePhone(getFirstEnvValue(["DELIVERY_ONE_RETURN_PHONE", "DELHIVERY_RETURN_PHONE"])),
         return_state: getFirstEnvValue(["DELIVERY_ONE_RETURN_STATE", "DELHIVERY_RETURN_STATE"]),
         return_country: getFirstEnvValue(["DELIVERY_ONE_RETURN_COUNTRY", "DELHIVERY_RETURN_COUNTRY"]) || DEFAULT_COUNTRY,
         return_pin: sanitizeDigits(getFirstEnvValue(["DELIVERY_ONE_RETURN_PIN", "DELHIVERY_RETURN_PIN"])),
-        seller_name: getFirstEnvValue(["DELIVERY_ONE_SELLER_NAME", "DELHIVERY_SELLER_NAME"]),
-        seller_add: getFirstEnvValue(["DELIVERY_ONE_SELLER_ADDRESS", "DELHIVERY_SELLER_ADDRESS"]),
+        seller_name: sanitizeDelhiveryText(getFirstEnvValue(["DELIVERY_ONE_SELLER_NAME", "DELHIVERY_SELLER_NAME"])),
+        seller_add: sanitizeDelhiveryText(getFirstEnvValue(["DELIVERY_ONE_SELLER_ADDRESS", "DELHIVERY_SELLER_ADDRESS"])),
+        return_name: sanitizeDelhiveryText(getFirstEnvValue(["DELIVERY_ONE_RETURN_NAME", "DELHIVERY_RETURN_NAME", "DELIVERY_ONE_SELLER_NAME", "DELHIVERY_SELLER_NAME"])),
+        return_address: sanitizeDelhiveryText(getFirstEnvValue(["DELIVERY_ONE_RETURN_ADDRESS", "DELHIVERY_RETURN_ADDRESS"])),
         seller_inv: sanitizeDelhiveryText(order.orderNumber, orderDocumentId),
         quantity: getTotalQuantity(order.items),
         waybill: "",
@@ -555,9 +556,11 @@ export const pushDeliveryOneOrder = async (payload: DeliveryOneShipmentPayload):
   const data = await response.json().catch(() => ({}));
 
   if (!response.ok || isDeliveryOneCreateResponseFailed(data)) {
-    console.error("[Delhivery] shipment creation failed. HTTP status:", response.status, "Response body:", JSON.stringify(data));
+    const rawBody = JSON.stringify(data);
+    console.error("[Delhivery] shipment creation failed. HTTP status:", response.status, "Response body:", rawBody);
     const reason = getDeliveryOneErrorMessage(data);
-    throw new Error(reason || `Delhivery shipment creation failed (HTTP ${response.status}). Check Vercel logs for raw response.`);
+    const snippet = rawBody.length > 400 ? rawBody.slice(0, 400) + "\u2026" : rawBody;
+    throw new Error(`${reason || "Delhivery shipment creation failed"} | Raw: ${snippet}`);
   }
 
   const result = extractDeliveryOneProviderResult(data);
