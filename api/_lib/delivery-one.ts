@@ -389,7 +389,7 @@ const getDeliveryOneErrorMessage = (data: unknown) => {
   const packages = getArray(root.packages).map(getRecord);
   const firstPackage = packages[0] || {};
 
-  return pickString([firstPackage, root, getRecord(root.data), getRecord(root.error)], [
+  const message = pickString([firstPackage, root, getRecord(root.data), getRecord(root.error)], [
     "remarks",
     "remark",
     "rmk",
@@ -397,6 +397,15 @@ const getDeliveryOneErrorMessage = (data: unknown) => {
     "error",
     "status",
   ]);
+
+  // Delhivery sometimes returns only a bare "Fail"/"Failed" status with no
+  // further detail. Replace it with a more actionable message.
+  const lc = message.toLowerCase();
+  if (lc === "fail" || lc === "failed") {
+    return "Delhivery rejected the request — verify the pickup location name, address fields, and API token.";
+  }
+
+  return message;
 };
 
 const checkDeliveryOnePincodeServiceability = async (pincode: string) => {
@@ -545,6 +554,7 @@ export const pushDeliveryOneOrder = async (payload: DeliveryOneShipmentPayload):
   const data = await response.json().catch(() => ({}));
 
   if (!response.ok || isDeliveryOneCreateResponseFailed(data)) {
+    console.error("[Delhivery] shipment creation failed. HTTP status:", response.status, "Response body:", JSON.stringify(data));
     throw new Error(getDeliveryOneErrorMessage(data) || "Delhivery shipment creation failed.");
   }
 

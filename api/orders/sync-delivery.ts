@@ -148,14 +148,29 @@ export default async function handler(request: ApiRequest, response: ApiResponse
       });
     } catch (syncError) {
       const message = syncError instanceof Error ? syncError.message : "Delivery One API sync failed.";
+      console.error("[sync-delivery] Delhivery push failed for order", orderId, "—", message);
+      // Auto-push failed — fall back to manual-ready so the payload is still
+      // usable and the admin can manually enter tracking details or retry later.
       await orderRef.update({
-        "delivery.syncStatus": "failed",
+        "delivery.syncStatus": "manual-ready",
         "delivery.lastSyncedAt": FieldValue.serverTimestamp(),
         "delivery.lastSyncError": message,
         updatedAt: FieldValue.serverTimestamp(),
-        timeline: FieldValue.arrayUnion(createTimelineEvent(order, "Delivery One sync failed", message, decoded.uid)),
+        timeline: FieldValue.arrayUnion(createTimelineEvent(
+          order,
+          "Delivery One payload prepared (auto-push failed)",
+          `Shipment payload is ready for manual handoff. Auto-push error: ${message}`,
+          decoded.uid,
+        )),
       });
-      sendError(response, 502, message);
+      sendJson(response, 200, {
+        ok: true,
+        orderId,
+        syncStatus: "manual-ready",
+        mode: "manual-ready",
+        message: `Payload prepared. Delhivery auto-push failed: ${message}`,
+        payload,
+      });
     }
   } catch (error) {
     console.error("Unable to sync Delivery One order", error);

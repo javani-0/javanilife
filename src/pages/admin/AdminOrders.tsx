@@ -252,7 +252,7 @@ const AdminOrders = () => {
     }
     if (deliveryTrackingChanged) {
       const nextDeliverySyncStatus: DeliverySyncStatus = cleanProviderOrderId || cleanTrackingNumber || cleanTrackingUrl ? "synced" : "manual-ready";
-      payload["delivery.provider"] = "delivery-one";
+      payload["delivery.provider"] = nextDeliverySyncStatus === "synced" ? "delivery-one" : "manual";
       payload["delivery.providerOrderId"] = cleanProviderOrderId;
       payload["delivery.trackingNumber"] = cleanTrackingNumber;
       payload["delivery.trackingUrl"] = cleanTrackingUrl;

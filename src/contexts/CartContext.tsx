@@ -22,6 +22,7 @@ import {
 } from "@/lib/ecommerce";
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
+const AUTH_CART_PENDING_STORAGE_KEY = `${CART_STORAGE_KEY}.auth-pending`;
 
 const normalizeStoredCartItem = (value: unknown, fallbackProductId?: string): CartItem | null => {
   if (!isRecord(value)) return null;
@@ -51,28 +52,55 @@ const normalizeStoredCartItem = (value: unknown, fallbackProductId?: string): Ca
   };
 };
 
-const readStoredItems = (storageKey: string): CartItem[] => {
-  if (typeof window === "undefined") return [];
+const readStoredItemsOrNull = (storageKey: string): CartItem[] | null => {
+  if (typeof window === "undefined") return null;
 
   try {
     const rawValue = window.localStorage.getItem(storageKey);
-    if (!rawValue) return [];
+    if (rawValue === null) return null;
 
     const parsedValue: unknown = JSON.parse(rawValue);
-    if (!Array.isArray(parsedValue)) return [];
+    if (!Array.isArray(parsedValue)) return null;
 
     return parsedValue
       .map((item) => normalizeStoredCartItem(item))
       .filter((item): item is CartItem => item !== null);
   } catch (error) {
     console.error("Unable to read stored cart", error);
-    return [];
+    return null;
   }
 };
+
+const readStoredItems = (storageKey: string): CartItem[] => readStoredItemsOrNull(storageKey) ?? [];
 
 const writeStoredItems = (storageKey: string, items: CartItem[]) => {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(storageKey, JSON.stringify(items));
+};
+
+const removeStoredItems = (storageKey: string) => {
+  if (typeof window === "undefined") return;
+  window.localStorage.removeItem(storageKey);
+};
+
+const readPendingAuthItems = (): CartItem[] | null => readStoredItemsOrNull(AUTH_CART_PENDING_STORAGE_KEY);
+
+const writePendingAuthItems = (items: CartItem[]) => writeStoredItems(AUTH_CART_PENDING_STORAGE_KEY, items);
+
+const clearPendingAuthItems = () => removeStoredItems(AUTH_CART_PENDING_STORAGE_KEY);
+
+const cartItemsMatch = (firstItems: CartItem[], secondItems: CartItem[]): boolean => {
+  if (firstItems.length !== secondItems.length) return false;
+
+  const secondItemsByProductId = new Map(secondItems.map((item) => [item.productId, item]));
+
+  return firstItems.every((firstItem) => {
+    const secondItem = secondItemsByProductId.get(firstItem.productId);
+    return Boolean(secondItem)
+      && firstItem.quantity === secondItem.quantity
+      && firstItem.amountInPaise === secondItem.amountInPaise
+      && firstItem.name === secondItem.name;
+  });
 };
 
 const readStoredBuyNowItem = (): CartItem | null => {
@@ -144,13 +172,18 @@ const replaceUserCartItems = async (userId: string, items: CartItem[]) => {
 };
 
 export const CartProvider = ({ children }: { children: ReactNode }) => {
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const [items, setItems] = useState<CartItem[]>(() => readStoredItems(CART_STORAGE_KEY));
   const [buyNowItem, setBuyNowItemState] = useState<CartItem | null>(() => readStoredBuyNowItem());
   const [loading, setLoading] = useState(true);
   const [isOpen, setIsOpen] = useState(false);
 
   useEffect(() => {
+    if (authLoading) {
+      setLoading(true);
+      return;
+    }
+
     if (!user) {
       setItems(readStoredItems(CART_STORAGE_KEY));
       setLoading(false);
@@ -162,12 +195,17 @@ export const CartProvider = ({ children }: { children: ReactNode }) => {
 
     const syncCart = async () => {
       setLoading(true);
+      const pendingAuthItems = readPendingAuthItems();
       const guestItems = readStoredItems(CART_STORAGE_KEY);
 
-      if (guestItems.length > 0) {
+      if (pendingAuthItems !== null) {
+        setItems(pendingAuthItems);
+        await replaceUserCartItems(user.uid, pendingAuthItems);
+        removeStoredItems(CART_STORAGE_KEY);
+      } else if (guestItems.length > 0) {
         const remoteItems = await readUserCartItems(user.uid);
         await replaceUserCartItems(user.uid, mergeCartItems(remoteItems, guestItems));
-        window.localStorage.removeItem(CART_STORAGE_KEY);
+        removeStoredItems(CART_STORAGE_KEY);
       }
 
       if (cancelled) return;
@@ -178,7 +216,13 @@ export const CartProvider = ({ children }: { children: ReactNode }) => {
           const nextItems = snapshot.docs
             .map((cartDoc) => normalizeStoredCartItem(cartDoc.data(), cartDoc.id))
             .filter((item): item is CartItem => item !== null);
-          setItems(nextItems);
+          const pendingItems = readPendingAuthItems();
+          if (pendingItems !== null) {
+            setItems(pendingItems);
+            if (cartItemsMatch(nextItems, pendingItems)) clearPendingAuthItems();
+          } else {
+            setItems(nextItems);
+          }
           setLoading(false);
         },
         (error) => {
@@ -197,7 +241,7 @@ export const CartProvider = ({ children }: { children: ReactNode }) => {
       cancelled = true;
       unsubscribe?.();
     };
-  }, [user]);
+  }, [authLoading, user]);
 
   const cart = useMemo(() => createCart(items, user?.uid), [items, user?.uid]);
 
@@ -205,6 +249,7 @@ export const CartProvider = ({ children }: { children: ReactNode }) => {
     setItems(nextItems);
 
     if (user) {
+      writePendingAuthItems(nextItems);
       try {
         await replaceUserCartItems(user.uid, nextItems);
       } catch (error) {

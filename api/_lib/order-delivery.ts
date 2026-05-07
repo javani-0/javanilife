@@ -94,6 +94,7 @@ export const createTrackingUpdatePayload = ({
   const statusChanged = Boolean(nextStatus && nextStatus !== currentStatus);
   const payload: Record<string, unknown> = {
     "delivery.provider": "delivery-one",
+    "delivery.lastSyncedAt": FieldValue.serverTimestamp(),
     "delivery.lastTrackedAt": FieldValue.serverTimestamp(),
     updatedAt: FieldValue.serverTimestamp(),
   };
