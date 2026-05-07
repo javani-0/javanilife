@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { doc, onSnapshot } from "firebase/firestore";
-import { ArrowLeft, CheckCircle2, MapPin, PackageCheck } from "lucide-react";
+import { ArrowLeft, CheckCircle2, ExternalLink, MapPin, PackageCheck, Truck } from "lucide-react";
 import AccountLayout from "@/components/account/AccountLayout";
 import { useAuth } from "@/contexts/AuthContext";
 import { db } from "@/lib/firebase";
-import { formatAccountDate, formatOrderPlacedDate, formatPaiseAsRupees, normalizeCustomerOrder, ORDER_STATUS_LABELS, type Order } from "@/lib/ecommerce";
+import { DELIVERY_SYNC_STATUS_LABELS, formatAccountDate, formatOrderPlacedDate, formatPaiseAsRupees, formatShipmentWeight, normalizeCustomerOrder, ORDER_STATUS_LABELS, type DeliverySyncStatus, type Order } from "@/lib/ecommerce";
 
 const OrderDetail = () => {
   const { id } = useParams<{ id: string }>();
@@ -36,6 +36,8 @@ const OrderDetail = () => {
   }, [id]);
 
   const ownsOrder = order && user && order.customerId === user.uid;
+  const deliverySyncStatus = (order?.delivery?.syncStatus || "manual-ready") as DeliverySyncStatus;
+  const hasTrackingInfo = Boolean(order?.delivery?.providerOrderId || order?.delivery?.trackingNumber || order?.delivery?.trackingUrl || order?.delivery?.providerStatus);
 
   return (
     <AccountLayout title="Order Detail" description="Review your order items, payment, delivery address, and status timeline.">
@@ -101,6 +103,56 @@ const OrderDetail = () => {
                     {order.address?.line2 && <p>{order.address.line2}</p>}
                     <p>{order.address?.city}, {order.address?.state} {order.address?.pincode}</p>
                     <p>{order.customerPhone}</p>
+                  </div>
+                </section>
+
+                <section className="rounded-2xl border border-border/60 bg-card p-5 shadow-card">
+                  <div className="mb-3 flex items-center gap-2">
+                    <Truck className="h-5 w-5 text-gold" />
+                    <h3 className="font-display text-xl text-foreground">Delivery Tracking</h3>
+                  </div>
+                  <div className="space-y-3 font-body text-sm text-muted-foreground">
+                    <div className="flex items-center justify-between gap-4">
+                      <span>Provider</span>
+                      <span className="font-semibold text-foreground">Delivery One</span>
+                    </div>
+                    <div className="flex items-center justify-between gap-4">
+                      <span>Sync status</span>
+                      <span className="font-semibold text-foreground">{DELIVERY_SYNC_STATUS_LABELS[deliverySyncStatus] || deliverySyncStatus}</span>
+                    </div>
+                    <div className="flex items-center justify-between gap-4">
+                      <span>Shipment weight</span>
+                      <span className="font-semibold text-foreground">{formatShipmentWeight(order.delivery?.shipmentWeightInGrams || 0)}</span>
+                    </div>
+                    {hasTrackingInfo ? (
+                      <>
+                        {order.delivery?.providerOrderId && (
+                          <div className="flex items-center justify-between gap-4">
+                            <span>Provider order</span>
+                            <span className="font-semibold text-foreground">{order.delivery.providerOrderId}</span>
+                          </div>
+                        )}
+                        {order.delivery?.trackingNumber && (
+                          <div className="flex items-center justify-between gap-4">
+                            <span>Tracking number</span>
+                            <span className="font-semibold text-foreground">{order.delivery.trackingNumber}</span>
+                          </div>
+                        )}
+                        {order.delivery?.providerStatus && (
+                          <div className="flex items-center justify-between gap-4">
+                            <span>Provider status</span>
+                            <span className="font-semibold text-foreground">{order.delivery.providerStatus}</span>
+                          </div>
+                        )}
+                        {order.delivery?.trackingUrl && (
+                          <a href={order.delivery.trackingUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 font-body text-sm font-semibold text-gold hover:text-gold-light">
+                            Open tracking link <ExternalLink className="h-4 w-4" />
+                          </a>
+                        )}
+                      </>
+                    ) : (
+                      <p className="rounded-xl border border-gold/20 bg-gold/10 p-3 text-xs leading-relaxed text-foreground">Tracking details will appear here after admin prepares or saves the Delivery One shipment reference.</p>
+                    )}
                   </div>
                 </section>
 

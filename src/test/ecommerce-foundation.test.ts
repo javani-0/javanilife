@@ -13,6 +13,7 @@ import {
   filterAdminOrders,
   formatPaiseAsRupees,
   getAdminOrderMetrics,
+  getDeliveryOneSyncEligibility,
   getOrderPlacedDateValue,
   isProductActive,
   isProductPurchasable,
@@ -163,6 +164,29 @@ describe("e-commerce delivery foundation", () => {
       package: { weightInGrams: 750, deliveryChargeInPaise: 10500 },
       items: [{ productId: "product-1", shipmentWeightInGrams: 750, delivery: { weightInGrams: 750, lengthInCm: 20 } }],
     });
+  });
+
+  it("checks Delivery One sync eligibility without requiring a delivery login", () => {
+    const eligibleOrder = {
+      id: "order-delivery-1",
+      status: "confirmed",
+      payment: { method: "cod", status: "cod-pending" },
+      delivery: { provider: "delivery-one" },
+      customerPhone: "9876543210",
+      address: {
+        fullName: "Javani Test",
+        phone: "9876543210",
+        line1: "Street",
+        city: "Hyderabad",
+        state: "Telangana",
+        pincode: "500001",
+      },
+      items: [createOrderItemFromCartItem(createCartItemFromProduct(product, 1))],
+    } as Order;
+
+    expect(getDeliveryOneSyncEligibility(eligibleOrder)).toEqual({ eligible: true });
+    expect(getDeliveryOneSyncEligibility({ ...eligibleOrder, status: "cancelled" })).toMatchObject({ eligible: false });
+    expect(getDeliveryOneSyncEligibility({ ...eligibleOrder, payment: { method: "razorpay", status: "pending" } })).toMatchObject({ eligible: false });
   });
 });
 

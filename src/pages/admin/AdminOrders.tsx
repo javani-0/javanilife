@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { arrayUnion, collection, deleteDoc, doc, onSnapshot, serverTimestamp, updateDoc } from "firebase/firestore";
-import { AlertTriangle, CalendarDays, ChevronRight, Clock, CreditCard, Filter, Mail, MapPin, MessageCircle, PackageCheck, Phone, Save, Search, Truck, UserRound, Trash2 } from "lucide-react";
+import { AlertTriangle, CalendarDays, ChevronRight, Clock, CreditCard, ExternalLink, Filter, Mail, MapPin, MessageCircle, PackageCheck, Phone, RefreshCw, Save, Search, Truck, UserRound, Trash2 } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -18,19 +18,24 @@ import { db } from "@/lib/firebase";
 import {
   ADMIN_ORDER_STATUS_OPTIONS,
   ADMIN_PAYMENT_STATUS_OPTIONS,
+  DELIVERY_SYNC_STATUS_LABELS,
   filterAdminOrders,
   formatAccountDate,
   formatAccountDateTime,
+  formatShipmentWeight,
   formatOrderPlacedDateTime,
   formatOrderUpdatedDateTime,
   formatPaiseAsRupees,
   getAdminOrderMetrics,
+  getDeliveryOneSyncEligibility,
   normalizeCustomerOrder,
   ORDER_STATUS_LABELS,
   sendOrderAutomation,
+  syncDeliveryOneOrder,
   sortOrdersNewestFirst,
   type AdminOrderDateFilter,
   type AdminOrderFilters,
+  type DeliverySyncStatus,
   type Order,
   type OrderStatus,
   type PaymentMethod,
@@ -82,7 +87,11 @@ const AdminOrders = () => {
   const [selectedStatus, setSelectedStatus] = useState<OrderStatus>("placed");
   const [selectedPaymentStatus, setSelectedPaymentStatus] = useState<PaymentStatus>("pending");
   const [adminNotes, setAdminNotes] = useState("");
+  const [providerOrderId, setProviderOrderId] = useState("");
+  const [trackingNumber, setTrackingNumber] = useState("");
+  const [trackingUrl, setTrackingUrl] = useState("");
   const [saving, setSaving] = useState(false);
+  const [syncingDelivery, setSyncingDelivery] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [pendingDeleteOrderId, setPendingDeleteOrderId] = useState<string | null>(null);
   const [deleteCountdown, setDeleteCountdown] = useState<number | null>(null);
@@ -134,6 +143,8 @@ const AdminOrders = () => {
   const filteredOrders = useMemo(() => filterAdminOrders(orders, filters), [filters, orders]);
   const metrics = useMemo(() => getAdminOrderMetrics(orders), [orders]);
   const selectedOrder = useMemo(() => orders.find((order) => order.id === selectedOrderId) || null, [orders, selectedOrderId]);
+  const deliveryEligibility = useMemo(() => getDeliveryOneSyncEligibility(selectedOrder), [selectedOrder]);
+  const selectedDeliverySyncStatus = (selectedOrder?.delivery?.syncStatus || "manual-ready") as DeliverySyncStatus;
 
   useEffect(() => {
     if (!selectedOrder) setDeleteDialogOpen(false);
@@ -144,6 +155,9 @@ const AdminOrders = () => {
     setSelectedStatus(selectedOrder.status || "placed");
     setSelectedPaymentStatus(selectedOrder.payment?.status || "pending");
     setAdminNotes(selectedOrder.adminNotes || "");
+    setProviderOrderId(selectedOrder.delivery?.providerOrderId || "");
+    setTrackingNumber(selectedOrder.delivery?.trackingNumber || "");
+    setTrackingUrl(selectedOrder.delivery?.trackingUrl || "");
   }, [selectedOrder]);
 
   const updateFilter = <Key extends keyof AdminOrderFilters>(key: Key, value: AdminOrderFilters[Key]) => {
@@ -156,8 +170,14 @@ const AdminOrders = () => {
     const statusChanged = selectedStatus !== selectedOrder.status;
     const paymentChanged = selectedPaymentStatus !== selectedOrder.payment?.status;
     const notesChanged = adminNotes.trim() !== (selectedOrder.adminNotes || "");
+    const cleanProviderOrderId = providerOrderId.trim();
+    const cleanTrackingNumber = trackingNumber.trim();
+    const cleanTrackingUrl = trackingUrl.trim();
+    const deliveryTrackingChanged = cleanProviderOrderId !== (selectedOrder.delivery?.providerOrderId || "")
+      || cleanTrackingNumber !== (selectedOrder.delivery?.trackingNumber || "")
+      || cleanTrackingUrl !== (selectedOrder.delivery?.trackingUrl || "");
 
-    if (!statusChanged && !paymentChanged && !notesChanged) {
+    if (!statusChanged && !paymentChanged && !notesChanged && !deliveryTrackingChanged) {
       toast({ title: "No changes to save" });
       return;
     }
@@ -181,6 +201,15 @@ const AdminOrders = () => {
         createdBy: user?.uid || "admin",
       });
     }
+    if (deliveryTrackingChanged) {
+      timelineEvents.push({
+        status: selectedStatus,
+        label: "Delivery tracking updated",
+        note: "Admin updated Delivery One provider or tracking references.",
+        createdAt: new Date().toISOString(),
+        createdBy: user?.uid || "admin",
+      });
+    }
 
     const payload: Record<string, unknown> = {
       adminNotes: adminNotes.trim(),
@@ -194,6 +223,14 @@ const AdminOrders = () => {
     if (paymentChanged) {
       payload["payment.status"] = selectedPaymentStatus;
       if (["paid", "cod-collected"].includes(selectedPaymentStatus)) payload["payment.paidAt"] = serverTimestamp();
+    }
+    if (deliveryTrackingChanged) {
+      const nextDeliverySyncStatus: DeliverySyncStatus = cleanProviderOrderId || cleanTrackingNumber || cleanTrackingUrl ? "synced" : "manual-ready";
+      payload["delivery.provider"] = "delivery-one";
+      payload["delivery.providerOrderId"] = cleanProviderOrderId;
+      payload["delivery.trackingNumber"] = cleanTrackingNumber;
+      payload["delivery.trackingUrl"] = cleanTrackingUrl;
+      payload["delivery.syncStatus"] = nextDeliverySyncStatus;
     }
     if (timelineEvents.length > 0) payload.timeline = arrayUnion(...timelineEvents);
 
@@ -219,6 +256,30 @@ const AdminOrders = () => {
       toast({ title: "Unable to update order", description: "Check admin permissions and try again.", variant: "destructive" });
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleSyncDelivery = async () => {
+    if (!selectedOrder || !user) return;
+
+    if (!deliveryEligibility.eligible) {
+      toast({ title: "Delivery One sync unavailable", description: deliveryEligibility.reason, variant: "destructive" });
+      return;
+    }
+
+    setSyncingDelivery(true);
+    try {
+      const idToken = await user.getIdToken();
+      const result = await syncDeliveryOneOrder(idToken, selectedOrder.id);
+      toast({
+        title: result.syncStatus === "synced" ? "Delivery One synced" : "Delivery One payload ready",
+        description: result.message || (result.providerOrderId ? `Provider order ${result.providerOrderId}` : selectedOrder.orderNumber || selectedOrder.id),
+      });
+    } catch (error) {
+      console.error("Unable to sync Delivery One order", error);
+      toast({ title: "Delivery One sync failed", description: error instanceof Error ? error.message : "Try again after checking credentials.", variant: "destructive" });
+    } finally {
+      setSyncingDelivery(false);
     }
   };
 
@@ -432,6 +493,66 @@ const AdminOrders = () => {
                 <div className="flex items-center gap-2"><Phone className="h-4 w-4 text-gold" />Call: {selectedOrder.customerCallNumber || selectedOrder.customerPhone || "Not saved"}</div>
                 <div className="flex items-center gap-2"><Truck className="h-4 w-4 text-gold" />Delivery phone: {selectedOrder.address?.phone || selectedOrder.customerPhone || "Not saved"}</div>
                 <div className="flex items-start gap-2"><MapPin className="mt-0.5 h-4 w-4 text-gold" /><span>{selectedOrder.address?.line1}{selectedOrder.address?.line2 ? `, ${selectedOrder.address.line2}` : ""}<br />{selectedOrder.address?.city}, {selectedOrder.address?.state} {selectedOrder.address?.pincode}</span></div>
+              </div>
+
+              <div className="rounded-xl border border-gold/20 bg-gold/10 p-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <div className="mb-1 flex items-center gap-2">
+                      <Truck className="h-4 w-4 text-gold" />
+                      <h3 className="font-display text-lg text-foreground">Delivery One</h3>
+                    </div>
+                    <p className="font-body text-xs leading-relaxed text-muted-foreground">Prepare the shipment payload, push when API credentials are configured, or save manual tracking references.</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleSyncDelivery}
+                    disabled={syncingDelivery || !deliveryEligibility.eligible}
+                    className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-sm bg-gold px-4 font-display text-xs font-semibold tracking-[0.08em] text-charcoal transition-colors hover:bg-gold-light disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    <RefreshCw className={`h-4 w-4 ${syncingDelivery ? "animate-spin" : ""}`} /> {syncingDelivery ? "Syncing" : "Prepare Sync"}
+                  </button>
+                </div>
+
+                {!deliveryEligibility.eligible && <p className="mt-3 rounded-lg border border-destructive/20 bg-destructive/10 p-3 font-body text-xs text-destructive">{deliveryEligibility.reason}</p>}
+
+                <div className="mt-4 grid gap-3 font-body text-xs sm:grid-cols-3">
+                  <div className="rounded-lg border border-gold/20 bg-card p-3">
+                    <span className="block text-muted-foreground">Sync status</span>
+                    <span className="mt-1 block font-semibold text-foreground">{DELIVERY_SYNC_STATUS_LABELS[selectedDeliverySyncStatus] || selectedDeliverySyncStatus}</span>
+                  </div>
+                  <div className="rounded-lg border border-gold/20 bg-card p-3">
+                    <span className="block text-muted-foreground">Package weight</span>
+                    <span className="mt-1 block font-semibold text-foreground">{formatShipmentWeight(selectedOrder.delivery?.shipmentWeightInGrams || 0)}</span>
+                  </div>
+                  <div className="rounded-lg border border-gold/20 bg-card p-3">
+                    <span className="block text-muted-foreground">Delivery charge</span>
+                    <span className="mt-1 block font-semibold text-foreground">{formatPaiseAsRupees(selectedOrder.delivery?.chargeInPaise || 0)}</span>
+                  </div>
+                </div>
+
+                {selectedOrder.delivery?.lastSyncError && <p className="mt-3 rounded-lg border border-destructive/20 bg-destructive/10 p-3 font-body text-xs text-destructive">{selectedOrder.delivery.lastSyncError}</p>}
+
+                <div className="mt-4 grid gap-3">
+                  <label className="font-body text-sm font-semibold text-foreground">
+                    Provider order ID
+                    <input value={providerOrderId} onChange={(event) => setProviderOrderId(event.target.value)} className="mt-2 h-10 w-full rounded-md border border-border bg-background px-3 font-body text-sm outline-none focus:border-gold" placeholder="Delivery One order/reference ID" />
+                  </label>
+                  <label className="font-body text-sm font-semibold text-foreground">
+                    Tracking number
+                    <input value={trackingNumber} onChange={(event) => setTrackingNumber(event.target.value)} className="mt-2 h-10 w-full rounded-md border border-border bg-background px-3 font-body text-sm outline-none focus:border-gold" placeholder="AWB or tracking number" />
+                  </label>
+                  <label className="font-body text-sm font-semibold text-foreground">
+                    Tracking URL
+                    <input value={trackingUrl} onChange={(event) => setTrackingUrl(event.target.value)} className="mt-2 h-10 w-full rounded-md border border-border bg-background px-3 font-body text-sm outline-none focus:border-gold" placeholder="https://..." />
+                  </label>
+                </div>
+
+                {selectedOrder.delivery?.trackingUrl && (
+                  <a href={selectedOrder.delivery.trackingUrl} target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-2 font-body text-xs font-semibold text-gold hover:text-gold-light">
+                    Open saved tracking link <ExternalLink className="h-3.5 w-3.5" />
+                  </a>
+                )}
               </div>
 
               <div className="space-y-2">

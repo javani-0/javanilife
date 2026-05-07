@@ -129,8 +129,12 @@ export interface DeliveryInfo {
   syncStatus?: DeliverySyncStatus;
   providerOrderId?: string;
   trackingNumber?: string;
+  trackingUrl?: string;
+  providerStatus?: string;
   shipmentWeightInGrams?: number;
   usesFallbackWeight?: boolean;
+  lastSyncedAt?: unknown;
+  lastSyncError?: string;
   deliveredAt?: unknown;
 }
 

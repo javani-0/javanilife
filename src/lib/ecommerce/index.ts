@@ -2,6 +2,7 @@ export * from "./adminOrders";
 export * from "./cart";
 export * from "./customers";
 export * from "./delivery";
+export * from "./deliveryClient";
 export * from "./notificationClient";
 export * from "./orders";
 export * from "./payments";

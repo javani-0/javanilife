@@ -4,7 +4,10 @@ import type {
   DeliveryInfo,
   DeliveryPricingSettings,
   DeliveryProvider,
+  DeliverySyncStatus,
+  Order,
   OrderItem,
+  OrderStatus,
   PaymentInfo,
   ProductDeliveryProfile,
 } from "./types";
@@ -55,6 +58,20 @@ export interface DeliveryOneShipmentPayload {
     delivery?: ProductDeliveryProfile;
   }>;
 }
+
+export interface DeliveryOneSyncEligibility {
+  eligible: boolean;
+  reason?: string;
+}
+
+export const DELIVERY_SYNC_STATUS_LABELS: Record<DeliverySyncStatus, string> = {
+  "manual-ready": "Manual Ready",
+  pending: "Pending",
+  synced: "Synced",
+  failed: "Failed",
+};
+
+const finalOrderStatuses: OrderStatus[] = ["delivered", "cancelled", "returned"];
 
 const getPositiveNumber = (value: unknown) => (
   typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined
@@ -185,3 +202,28 @@ export const createDeliveryOneShipmentPayload = ({
     delivery: item.delivery,
   })),
 });
+
+export const getDeliveryOneSyncEligibility = (order?: Partial<Order> | null): DeliveryOneSyncEligibility => {
+  if (!order) return { eligible: false, reason: "Select an order before preparing delivery sync." };
+  if (order.delivery?.provider && order.delivery.provider !== "delivery-one") {
+    return { eligible: false, reason: "This order is not assigned to Delivery One." };
+  }
+  if (order.status && finalOrderStatuses.includes(order.status)) {
+    return { eligible: false, reason: "Completed, cancelled, or returned orders are not sent to Delivery One." };
+  }
+  if (!Array.isArray(order.items) || order.items.length === 0) {
+    return { eligible: false, reason: "This order has no item snapshots to send." };
+  }
+  if (!order.address?.line1 || !order.address?.pincode || !(order.address.phone || order.customerPhone)) {
+    return { eligible: false, reason: "Delivery address and phone are required before sync." };
+  }
+  if (order.payment?.method === "razorpay" && order.payment.status !== "paid") {
+    return { eligible: false, reason: "Razorpay orders must be paid before Delivery One sync." };
+  }
+
+  return { eligible: true };
+};
+
+export const canPrepareDeliveryOneSync = (order?: Partial<Order> | null): boolean => (
+  getDeliveryOneSyncEligibility(order).eligible
+);

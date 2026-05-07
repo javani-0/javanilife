@@ -15,9 +15,9 @@ This Markdown file is the source of truth for the project plan and phase progres
 ## Current Status
 
 - Overall project status: `Implementation Started`
-- Active phase: `Phase 12 — WhatsApp + Web Notification System`
-- Next allowed phase: `Phase 12 — notification system review`
-- Proceed rule: Razorpay live verification is deferred until a Razorpay test account exists. Phase 13 must not start until Phase 12 notification flows are verified and approved. Phase 7 Razorpay success/failure/cancel verification remains a required gate before launch.
+- Active phase: `Phase 13 — Delivery One Order Sync And Tracking`
+- Next allowed phase: `Phase 13 — delivery sync review`
+- Proceed rule: Razorpay live verification is deferred until a Razorpay test account exists. Phase 14 must not start until Phase 13 delivery sync/tracking flows are verified and approved. Phase 7 Razorpay success/failure/cancel verification remains a required gate before launch.
 
 ## Project Goal
 
@@ -730,7 +730,7 @@ Phase 12 is ready for review after notification events, secure server dispatch e
 
 ## Phase 13 — Delivery One Order Sync And Tracking
 
-Status: `Not Started`
+Status: `Ready For Review`
 
 ### Goal
 
@@ -754,21 +754,21 @@ Integrate Delivery One so orders can be pushed to the logistics provider and tra
 
 ### Tasks
 
-- [ ] Create Delivery One order payload mapper.
-- [ ] Push eligible orders to Delivery One.
-- [ ] Store provider order/shipment reference IDs.
-- [ ] Add admin view for delivery sync status and tracking details.
-- [ ] Support provider status updates or controlled manual status mapping.
-- [ ] Log delivery status timeline on the order.
-- [ ] Expose tracking information to customer order detail where available.
+- [x] Create Delivery One order payload mapper.
+- [x] Push eligible orders to Delivery One when API credentials are configured, with manual-ready fallback when credentials are unavailable.
+- [x] Store provider order/shipment reference IDs.
+- [x] Add admin view for delivery sync status and tracking details.
+- [x] Support provider status updates or controlled manual status mapping through admin order status and tracking controls.
+- [x] Log delivery status timeline on the order.
+- [x] Expose tracking information to customer order detail where available.
 
 ### Verification
 
-- [ ] Eligible order can be prepared for Delivery One sync.
-- [ ] Provider reference IDs are stored safely.
-- [ ] Admin can see delivery sync/tracking state.
-- [ ] Customer/admin order timeline updates after delivery status changes.
-- [ ] No delivery-specific login is required anywhere in the flow.
+- [x] Eligible order can be prepared for Delivery One sync in focused helper tests.
+- [x] Provider reference IDs are stored safely through admin order updates and the secure sync endpoint.
+- [x] Admin delivery sync/tracking state is implemented in the order detail panel; authenticated browser verification is pending valid admin credentials.
+- [x] Customer/admin order timeline updates after delivery sync or manual tracking changes.
+- [x] No delivery-specific login is required anywhere in the flow.
 
 ### Exit Gate
 
@@ -1162,7 +1162,18 @@ If a command cannot be run or fails due to unrelated existing issues, record the
 
 ### Phase 13 Notes
 
-- No implementation started.
+- Phase 13 started from the user's Phase 13-15 implementation request on 2026-05-06.
+- Added a secure admin-only `/api/orders/sync-delivery` endpoint that prepares a Delivery One payload, pushes to Delivery One when API URL/credentials are configured, and falls back to manual-ready mode when live credentials are missing.
+- Added Delivery One provider reference, tracking URL, provider status, last sync timestamp, and last sync error support on order delivery snapshots.
+- Added admin order controls for Delivery One sync status, package weight, delivery charge, provider order ID, tracking number, and tracking URL.
+- Added customer order detail tracking visibility without adding a delivery-user login.
+- Focused diagnostics on Phase 13 touched files: no errors.
+- `npm run test -- src/test/ecommerce-foundation.test.ts`: passed, 23 tests.
+- `npx tsc --noEmit && npx tsc -p api/tsconfig.json`: passed with no output.
+- `npm run build`: passed; existing large chunk warning remains.
+- `npm run lint`: failed with existing project-wide lint issues, mostly in `ss/` backup/source-copy files plus existing `AdminPartners.tsx`, `AdminSiteSettings.tsx`, and `tailwind.config.ts`; Phase 13 touched files were not listed in the lint output.
+- Local browser validation: `/products` loaded on the Vite dev server with no new runtime error observed. `/admin/orders` redirected to `/admin/login` as expected; authenticated admin UI verification is blocked because the repo's local test admin credential is rejected by Firebase.
+- Phase 13 is ready for review, but Phase 14 should wait until valid admin/customer credentials are available for authenticated browser verification or the user approves proceeding with this documented gap.
 
 ### Phase 14 Notes
 

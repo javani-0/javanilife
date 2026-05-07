@@ -4,12 +4,23 @@ const RAZORPAY_CHECKOUT_SCRIPT_URL = "https://checkout.razorpay.com/v1/checkout.
 
 interface RazorpayCheckoutInstance {
   open: () => void;
+  on?: (event: "payment.failed", handler: (response: RazorpayFailureResponse) => void) => void;
 }
 
 export interface RazorpaySuccessResponse {
   razorpay_order_id: string;
   razorpay_payment_id: string;
   razorpay_signature: string;
+}
+
+export interface RazorpayFailureResponse {
+  error?: {
+    code?: string;
+    description?: string;
+    reason?: string;
+    source?: string;
+    step?: string;
+  };
 }
 
 export interface RazorpayCreateOrderResponse {
@@ -97,9 +108,12 @@ export const createRazorpayOrder = ({
   orderNumber: string;
   customerId: string;
   customerName: string;
-}) => postJson<RazorpayCreateOrderResponse>("/api/razorpay/create-order", idToken, {
+}) => postJson<RazorpayCreateOrderResponse>("/api/create-order", idToken, {
   amountInPaise,
+  amount: amountInPaise,
   orderNumber: createRazorpayReceipt(orderNumber),
+  receipt: createRazorpayReceipt(orderNumber),
+  currency: "INR",
   customerId,
   customerName,
 });
@@ -112,11 +126,14 @@ export const verifyRazorpayPayment = ({
   idToken: string;
   orderDocumentId: string;
   response: RazorpaySuccessResponse;
-}) => postJson<RazorpayVerifyPaymentResponse>("/api/razorpay/verify-payment", idToken, {
+}) => postJson<RazorpayVerifyPaymentResponse>("/api/verify-payment", idToken, {
   orderDocumentId,
   razorpayOrderId: response.razorpay_order_id,
   razorpayPaymentId: response.razorpay_payment_id,
   razorpaySignature: response.razorpay_signature,
+  razorpay_order_id: response.razorpay_order_id,
+  razorpay_payment_id: response.razorpay_payment_id,
+  razorpay_signature: response.razorpay_signature,
 });
 
 export const loadRazorpayCheckout = () => {
@@ -154,6 +171,11 @@ export const openRazorpayCheckout = async (options: RazorpayCheckoutOptions): Pr
         ...options.modal,
         ondismiss: () => reject(new Error("Razorpay checkout was cancelled. Your order is saved as payment pending.")),
       },
+    });
+
+    checkout.on?.("payment.failed", (response) => {
+      const description = response.error?.description || response.error?.reason || "Razorpay payment failed. Your order is saved as payment pending.";
+      reject(new Error(description));
     });
 
     checkout.open();
