@@ -1,0 +1,913 @@
+Delivery One / Delhivery Integration Notes
+
+This project uses the "Delivery One" label in the admin UI, but the server-side integration is mapped to Delhivery APIs.
+
+Production base URL:
+https://track.delhivery.com
+
+Staging base URL:
+https://staging-express.delhivery.com
+
+Required Vercel environment variables:
+
+DELIVERY_ONE_ENVIRONMENT=production
+DELIVERY_ONE_API_TOKEN=<Delhivery API token>
+DELIVERY_ONE_PICKUP_LOCATION=<exact registered pickup location name>
+DELIVERY_ONE_SHIPPING_MODE=Surface
+
+Recommended optional environment variables:
+
+DELIVERY_ONE_SELLER_NAME=<seller name>
+DELIVERY_ONE_SELLER_ADDRESS=<seller address>
+DELIVERY_ONE_RETURN_NAME=<return name>
+DELIVERY_ONE_RETURN_ADDRESS=<return address>
+DELIVERY_ONE_RETURN_CITY=<return city>
+DELIVERY_ONE_RETURN_STATE=<return state>
+DELIVERY_ONE_RETURN_PIN=<return pincode>
+DELIVERY_ONE_RETURN_PHONE=<return phone>
+
+Important:
+DELIVERY_ONE_PICKUP_LOCATION must exactly match the pickup/warehouse name registered in Delhivery, including spelling, spaces, and case.
+
+Pincode serviceability API:
+
+GET /c/api/pin-codes/json/?filter_codes=<pincode>
+Authorization: Token <DELIVERY_ONE_API_TOKEN>
+Accept: application/json
+
+Production example:
+https://track.delhivery.com/c/api/pin-codes/json/?filter_codes=500001
+
+Shipment creation API:
+
+POST /api/cmu/create.json
+Authorization: Token <DELIVERY_ONE_API_TOKEN>
+Content-Type: application/x-www-form-urlencoded
+Accept: application/json
+
+Body format:
+format=json&data=<JSON string>
+
+The data JSON contains:
+
+{
+  "pickup_location": {
+    "name": "<registered pickup location>"
+  },
+  "shipments": [
+    {
+      "name": "Customer name",
+      "order": "Order number",
+      "phone": "10 digit phone",
+      "add": "Address line 1, Address line 2",
+      "pin": "Pincode",
+      "city": "City",
+      "state": "State",
+      "country": "India",
+      "payment_mode": "Prepaid or COD",
+      "cod_amount": "0 for prepaid, order total for COD",
+      "total_amount": "Order total in rupees",
+      "products_desc": "Product x quantity summary",
+      "weight": "Shipment weight in grams",
+      "shipment_length": "Length in cm when available",
+      "shipment_width": "Width in cm when available",
+      "shipment_height": "Height in cm when available",
+      "shipping_mode": "Surface",
+      "seller_name": "Seller name",
+      "seller_add": "Seller address",
+      "seller_inv": "Invoice/order number",
+      "quantity": "Total item quantity",
+      "waybill": "",
+      "fragile_shipment": false,
+      "dangerous_good": false,
+      "plastic_packaging": false,
+      "order_date": null
+    }
+  ]
+}
+
+Response fields used by the project:
+
+packages[0].waybill -> delivery.trackingNumber
+packages[0].refnum -> delivery.providerOrderId
+packages[0].status -> delivery.providerStatus
+
+Default tracking URL:
+https://www.delhivery.com/track/package/<waybill>
+
+Project files:
+
+api/_lib/delivery-one.ts
+api/orders/sync-delivery.ts
+src/test/delivery-one-api.test.ts
+src/pages/admin/AdminOrders.tsx
+
+Admin workflow:
+
+1. Add Delhivery environment variables in Vercel Production.
+2. Redeploy Vercel.
+3. Open /admin/orders.
+4. Select a paid Razorpay order or COD order.
+5. Click Prepare Sync in the Delivery One panel.
+6. The server checks pincode serviceability, creates the Delhivery shipment, and stores the waybill/tracking details on the order.
+
+Duplicate protection:
+If an order already has a provider order ID or tracking number, the sync endpoint returns the saved tracking details instead of creating a second Delhivery shipment.B2C Pincode Serviceability
+This API provides the serviceability of the consignee's pin code.
+This API will provide visibility on whether a Pincode is serviceable or not.
+If any pin code is serviceable only then order creation or any further API needs to be used.
+If the API response is an empty list, the pincode is non-serviceable (NSZ).
+If filter_code is not passed, the API returns both serviceable and embargoed pincodes.
+In the response, remark as "Embargo" indicates temporary NSZ, while a blank remark means the pincode is serviceable.
+Parameters
+PARAMETERS	MANDATORY	DESCRIPTION
+filter_codes
+Integer
+false
+Pincodes for which the serviceability needs to be checked, pass one pincode at a time.
+Rate Limit and Latency
+METRICS	VALUE
+Average Latency (PRODUCTION)
+86.02ms
+P99 Latency (PRODUCTION)
+98.22ms
+Rate Limit (Requests/5 Minute/IP) (PRODUCTION)
+4500
+Request
+
+shell-curl
+curl --request GET \
+	--url 'https://staging-express.delhivery.com/c/api/pin-codes/json/?filter_codes=194103' \
+	--header 'Authorization: Token xxxxxxxxxxxxxxxx'
+Test Environment URL
+https://staging-express.delhivery.com/c/api/pin-codes/json/?filter_codes=pin_code
+Production Environment URL
+https://track.delhivery.com/c/api/pin-codes/json/?filter_codes=pin_code
+Heavy Product Type Pincode Serviceability API
+This API provides the serviceability of the pincode for heavy shipments.
+The Heavy pincode serviceability API is used to validate whether the pincodes are serviceable for the clients having product type Heavy, in Delhivery’s network.
+“NSZ” response for a PIN code would mean that the PIN code is not serviceable.
+The payment_type in the response indicates whether the Pincode is serviceable or not for that Payment mode.
+Parameters
+PARAMETERS	MANDATORY	DESCRIPTION
+pincode
+Integer
+true
+Pincode for which the serviceability needs to be checked, pass one pincode at a time
+product_type
+Varchar
+true
+Product_type stands for the Product Type of the account,pass Heavy
+Rate Limit and Latency
+METRICS	VALUE
+Average Latency (PRODUCTION)
+75.89ms
+P99 Latency (PRODUCTION)
+77.77ms
+Rate Limit (Requests/5 Minute/IP) (PRODUCTION)
+3000
+Request
+
+shell-curl
+curl --request GET \
+	--url 'https://track.delhivery.com/api/dc/fetch/serviceability/pincode?product_type=Heavy&pincode=400086' \
+	--header 'Accept: application/json' \
+	--header 'Authorization: Token ****************'
+Test Environment URL
+https://staging-express.delhivery.com/api/dc/fetch/serviceability/pincode?
+Production Environment URL
+https://track.delhivery.com/api/dc/fetch/serviceab
+
+
+_______________________________
+
+
+Shipment Creation
+This API is used to generate a B2C shipment in the Delhivery system.
+The order creation process is the same for both forward flow (from client warehouse to end customer) and reverse flow (from customer to client warehouse), differing only in the payment_mode key:
+Pickup for reverse packages
+COD or Prepaid for forward packages
+REPL for replacement Shipments
+Single Piece Shipment: One waybill represents a package that can contain multiple items (e.g., an order with t-shirts, shoes, and shampoo packed together).
+Multi Piece Shipment: Contains multiple boxes within one order. Each box should have its own waybill number.
+The Order ID must be unique for each new order
+The raw JSON body does not accept special characters: “&”, “#”, “%”, “;”, “\”. Use URL-encoded payloads instead.
+Try to include all fields mentioned in the sample payload, even if they are not mandatory. These fields are considered good to have for optimal processing
+Key Changes in Order Creation for RVP:
+
+Set the payment mode as "Pickup" in the manifest payload.
+When "Pickup" is used as the payment mode, the customer information will be treated as the pickup location. The return_add and other return-related fields will be used to define the drop/delivery address.
+If both a return address and a pickup location are provided for a pickup shipment, the system will prioritize the return address, and the shipment will be delivered there.
+Key Changes in Order Creation for REPL:
+
+Set the payment mode as "REPL" in the manifest payload.
+A single waybill will be generated, and the entire exchange journey will be executed using this one waybill.
+The pickup location will serve as the pickup address, customer address as exchange location and return address will be treated as the final delivery address for the REPL shipment after successful exchange.
+If the return address is not provided, the pickup location will be used as the final delivery address for the exchange shipment.
+Parameters
+PARAMETERS	MANDATORY	DESCRIPTION
+name
+string
+true
+Name of the consignee
+order
+string
+True
+Order ID
+phone
+string
+True
+Consignee phone number
+add
+string
+True
+Address of the consignee
+pin
+integer
+True
+Pincode of the consignee
+address_type
+string
+False
+Address type (home/office)
+ewbn
+string
+False
+Ewaybill number (for packages ≥ 50k)
+hsn_code
+string
+False
+HSN Code for e-waybill; more than one HSN can be passed if the quantity is > 1.
+shipping_mode
+string
+False
+Shipping mode (Surface/Express)
+seller_inv
+string
+False
+Seller invoice
+city
+string
+False
+City of the consignee
+weight
+float
+False
+Weight of the shipment (gms)
+return_name
+string
+False
+Return name
+return_address
+string
+False
+Return address
+return_city
+string
+False
+Return city
+return_phone
+string
+False
+Return phone number
+return_state
+string
+False
+Return state
+return_country
+string
+False
+Return country
+return_pin
+integer
+False
+Return pincode
+seller_name
+string
+False
+Seller name
+fragile_shipment
+boolean
+False
+Indicates if the shipment contains fragile items (true/false)
+shipment_height
+float
+False
+Height of the shipment (cm)
+shipment_width
+float
+False
+Width of the shipment (cm)
+shipment_length
+float
+False
+Length of the shipment (cm)
+cod_amount
+float
+False
+Cash on Delivery (COD) amount
+products_desc
+string
+False
+Product Description
+state
+string
+False
+State of the consignee (e.g., Rajasthan)
+dangerous_good
+boolean
+False
+Dangerous goods flag (true/false)
+waybill
+string
+False
+SPS: Waybill can be passed in the payload or can be skipped as well. MPS: Waybill needs to be passed for each box explicitly in the API.
+total_amount
+float
+False
+Total amount
+seller_add
+string
+False
+Seller address
+country
+string
+False
+Country (mandatory for Bangladesh, 'BD' value)
+plastic_packaging
+boolean
+False
+Plastic packaging flag (true/false)
+quantity
+string
+False
+Quantity
+pickup_location
+string
+True
+Name should be exactly the same as the name of the WH registered. It is case/space sensitive.
+transport_speed
+string
+False
+By passing the transport_speed field in the manifest request, you can choose:
+F – Next Day Delivery (NDD)
+OR
+D – Standard delivery (regular TAT)
+payment_mode
+string
+True
+The value should be: Pickup for reverse shipments , COD or Prepaid for forward shipments and REPL for replacement shipments
+Rate Limit and Latency
+METRICS	VALUE
+Average Latency (PRODUCTION)
+283.57ms
+P99 Latency (PRODUCTION)
+1.59s
+Rate Limit (Requests/5 Minute/IP) (PRODUCTION)
+20000
+Request
+
+javascript-fetch
+const options = {
+	method: 'POST',
+	headers: {
+		Authorization: 'Token XXXXXXXXXXXXXXXXX',
+		Accept: 'application/json',
+		'Content-Type': 'application/json'
+	},
+	body: 'format=json&data={\n  "shipments": [\n    {\n      "name": "Consignee name",\n      "add": "Huda Market, Haryana",\n      "pin": "110042",\n      "city": "Gurugram",\n      "state": "Haryana",\n      "country": "India",\n      "phone": "9999999999",\n      "order": "Test Order 01",\n      "payment_mode": "Prepaid",\n      "return_pin": "",\n      "return_city": "",\n      "return_phone": "",\n      "return_add": "",\n      "return_state": "",\n      "return_country": "",\n      "products_desc": "",\n      "hsn_code": "",\n      "cod_amount": "",\n      "order_date": null,\n      "total_amount": "",\n      "seller_add": "",\n      "seller_name": "",\n      "seller_inv": "",\n      "quantity": "",\n      "waybill": "",\n      "shipment_width": "100",\n      "shipment_height": "100",\n      "weight": "",\n      "shipping_mode": "Surface",\n      "address_type": ""\n    }\n  ],\n  "pickup_location": {\n    "name": "warehouse_name"\n  }\n}'
+};
+
+fetch('https://staging-express.delhivery.com/api/cmu/create.json', options)
+	.then(res => res.json())
+	.then(res => console.log(res))
+	.catch(err => console.error(err));
+Test Environment URL
+https://staging-express.delhivery.com/api/cmu/create.json
+Production Environment URL
+https://track.delhivery.com/api/cmu/create.json
+MPS Manifestation
+MPS (Multi-Package Shipment) refers to a single order shipped in multiple boxes. Each box is assigned a unique waybill number, with one designated as the master waybill and the others as child waybills.
+The manifest payload for MPS shipments is similar to non-MPS, with the addition of specific MPS-related keys mentioned below
+Prefetched waybills are mandatory for MPS shipments and must be included in the manifest payload.
+For an MPS order with N boxes, include details of all N boxes within the shipments array; the sample payload illustrates a 2-box MPS example.
+Parameters
+PARAMETERS	MANDATORY	DESCRIPTION
+mps_amount
+Integer
+true
+Sum of all package amounts for cod. It will be zero in case of prepaid
+mps_children
+Integer
+true
+It is sum of master and child package
+master_id
+Integer
+true
+This will master waybill and need to be passed with every box
+shipment_type
+string
+true
+Pass MPS for manifestation of an MPS shipment
+FAQ
+Request
+
+shell-curl
+curl --request POST \
+	--url https://staging-express.delhivery.com/api/cmu/create.json \
+	--header 'Accept: application/json' \
+	--header 'Authorization: Token XXXXXXXXXXXXXXXXX' \
+	--header 'Content-Type: application/json' \
+	--data '
+{
+  "pickup_location": {
+    "name": "warehouse_name"
+  },
+  "shipments": [
+    {
+      "order": "123456",
+      "weight": "100",
+      "mps_amount": "0",
+      "mps_children": "2",
+      "pin": "122002",
+      "products_desc": "Toys, ToyCar",
+      "add": "Test Address",
+      "shipment_type": "MPS",
+      "state": "TAMIL NADU",
+      "master_id": "xxxxxxxxxxxxx",
+      "city": "CHENNAI",
+      "waybill": "xxxxxxxxxxxxx",
+      "phone": "9999888800",
+      "payment_mode": "Prepaid",
+      "name": "Test Name",
+      "total_amount": "4250",
+      "country": "India"
+    },
+    {
+      "order": "orderiod",
+      "weight": "100",
+      "mps_amount": "0",
+      "mps_children": "2",
+      "pin": "600063",
+      "products_desc": "product description",
+      "add": "Consignee Address",
+      "shipment_type": "MPS",
+      "state": "TAMIL NADU",
+      "master_id": "xxxxxxxxxxxxx",
+      "city": "CHENNAI",
+      "waybill": "xxxxxxxxxxxxx",
+      "phone": "9999888800",
+      "payment_mode": "Prepaid",
+      "name": "Consignee Naame",
+      "total_amount": "4250",
+      "country": "India"
+    }
+  ]
+}
+'
+Test Environment URL
+https://staging-express.delhivery.com/api/cmu/create.json
+Production Environment URL
+https://track.delhivery.com/api/cmu/create.json
+_______________________________
+
+Shipment Updation/Edit API
+This API helps to edit the shipment details.
+Shipment Edit is allowed only on limited package status only
+For Forward Shipment (Payment mode: COD/Prepaid), the edit is allowed if the shipment is in the below mentioned statuses:
+Manifested
+In Transit
+Pending
+For RVP shipment (Payment mode: Pickup), the edit is allowed if the shipment is in the below mentioned status:
+Scheduled
+For REPL shipment (Payment mode: REPL), the edit is allowed if the shipment is in the below mentioned statuses:
+Manifested
+In Transit
+Pending
+Edit is not allowed on any Dispatched and Terminal status like Delivered, DTO, RTO, LOST and Closed
+Only the parameters specified below can be edited through the Shipment Updation API against waybill
+Note: To update the payment mode through the B2C Edit API, below are a few points to keep in mind:
+COD to Prepaid conversion is allowed.
+Prepaid to COD conversion is allowed, but the COD amount must be provided.
+Prepaid to Prepaid and COD to COD conversions are not allowed.
+Prepaid to Pickup and Pickup to Prepaid conversions are not allowed.
+COD to Pickup and Pickup to COD conversions are not allowed.
+Prepaid to REPL and REPL to Prepaid conversions are not allowed.
+COD to REPL and REPL to COD conversions are not allowed.
+Parameters
+PARAMETERS	MANDATORY	DESCRIPTION
+waybill
+string
+true
+Waybill for which update is required
+name
+string
+false
+Name of the consignee
+phone
+list
+false
+Consignee phone number
+pt
+String
+false
+Payment mode that needs to be updated
+add
+string
+false
+Address of the consignee
+products_desc
+string
+false
+Product Description
+gm
+float
+false
+Weight of the shipment (gms)
+shipment_height
+float
+false
+Height of the shipment (cm)
+shipment_width
+float
+false
+Width of the shipment (cm)
+shipment_length
+float
+false
+Length of the shipment (cm)
+Rate Limit and Latency
+METRICS	VALUE
+Average Latency (PRODUCTION)
+153.43ms
+P99 Latency (PRODUCTION)
+318ms
+Rate Limit (Requests/5 Minute/IP) (PRODUCTION)
+12200
+Request
+
+javascript-fetch
+const options = {
+	method: 'POST',
+	headers: {
+		Authorization: 'Token XXXXXXXXXXXXXXXXX',
+		Accept: 'application/json',
+		'Content-Type': 'application/json'
+	},
+	body: JSON.stringify({
+		waybill: '843xxxxxxxxx',
+		pt: 'COD/Pre-paid',
+		cod: 100,
+		shipment_height: 40.2,
+		gm: 100.2
+	})
+};
+
+fetch('https://staging-express.delhivery.com/api/p/edit', options)
+	.then(res => res.json())
+	.then(res => console.log(res))
+	.catch(err => console.error(err));
+Test Environment URL
+https://staging-express.delhivery.com/api/p/edit
+Production Environment URL
+https://track.delhivery.com/api/p/edit
+
+_______________________________
+
+Shipment Cancellation
+This API allows to cancel the shipment.
+Shipment Cancellation is allowed only on a limited package status.
+For Forward Shipment (Payment mode: COD/Prepaid), below are the allowed package statuses where cancellation is allowed:
+Manifested
+In Transit
+Pending
+For RVP shipment (Payment mode: Pickup), below are the allowed package statuses where cancellation is allowed:
+Scheduled
+For REPL shipment (Payment mode: REPL), below are the allowed package statuses where cancellation is allowed:
+Manifested
+In Transit
+Pending
+If a manifested shipment is canceled before pickup, its status remains Manifested with the status type UD (Undelivered).
+If a shipment in In Transit or Pending state is canceled, the status stays In Transit and the status type changes to RT (Return to Origin).
+If a scheduled shipment is canceled, its status updates to Canceled with the status type CN (Cancellation).
+Parameters
+PARAMETERS	MANDATORY	DESCRIPTION
+waybill
+String
+true
+Waybill number of the shipment
+cancellation
+String
+true
+This key needs to be passed as true to cancel a shipment
+Rate Limit and Latency
+METRICS	VALUE
+Average Latency (PRODUCTION)
+153.43ms
+P99 Latency (PRODUCTION)
+318ms
+Rate Limit (Requests/5 Minute/IP) (PRODUCTION)
+12200
+Request
+
+javascript-fetch
+const options = {
+	method: 'POST',
+	headers: {
+		Authorization: 'Token XXXXXXXXXXXXXXXXX',
+		Accept: 'application/json',
+		'Content-Type': 'application/json'
+	},
+	body: JSON.stringify({waybill: '6945XXXXXXXX', cancellation: 'true'})
+};
+
+fetch('https://staging-express.delhivery.com/api/p/edit', options)
+	.then(res => res.json())
+	.then(res => console.log(res))
+	.catch(err => console.error(err));
+Test Environment URL
+https://staging-express.delhivery.com/api/p/edit
+Production Environment URL
+https://track.delhivery.com/api/p
+
+_______________________________
+
+Shipment Tracking
+The API provides the current status and detailed history of scans applied to the shipment.
+The track API takes as input as either waybill number or order ID, and returns all the details of the scans applied on the shipment.
+Track upto 50 waybills (comma-separated) with a single request
+Parameters
+PARAMETERS	MANDATORY	DESCRIPTION
+waybill
+String
+true
+Waybill Number
+ref_ids
+String
+false
+Order_Id
+Rate Limit and Latency
+METRICS	VALUE
+Average Latency (PRODUCTION)
+130.31ms
+P99 Latency (PRODUCTION)
+529.15ms
+Rate Limit (Requests/5 Minute/IP) (PRODUCTION)
+750
+Request
+
+javascript-fetch
+const options = {
+	method: 'GET',
+	headers: {'Content-Type': 'application/json', Authorization: 'Token XXXXXXXXXXXXXXXXXX'}
+};
+
+fetch('https://staging-express.delhivery.com/api/v1/packages/json/?waybill=1122345678722&ref_ids=', options)
+	.then(res => res.json())
+	.then(res => console.log(res))
+	.catch(err => console.error(err));
+Test Environment URL
+https://staging-express.delhivery.com/api/v1/packages/json/?waybill=waybill_num&ref_ids=order_id
+Production Environment URL
+https://track.delhivery.com/api/v1/packages/json/?waybill=waybill_num&ref_ids=order_id
+
+_______________________________
+
+
+Calculate Shipping Cost
+This API is used to calculate the Estimated Shipping Charges for the Shipments.
+This API provides approximate values for shipping charges, which are subject to change.
+Parameters
+PARAMETERS	MANDATORY	DESCRIPTION
+md
+string
+true
+Billing Mode of shipment ( E for Express/ S for Surface ).
+cgm
+Integer
+true
+Chargeable weight of the shipment (Only in Grams Unit); Default value is 0
+o_pin
+Integer
+true
+Pincode of origin city; 6 Digit Valid Pin code
+d_pin
+Integer
+true
+Pincode of destination city; 6 Digit Valid Pin code
+ss
+string
+true
+Status of shipment (Delivered, RTO, DTO)
+pt
+String
+true
+Payment Type ( Pre-paid, COD )
+l
+Integer
+false
+Length of shipment
+b
+Integer
+false
+Breadth of shipment
+h
+Integer
+false
+Height of shipment
+ipkg_type
+String
+false
+Type of Package (box/flyer)
+Rate Limit and Latency
+METRICS	VALUE
+Average Latency (PRODUCTION)
+450.94ms
+P99 Latency (PRODUCTION)
+61.14s
+Rate Limit (Requests/5 Minute/IP) (PRODUCTION)
+50
+Request
+
+javascript-fetch
+const options = {
+	method: 'GET',
+	headers: {'Content-Type': 'application/json', Authorization: 'Token XXXXXXXXXXXXXXXXXX'}
+};
+
+fetch('https://staging-express.delhivery.com/api/kinko/v1/invoice/charges/.json?md=E&ss=Delivered&d_pin=110053&o_pin=110042&cgm=10&pt=Pre-paid', options)
+	.then(res => res.json())
+	.then(res => console.log(res))
+	.catch(err => console.error(err));
+Test Environment URL
+https://staging-express.delhivery.com/api/kinko/v1/invoice/charges/.json?md=E&ss=Delivered&d_pin=110053&o_pin=110042&cgm=10&pt=Pre-paid
+Production Environment URL
+https://track.delhivery.com/api/kinko/v1/invoice/charges/.json?md=E&ss=Delivered&d_pin=110053&o_pin=110042&cgm=10&pt=Pre-paid
+
+
+_______________________________
+Generate Shipping Label
+This API is used to Generate Shipping labels against a waybill number. Shipping labels can also be downloaded from the One Panel.
+A custom label can be created by setting the pdf parameter to false. The API will return a JSON response, which should be rendered into HTML using encoding 128. This allows for flexibility in designing the layout of the shipping label and adding any necessary information.
+Additionally, you can use the parameter pdf_size to generate labels in different sizes.
+For size 8x11 (A4), pass: pdf_size=A4
+For size 4x6 (4R), pass: pdf_size=4R
+If the pdf_size parameter is not provided, the label will default to A4 size.
+Parameters
+PARAMETERS	MANDATORY	DESCRIPTION
+waybill
+String
+true
+Waybill number of the shipment
+pdf
+Boolean
+false
+If passed True: An S3 link of the pdf will be generated which cannot be customized.If passed False: Response would be Json, that can manipulated as per the requirement.
+pdf_size
+String
+false
+For size 8x11 (A4), pass: pdf_size=A4 For size 4x6 (4R), pass: pdf_size=4R
+Rate Limit and Latency
+METRICS	VALUE
+Average Latency (PRODUCTION)
+210.64ms
+P99 Latency (PRODUCTION)
+61.78s
+Rate Limit (Requests/5 Minute/IP) (PRODUCTION)
+3000
+Request
+
+javascript-fetch
+const options = {
+	method: 'GET',
+	headers: {Authorization: 'Token XXXXXXXXXXXXXXXXX', 'Content-Type': 'application/json'}
+};
+
+fetch('https://staging-express.delhivery.com/api/p/packing_slip?wbns=7035xxxxxxxxxxx&pdf=true&pdf_size=4R', options)
+	.then(res => res.json())
+	.then(res => console.log(res))
+	.catch(err => console.error(err));
+Test Environment URL
+https://staging-express.delhivery.com/api/p/packing_slip?wbns=waybill&pdf=true&pdf_size=
+Production Environment URL
+https://track.delhivery.com/api/p/packing_slip?wbns=waybill&pdf=true&pdf_size=
+
+
+_______________________________
+
+Pickup Request Creation
+The Pickup Request Creation API is used to initiate a pickup request once an order has been manifested and is ready for collection.
+The pickup request is raised against the warehouse location, not the waybill number. Therefore, you do not need to create multiple pickup requests for multiple waybills if they are all being picked up from a single location. If shipments are at two different locations, you need to raise separate pickup requests for each location.
+For any given day, a second pickup request can be raised for any warehouse only when the existing pickup request is closed.
+The shipping label on the shipment should include essential information such as the recipient's address, a scannable tracking number barcode, and any other relevant shipping details.
+The right time to create a pickup request is when the shipment is packed and ready to be handed over to the FE.
+Integrating this API is optional since pickup requests can also be created from the One Panel. Additionally, you can enable auto-pickup for your account with assistance from your account POC.
+Parameters
+PARAMETERS	MANDATORY	DESCRIPTION
+pickup_time
+String
+true
+Time for the pickup(hh:mm:ss)
+pickup_date
+String
+true
+Date for the pickup(YYYY-MM-DD)
+pickup_location
+String
+true
+Registered client warehouse from where the shipment is to be picked. Also referred to as pickup location.
+expected_package_count
+Integer
+true
+Count of packages that need to be picked up.
+Rate Limit and Latency
+METRICS	VALUE
+Average Latency (PRODUCTION)
+242.37ms
+P99 Latency (PRODUCTION)
+885.95ms
+Rate Limit (Requests/5 Minute/IP) (PRODUCTION)
+4000
+Request
+
+javascript-fetch
+const options = {
+	method: 'POST',
+	headers: {Authorization: 'Token XXXXXXXXXXXXXXXXX', 'Content-Type': 'application/json'},
+	body: JSON.stringify({
+		pickup_time: '11:00:00',
+		pickup_date: '2023-12-29',
+		pickup_location: 'warehouse_name',
+		expected_package_count: 1
+	})
+};
+
+fetch('https://staging-express.delhivery.com/fm/request/new/', options)
+	.then(res => res.json())
+	.then(res => console.log(res))
+	.catch(err => console.error(err));
+Test Environment URL
+https://staging-express.delhivery.com/fm/request/new/
+Production Environment URL
+https://track.delhivery.com/fm/request/new/
+
+_______________________________
+
+Webhook Functionality
+Webhook provides Shipment Status Push and Document(POD, Sorter Image, QC Image) Push
+Webhook for Shipment Status Push and POD Push
+Delhivery B2C integration offers webhooks for real-time order updates and document sharing. These updates follow a standard JSON payload format. Once the webhook is configured, clients will begin receiving updates in real time. In case you don't want to use Polling API for order updates and tracking, this is an alternative.
+
+Prerequisites to enable a webhook
+Complete the Delhivery Webhook Requirement Document by providing your Delhivery account name, endpoint URL, and authorization details. Share the filled document via email to “lastmile-integration@delhivery.com” keeping your business account POC in loop.
+Please note that Scan Push and Document Push are two separate webhooks and cannot be combined into a single webhook endpoint.
+Refer to the sample Webhook Requirement Documents attached below. Fill out the relevant document(s) based on your webhook requirement and share them as instructed.
+Scan Push Webhook Requirement Document
+
+POD Webhook Requirement Document
+
+Sorter Image Webhook Requirement Document
+
+QC Image Webhook Requirement Document
+
+Key Points for Shipment Status Webhook:
+Apart from the AWB Track API, if the client wants to receive real-time shipment status updates, statuses can be pushed at the AWB level.
+All statuses applied to an AWB will be pushed in real-time through the webhook.
+Delhivery’s tech team will test the status push and release it to production after successful testing.
+Delhivery can send additional data related to tracking in the scan push or map a custom payload based on the client’s system requirements.
+Delhivery has a capability to send additional data in scan push or map a custom payload also as per client system requirements.
+
+Statuses pushed for shipment through the webhook:
+For a forward shipment (picking up the shipment from the warehouse and delivering it to the end consignee), the following statuses and status types are pushed through the webhook:
+Here is the list of status and status types being pushed through the webhook:
+
+Status Type	Status	Description
+UD	Manifested	Order created in the Delhivery system
+UD	Not Picked	When Shipment is not physically Picked up from the Clients Warehouse
+UD	In Transit	Shipment is In Transit and moving to the Destination city
+UD	Pending	When a forward shipment has reached the destination City but has not yet been dispatched for delivery
+UD	Dispatched	When a forward shipment is dispatched for delivery to the end customer
+DL	Delivered	When the shipment is delivered to the end customer
+For a Return shipment (when the Shipment isnt delivered and is returned),
+Here is the list of status and status types being pushed through the webhook:
+
+Status Type	Status	Description
+RT	In Transit	When forward shipment is converted in to Return shipment after unsucessfull delivery/clients Instruction/adhoc requests or conditions system
+RT	Pending	When a shipment has reached DC nearest to Origin center.
+RT	Dispatched	When a shipment has reached DC nearest to Origin center and dispatched for delivery
+DL	RTO	When a forward shipment is returned to Origin
+For a Reverse shipment (when picking up shipments from customer location and delivering it to client warehouse.),
+the following statuses and status types are pushed through the webhook:
+
+Status Type	Status	Description
+PP	Open	When pick up request is created in our system
+PP	Scheduled	When a pickup request is scheduled, it automatically moves from "open" to "scheduled" status in our system. We keep these statuses separate to improve visibility as we integrate with Parcelled.
+PP	Dispatched	When FE is out in the field to collect this package from the end customer.
+PU	In Transit	When pick up shipment is in transit to RPC from DC after physical pick up.
+PU	Pending	When pickup shipment has reached RPC but not yet dispatched for delivery to the client.
+PU	Dispatched	When pickup shipment is dispatched for delivery to the client from RPC.
+DL	DTO	When pickup shipment is accepted by the client and POD is received.
+CN	Canceled	When a reverse pickup shipment is canceled before getting picked up from customer
+CN	Closed	When a reverse pickup shipment is canceled and request is closed
+
+_______________________________
