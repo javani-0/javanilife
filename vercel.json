@@ -18,6 +18,6 @@
     { "source": "/((?!api/|@vite/|@react-refresh|.*\\..*).*)", "destination": "/" }
   ],
   "crons": [
-    { "path": "/api/cron/delivery-tracking", "schedule": "0 */6 * * *" }
+    { "path": "/api/cron/delivery-tracking", "schedule": "0 2 * * *" }
   ]
 }
