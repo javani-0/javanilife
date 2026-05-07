@@ -301,13 +301,15 @@ const AdminProducts = () => {
     const images = normalizeImageList(form.image, form.imagesText);
     const primaryImage = form.image.trim() || images[0];
     const stockStatus = form.stockStatus;
-    const delivery = normalizeDeliveryProfile({
+    const deliveryRaw = normalizeDeliveryProfile({
       weightInGrams: parseOptionalPositiveInteger(form.deliveryWeightInGrams) || undefined,
       lengthInCm: parseOptionalPositiveInteger(form.deliveryLengthInCm) || undefined,
       widthInCm: parseOptionalPositiveInteger(form.deliveryWidthInCm) || undefined,
       heightInCm: parseOptionalPositiveInteger(form.deliveryHeightInCm) || undefined,
       freeDeliveryEligible: form.freeDeliveryEligible,
     });
+    // Firestore rejects undefined values — strip any keys that are undefined
+    const delivery = Object.fromEntries(Object.entries(deliveryRaw).filter(([, v]) => v !== undefined));
 
     const payload = {
       name: form.name.trim(),
