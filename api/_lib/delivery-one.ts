@@ -220,7 +220,7 @@ const getShipmentWeight = (order: DeliveryOneOrderSnapshot) => {
 
 const getMaxDimension = (items: DeliveryOneOrderItemSnapshot[] = [], key: "lengthInCm" | "widthInCm" | "heightInCm") => {
   const max = items.reduce((currentMax, item) => Math.max(currentMax, getNumber(getRecord(item.delivery)[key])), 0);
-  return max > 0 ? String(Math.ceil(max)) : "";
+  return String(max > 0 ? Math.ceil(max) : 0);
 };
 
 export const hasDeliveryOneApiConfig = () => Boolean(getDeliveryOneApiToken() && getDeliveryOnePickupLocation());
@@ -389,6 +389,13 @@ const getDeliveryOneErrorMessage = (data: unknown) => {
   const root = getRecord(data);
   const packages = getArray(root.packages).map(getRecord);
   const firstPackage = packages[0] || {};
+
+  // remarks is sometimes an array of strings (e.g. ["Crashing while ..."])
+  const remarksArray = getArray(firstPackage.remarks);
+  if (remarksArray.length) {
+    const arrayMessage = remarksArray.map((r) => getString(r)).filter(Boolean).join("; ");
+    if (arrayMessage) return arrayMessage;
+  }
 
   const message = pickString([firstPackage, root, getRecord(root.data), getRecord(root.error)], [
     "error_message",
