@@ -12,6 +12,9 @@ interface SyncDeliveryBody {
 }
 
 const getString = (value: unknown, fallback = "") => typeof value === "string" ? value : fallback;
+const getRecord = (value: unknown): Record<string, unknown> => (
+  typeof value === "object" && value !== null ? value as Record<string, unknown> : {}
+);
 
 const createTimelineEvent = (order: { status?: string }, label: string, note: string, createdBy: string) => ({
   status: getString(order.status, "placed"),
@@ -56,6 +59,27 @@ export default async function handler(request: ApiRequest, response: ApiResponse
 
     const order = orderSnapshot.data() || {};
     assertDeliveryOneEligible(order);
+
+    const existingDelivery = getRecord(order.delivery);
+    const existingProviderOrderId = getString(existingDelivery.providerOrderId);
+    const existingTrackingNumber = getString(existingDelivery.trackingNumber);
+    const existingTrackingUrl = getString(existingDelivery.trackingUrl);
+    const existingProviderStatus = getString(existingDelivery.providerStatus);
+
+    if (existingProviderOrderId || existingTrackingNumber) {
+      sendJson(response, 200, {
+        ok: true,
+        orderId,
+        syncStatus: "synced",
+        mode: "api-sync",
+        providerOrderId: existingProviderOrderId,
+        trackingNumber: existingTrackingNumber,
+        trackingUrl: existingTrackingUrl,
+        providerStatus: existingProviderStatus,
+        message: "This order is already synced with Delhivery. Saved tracking details were returned.",
+      });
+      return;
+    }
 
     const payload = createDeliveryOneShipmentPayload(orderId, order);
     const orderRef = db.doc(`orders/${orderId}`);
