@@ -564,10 +564,9 @@ export const pushDeliveryOneOrder = async (payload: DeliveryOneShipmentPayload):
 
   if (!response.ok || isDeliveryOneCreateResponseFailed(data)) {
     const rawBody = JSON.stringify(data);
-    console.error("[Delhivery] shipment creation failed. HTTP status:", response.status, "Response body:", rawBody);
-    const reason = getDeliveryOneErrorMessage(data);
-    const snippet = rawBody.length > 400 ? rawBody.slice(0, 400) + "\u2026" : rawBody;
-    throw new Error(`${reason || "Delhivery shipment creation failed"} | Raw: ${snippet}`);
+    const reason = getDeliveryOneErrorMessage(data) || "Delhivery shipment creation failed";
+    console.error("[Delhivery] shipment creation failed. HTTP status:", response.status, "Reason:", reason, "Response body:", rawBody);
+    throw new Error(reason);
   }
 
   const result = extractDeliveryOneProviderResult(data);

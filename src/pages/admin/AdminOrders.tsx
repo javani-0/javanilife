@@ -632,7 +632,7 @@ const AdminOrders = () => {
                   </p>
                 )}
 
-                {selectedOrder.delivery?.lastSyncError && <p className="mt-3 rounded-lg border border-destructive/20 bg-destructive/10 p-3 font-body text-xs text-destructive">{selectedOrder.delivery.lastSyncError}</p>}
+                {selectedOrder.delivery?.lastSyncError && <p className="mt-3 rounded-lg border border-destructive/20 bg-destructive/10 p-3 font-body text-xs text-destructive">{selectedOrder.delivery.lastSyncError.split(" | Raw:")[0]}</p>}
 
                 <div className="mt-4 grid gap-3">
                   <label className="font-body text-sm font-semibold text-foreground">
