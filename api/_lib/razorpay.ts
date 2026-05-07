@@ -7,17 +7,17 @@ export interface RazorpayCredentials {
 }
 
 export const getRazorpayCredentials = (): RazorpayCredentials => {
-  const keyId = process.env.RAZORPAY_KEY_ID;
-  const keySecret = process.env.RAZORPAY_KEY_SECRET;
+  const keyId = process.env.RAZORPAY_KEY_ID?.trim() || "";
+  const keySecret = process.env.RAZORPAY_KEY_SECRET?.trim() || "";
 
-  if (!keyId || !keySecret) {
-    throw new Error("Razorpay environment variables are missing.");
+  if (!keyId || !keySecret || keyId.startsWith("FILL_IN_") || keySecret.startsWith("FILL_IN_") || keyId === "rzp_test_replace_me" || keySecret === "replace_me") {
+    throw new Error("Razorpay server credentials are not configured. Set RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET in Vercel environment variables.");
   }
 
   return { keyId, keySecret };
 };
 
-export const getRazorpayCurrency = () => process.env.RAZORPAY_CURRENCY || "INR";
+export const getRazorpayCurrency = () => (process.env.RAZORPAY_CURRENCY || "INR").trim().toUpperCase();
 
 export const createRazorpayClient = () => {
   const { keyId, keySecret } = getRazorpayCredentials();

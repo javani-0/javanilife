@@ -18,7 +18,6 @@ import SEO from "@/components/SEO";
 import { useAuth } from "@/contexts/AuthContext";
 import { useCart } from "@/contexts/cart-context";
 import { useToast } from "@/hooks/use-toast";
-import { useWebNotifications } from "@/hooks/useWebNotifications";
 import { db } from "@/lib/firebase";
 import {
   calculateCartTotals,
@@ -166,7 +165,6 @@ const Checkout = () => {
   const { user, userProfile, loading: authLoading } = useAuth();
   const { items, loading: cartLoading, clearCart, clearBuyNowItem } = useCart();
   const { toast } = useToast();
-  const webNotifications = useWebNotifications();
   const [address, setAddress] = useState<CheckoutAddress>(emptyAddress);
   const [savedAddresses, setSavedAddresses] = useState<CheckoutAddress[]>([]);
   const [selectedSavedAddressId, setSelectedSavedAddressId] = useState<string>("custom");
@@ -357,14 +355,6 @@ const Checkout = () => {
     const normalizedAddress = normalizeAddress(address);
     const orderNumber = createOrderNumber();
     const paymentLabel = paymentMethod === "razorpay" ? "Razorpay Online" : "Cash on Delivery";
-
-    if (webNotifications.supported && webNotifications.configured && webNotifications.permission !== "denied") {
-      try {
-        await webNotifications.enableNotifications();
-      } catch (notificationPermissionError) {
-        console.warn("Web notification permission was not enabled", notificationPermissionError);
-      }
-    }
 
     setSubmitting(true);
     try {

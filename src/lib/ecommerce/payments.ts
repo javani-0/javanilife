@@ -78,7 +78,11 @@ const postJson = async <T>(url: string, idToken: string, payload: unknown): Prom
   const data = await response.json().catch(() => ({}));
 
   if (!response.ok) {
-    const message = typeof data?.error === "string" ? data.error : "Payment request failed.";
+    const message = typeof data?.error === "string" && data.error.trim()
+      ? data.error
+      : response.status === 401
+        ? "Please sign in again before starting online payment."
+        : "Unable to start Razorpay payment. Please try again.";
     throw new Error(message);
   }
 
