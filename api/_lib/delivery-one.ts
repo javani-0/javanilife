@@ -390,6 +390,7 @@ const getDeliveryOneErrorMessage = (data: unknown) => {
   const firstPackage = packages[0] || {};
 
   const message = pickString([firstPackage, root, getRecord(root.data), getRecord(root.error)], [
+    "error_message",
     "remarks",
     "remark",
     "rmk",
@@ -555,7 +556,8 @@ export const pushDeliveryOneOrder = async (payload: DeliveryOneShipmentPayload):
 
   if (!response.ok || isDeliveryOneCreateResponseFailed(data)) {
     console.error("[Delhivery] shipment creation failed. HTTP status:", response.status, "Response body:", JSON.stringify(data));
-    throw new Error(getDeliveryOneErrorMessage(data) || "Delhivery shipment creation failed.");
+    const reason = getDeliveryOneErrorMessage(data);
+    throw new Error(reason || `Delhivery shipment creation failed (HTTP ${response.status}). Check Vercel logs for raw response.`);
   }
 
   const result = extractDeliveryOneProviderResult(data);
