@@ -28,6 +28,7 @@ interface OrderSnapshot {
   totalInPaise?: number;
   items?: OrderItemSnapshot[];
   address?: { phone?: string };
+  payment?: { method?: string };
 }
 
 const allowedEvents: OrderAutomationEvent[] = ["order-placed", "order-status-updated", "payment-status-updated"];
@@ -203,6 +204,8 @@ const sendOrderPlacedMessages = async (orderId: string, order: OrderSnapshot) =>
   const customerName = order.customerName || "Customer";
   const summary = itemsSummary(order.items);
   const total = rupeesFromPaise(order.totalInPaise);
+  const paymentLabel = order.payment?.method === "cod" ? "Cash on Delivery (COD)" : "Paid Online";
+
   const [customerPhone, adminPhone] = await Promise.all([
     safeResolve("Unable to resolve customer WhatsApp number", () => getCustomerWhatsAppNumber(order), ""),
     safeResolve("Unable to resolve admin WhatsApp number", getAdminWhatsAppNumber, ""),
@@ -214,7 +217,7 @@ const sendOrderPlacedMessages = async (orderId: string, order: OrderSnapshot) =>
         to: customerPhone,
         templateName: customerOrderPlacedTemplate(),
         languageCode: templateLanguage(),
-        params: [firstName(customerName), orderRef, summary, total],
+        params: [firstName(customerName), orderRef, summary, total, paymentLabel],
         urlSuffix: orderId,
       })
       : Promise.resolve({ status: "skipped", errorMessage: "Customer phone number is missing." }),
@@ -260,10 +263,13 @@ const sendStatusMessages = async (orderId: string, order: OrderSnapshot, status?
   const customerName = order.customerName || "Customer";
   const statusLabel = statusLabels[status] || status;
   const summary = itemsSummary(order.items);
-  const customerPhone = await safeResolve("Unable to resolve customer WhatsApp number", () => getCustomerWhatsAppNumber(order), "");
+  const [customerPhone, adminPhone] = await Promise.all([
+    safeResolve("Unable to resolve customer WhatsApp number", () => getCustomerWhatsAppNumber(order), ""),
+    status === "delivered" ? safeResolve("Unable to resolve admin WhatsApp number", getAdminWhatsAppNumber, "") : Promise.resolve(""),
+  ]);
   const templateName = customerStatusTemplates[status];
 
-  const [customerWhatsApp, customerPush] = await Promise.allSettled([
+  const [customerWhatsApp, adminWhatsApp, customerPush, adminPush] = await Promise.allSettled([
     customerPhone && templateName
       ? sendWhatsAppTemplate({
         to: customerPhone,
@@ -273,6 +279,15 @@ const sendStatusMessages = async (orderId: string, order: OrderSnapshot, status?
         urlSuffix: orderId,
       })
       : Promise.resolve({ status: "skipped", errorMessage: "No WhatsApp template for this status." }),
+    adminPhone && status === "delivered"
+      ? sendWhatsAppTemplate({
+        to: adminPhone,
+        templateName: "admin_order_delivered",
+        languageCode: templateLanguage(),
+        params: [orderRef, customerName, summary],
+        urlSuffix: orderId,
+      })
+      : Promise.resolve({ status: "skipped", errorMessage: "Admin WhatsApp only sent for delivered status." }),
     (async () => order.customerId
       ? sendWebPush({
         tokens: await collectUserTokens(order.customerId),
@@ -282,11 +297,22 @@ const sendStatusMessages = async (orderId: string, order: OrderSnapshot, status?
         data: { orderId, type: "order-status-updated", status, audience: "customer" },
       })
       : { status: "skipped", reason: "missing_customer" })(),
+    (async () => status === "delivered"
+      ? sendWebPush({
+        tokens: await collectAdminTokens(),
+        title: "Order Delivered",
+        body: `${orderRef} from ${customerName} has been delivered.`,
+        link: "/admin/orders",
+        data: { orderId, type: "order-status-updated", status, audience: "admin" },
+      })
+      : { status: "skipped", reason: "not_delivered" })(),
   ]);
 
   return {
     customerWhatsApp: summarizeSettledResult(customerWhatsApp),
+    adminWhatsApp: summarizeSettledResult(adminWhatsApp),
     customerPush: summarizeSettledResult(customerPush),
+    adminPush: summarizeSettledResult(adminPush),
   };
 };
 
