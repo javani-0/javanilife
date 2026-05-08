@@ -89,7 +89,7 @@ export const refreshDeliveryOneTracking = (idToken: string, orderId: string): Pr
 export interface DeliveryOneLabelResponse {
   ok: boolean;
   orderId: string;
-  labelBase64: string;
+  labelUrl: string;
   waybill: string;
 }
 
@@ -101,7 +101,7 @@ export interface DeliveryOnePickupResponse {
   message?: string;
 }
 
-/** Fetches the packing-slip PDF for the order and opens it in a new browser tab. */
+/** Fetches the packing-slip S3 URL from Delhivery and opens the PDF in a new browser tab. */
 export const printDeliveryOneLabel = async (idToken: string, orderId: string): Promise<void> => {
   const data = await postOrderDeliveryAction<DeliveryOneLabelResponse>(
     idToken,
@@ -109,12 +109,7 @@ export const printDeliveryOneLabel = async (idToken: string, orderId: string): P
     { orderId, action: "label" },
     "Unable to fetch Delivery One label.",
   );
-  const bytes = Uint8Array.from(atob(data.labelBase64), (c) => c.charCodeAt(0));
-  const blob = new Blob([bytes], { type: "application/pdf" });
-  const url = URL.createObjectURL(blob);
-  window.open(url, "_blank", "noopener");
-  // Revoke after a short delay so the tab has time to load the PDF.
-  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  window.open(data.labelUrl, "_blank", "noopener");
 };
 
 export const scheduleDeliveryOnePickup = (idToken: string, orderId: string): Promise<DeliveryOnePickupResponse> => (

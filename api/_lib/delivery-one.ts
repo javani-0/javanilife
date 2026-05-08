@@ -397,6 +397,17 @@ const getDeliveryOneErrorMessage = (data: unknown) => {
     if (arrayMessage) return arrayMessage;
   }
 
+  // Django REST Framework field errors: {"pickup_location": ["..."], "non_field_errors": ["..."]}
+  for (const key of Object.keys(root)) {
+    const fieldVal = root[key];
+    if (Array.isArray(fieldVal) && fieldVal.length && typeof fieldVal[0] === "string") {
+      const fieldMsg = (fieldVal as string[]).filter(Boolean).join("; ");
+      if (fieldMsg && fieldMsg.toLowerCase() !== "fail" && fieldMsg.toLowerCase() !== "failed") {
+        return key === "non_field_errors" ? fieldMsg : `${key}: ${fieldMsg}`;
+      }
+    }
+  }
+
   const message = pickString([firstPackage, root, getRecord(root.data), getRecord(root.error)], [
     "error_message",
     "remarks",
@@ -664,7 +675,7 @@ export const scheduleDeliveryOnePickup = async (waybill: string): Promise<{ pick
   return { pickupId, pickupDate, message };
 };
 
-export const fetchDeliveryOneLabelBase64 = async (waybill: string): Promise<string> => {
+export const fetchDeliveryOneLabelUrl = async (waybill: string): Promise<string> => {
   const { token } = requireDeliveryOneApiConfig();
   const cleanWaybill = sanitizeDigits(waybill);
   if (!cleanWaybill) throw new Error("A waybill number is required to print the label.");
@@ -672,13 +683,24 @@ export const fetchDeliveryOneLabelBase64 = async (waybill: string): Promise<stri
   const url = `${getDeliveryOneBaseUrl()}/api/p/packing_slip?wbns=${encodeURIComponent(cleanWaybill)}&pdf=true`;
   const response = await fetch(url, {
     method: "GET",
-    headers: { Authorization: `Token ${token}` },
+    headers: { Authorization: `Token ${token}`, Accept: "application/json" },
   });
 
+  // Delhivery returns JSON: { "pdf_download_link": "https://s3..." } when pdf=true
+  const data = await response.json().catch(() => ({}));
+
   if (!response.ok) {
-    throw new Error(`Label fetch failed (HTTP ${response.status}). Ensure the waybill is valid and the shipment has been manifested.`);
+    const reason = getDeliveryOneErrorMessage(data) || `Label fetch failed (HTTP ${response.status}).`;
+    console.error("[Delhivery] label fetch failed. HTTP status:", response.status, "Response body:", JSON.stringify(data));
+    throw new Error(`${reason} Ensure the waybill is valid and the shipment has been manifested.`);
   }
 
-  const arrayBuffer = await response.arrayBuffer();
-  return Buffer.from(arrayBuffer).toString("base64");
+  const root = getRecord(data);
+  const pdfUrl = getString(root.pdf_download_link || root.package_url || root.url || root.link || "");
+  if (!pdfUrl) {
+    console.error("[Delhivery] label response (no URL found):", JSON.stringify(data));
+    throw new Error("Delhivery did not return a label URL. The shipment may not be manifested yet. Check the Delhivery One panel.");
+  }
+
+  return pdfUrl;
 };

@@ -3,7 +3,7 @@ import { getBearerToken, readJsonBody, requirePost, sendError, sendJson, type Ap
 import {
   assertDeliveryOneEligible,
   createDeliveryOneShipmentPayload,
-  fetchDeliveryOneLabelBase64,
+  fetchDeliveryOneLabelUrl,
   hasDeliveryOneApiConfig,
   pushDeliveryOneOrder,
   scheduleDeliveryOnePickup,
@@ -72,8 +72,8 @@ export default async function handler(request: ApiRequest, response: ApiResponse
       }
 
       if (action === "label") {
-        const labelBase64 = await fetchDeliveryOneLabelBase64(waybill);
-        sendJson(response, 200, { ok: true, orderId, labelBase64, waybill });
+        const labelUrl = await fetchDeliveryOneLabelUrl(waybill);
+        sendJson(response, 200, { ok: true, orderId, labelUrl, waybill });
         return;
       }
 
