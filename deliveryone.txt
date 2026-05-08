@@ -911,3 +911,211 @@ CN	Canceled	When a reverse pickup shipment is canceled before getting picked up 
 CN	Closed	When a reverse pickup shipment is canceled and request is closed
 
 _______________________________
+
+Fetch WayBill
+This API is used to generate the bulk waybill list in advance, which can be stored and used in the order creation API.
+The Bulk Waybill API generates waybills in bulk, which can be used during shipment manifestation or creation.
+Up to 10,000 waybills in a single request can be fetched using this API and can be stored in the database for later use in the shipment manifestation.
+A maximum of 50,000 waybills can be fetched within a 5-minute window. Exceeding this limit will result in your IP being throttled for 1 minute.
+Note: Waybills are generated in batches of 25 at the backend. Using them immediately after fetching may occasionally result in errors, so we recommend storing them on your end and using them later during manifest creation.
+
+Parameters
+PARAMETERS	MANDATORY	DESCRIPTION
+count
+Integer
+true
+Number of waybills you want to fetch; Should not be more than 10,000
+Rate Limit and Latency
+METRICS	VALUE
+Average Latency (PRODUCTION)
+129.84ms
+P99 Latency (PRODUCTION)
+154.02ms
+Rate Limit (Requests/5 Minute/IP) (PRODUCTION)
+5
+Request
+
+javascript-fetch
+const options = {method: 'GET', headers: {Accept: 'application/json'}};
+
+fetch('https://staging-express.delhivery.com/waybill/api/bulk/json/?token=xxxxxxxxxxxxxxxx&count=5', options)
+	.then(res => res.json())
+	.then(res => console.log(res))
+	.catch(err => console.error(err));
+Test Environment URL
+https://staging-express.delhivery.com/waybill/api/bulk/json/?count=count
+Production Environment URL
+https://track.delhivery.com/waybill/api/bulk/json/?count=count
+Fetch Single WayBill API
+Fetch waybill API helps to fetch a single waybill at a time, every time the API is hit.
+The Fetch Waybill API generates a single waybill at a time
+Parameters
+PARAMETERS	MANDATORY	DESCRIPTION
+token
+String
+true
+Pass the account token
+Rate Limit and Latency
+METRICS	VALUE
+Average Latency (PRODUCTION)
+69.84ms
+P99 Latency (PRODUCTION)
+94.02ms
+Rate Limit (Requests/5 Minute/IP) (PRODUCTION)
+750
+Request
+
+shell-curl
+curl --request GET \
+	--url 'https://staging-express.delhivery.com/waybill/api/fetch/json/?token=xxxxxxxxxxxxxxxx' \
+	--header 'Accept: application/json'
+Test Environment URL
+https://staging-express.delhivery.com/waybill/api/fetch/json/
+Production Environment URL
+https://track.delhivery.com/waybill/ap
+
+__________________________________
+Ewaybill Update API
+This API allows to update the e-waybill of the shipment.
+An E-Way Bill is an electronic document (having details such as the goods being transported, their value, the sender, the receiver, and the route.) that is required for the transportation of goods having shipment value>50k as per the Indian government laws.
+Use the EWB update API to update the e-waybill of the shipments having value > 50k
+This API updates the forward E-waybill when the shipment is in the forward flow, and updates the return E-waybill when the shipment is in the return flow.
+Parameters
+PARAMETERS	MANDATORY	DESCRIPTION
+dcn
+Varchar
+true
+Pass the invoice number
+ewbn
+Varchar
+true
+Pass the ewb (e-waybill) number that needs to be updated
+Rate Limit and Latency
+METRICS	VALUE
+Average Latency (PRODUCTION)
+327.6ms
+P99 Latency (PRODUCTION)
+501.68ms
+Rate Limit (Requests/5 Minute/IP) (PRODUCTION)
+250
+Request
+
+javascript-fetch
+const options = {
+	method: 'PUT',
+	headers: {Authorization: 'Token xxxxxxxxxxxxxxxx', 'content-type': 'application/json'},
+	body: JSON.stringify({data: [{dcn: 'pass the invoice number', ewbn: 'pass the ewb number'}]})
+};
+
+fetch('https://staging-express.delhivery.com/api/rest/ewaybill/XXXXXXXXXXXXX/', options)
+	.then(res => res.json())
+	.then(res => console.log(res))
+	.catch(err => console.error(err));
+Test Environment URL
+https://staging-express.delhivery.com/api/rest/ewaybill/{waybill}/
+Production Environment URL
+https://track.delhivery.co
+__________________________________
+
+RVP QC 3.0
+This is used to perform Quality Check (QC) at the consignee's doorstep for an RVP (Reverse Pickup) shipment.
+This is an updated version of the RVP QC that gives the flexibility of a question-based model. It will allow a set of questions against each item to be picked on the ground by FE from the end customer. Pickup will only be made once all the mandatory questions have been answered correctly.
+Steps of Integration:
+QC question mapping
+Order Creation
+1. QC Question Mapping
+
+A one-time QC mapping is required on Delhivery’s end to enable this feature. Based on the client’s QC requirements, the Delhivery BD team will share the relevant Delhivery QC questions along with their corresponding question IDs. The client must then map these Delhivery question IDs to their own question IDs and share the mapping in the specified format, so it can be configured in the Delhivery system.
+
+Client Question id	DLV Question id
+Client Question id-1	DLV Question id-1
+Client Question id-2	DLV Question id-2
+Client Question id-3	DLV Question id-3
+Client Question id-4	DLV Question id-4
+Client Question id-5	DLV Question id-5
+2. Order Creation
+When creating an RVP order via API, 2 keys must be included in the manifest payload:
+
+"qc_type": Set this key to the hardcoded value “param” to indicate Parametric QC.
+“custom_qc”: Include the QC data in the manifest payload within this array. Refer the sample payload in the request section
+NOTE: A maximum of 2 items can undergo QC, with a limit of 6 questions per item. If these limits are exceeded, the shipment will still be created, but it will be marked as a non-QC shipment.
+
+Parameters
+PARAMETERS	MANDATORY	DESCRIPTION
+item
+string
+false
+description
+string
+true
+images
+list
+true
+Comma-separated multiple strings can be passed
+return_reason
+string
+false
+quantity
+integer
+true
+Default value is 1, if quantity is not presents
+brand
+string
+false
+product_category
+string
+false
+questions
+list
+true
+questions_id
+string
+true
+This will be the client question id and against this ID Delhivery will map one question at their end
+options
+list
+true
+value
+list
+true
+Currently only the first element is chosen as the correct option
+required
+boolean
+true
+False: Question will still be asked but the answer will not affect the QC result, i.e. If FE chooses any available answer to the given QC question, QC will always be Passed.True: Question will be asked and the answer will affect QC result, i.e. If FE chooses the incorrect answer to the given QC question, QC will be Failed
+type
+String
+true
+Type == ‘varchar’; FE will type the answer Type == ‘multi’; FE will select one of the given options
+ques_images
+list
+false
+this is a non-mandatory field and completely optional for a client to pass. The client has to pass the image URL, which will be visible to the FE for a specific question for which QC is performed
+Rate Limit and Latency
+METRICS	VALUE
+Average Latency (PRODUCTION)
+366.03 ms
+P99 Latency (PRODUCTION)
+916.17ms
+Rate Limit (Requests/5 Minute/IP) (PRODUCTION)
+20000
+Request
+
+javascript-fetch
+const options = {
+	method: 'POST',
+	headers: {
+		Authorization: 'Token xxxxxxxxxxxxxxxxxxxxx',
+		'Content-Type': 'application/json'
+	},
+	body: 'format=json&data={\n  "shipments": [\n    {\n      "client": "pass the registered client name",\n      "return_name": "test_designs",\n      "order": "1234567890",\n      "return_country": "India",\n      "weight": "150.0 gm",\n      "city": "Meerjapuram",\n      "pin": "521111",\n      "return_state": "Gujarat",\n      "products_desc": "NEW EI PIKOK (PURPAL-ORANGE)",\n      "shipping_mode": "Express",\n      "state": "Andhra Pradesh",\n      "quantity": 1,\n      "waybill": "123455678910",\n      "phone": "1234567890",\n      "add": "7 106 abc road, 2020 bulding ",\n      "payment_mode": "Pickup",\n      "order_date": "29-06-2023",\n      "seller_gst_tin": "ABCD1234F",\n      "name": "Jitendra Singh",\n      "return_add": " SHOP NO 218,ABC Road, Mumbai",\n      "total_amount": 749,\n      "seller_name": "ABC Design",\n      "return_city": "SURAT",\n      "country": "India",\n      "return_pin": "394101",\n      "return_phone": "1234567890",\n      "qc_type": "param",\n      "custom_qc": [\n        {\n          "item": "mobile",\n          "description": "Mi note 1 pro",\n          "images": [\n            "https://fdn2.gsmarena.com/vv/pics/xiaomi/xiaomi-note-pro-2.jpg"\n          ],\n          "return_reason": "Damaged",\n          "quantity": 1,\n          "brand": "Mi",\n          "product_category": "mobile",\n          "questions": [\n            {\n              "questions_id": "client Question id",\n              "options": [\n                ""\n              ],\n              "value": [\n                "123456543"\n              ],\n              "required": true,\n              "type": "varchar",\n              "ques_images": [\n                "http://ecx.images-amazon.com/images/I/414yumheSAS._AC_.jpg"\n              ]\n            }\n          ]\n        },\n        {\n          "item": "mobile",\n          "description": "Mi note 2 pro",\n          "images": [\n            "https://static.toiimg.com/photo/55073523/Xiaomi-Mi-Note-2.jpg"\n          ],\n          "return_reason": "Damaged",\n          "quantity": 2,\n          "brand": "Mi",\n          "product_category": "apparel",\n          "questions": [\n            {\n              "questions_id": "client question id",\n              "options": [\n                "Black",\n                "other"\n              ],\n              "value": [\n                "Black"\n              ],\n              "required": true,\n              "type": "multi",\n              "ques_images": [\n                "http://ecx.images-amazon.com/images/I/414yumheSAS._AC_.jpg"\n              ]\n            }\n          ]\n        }\n      ]\n    }\n  ],\n  "pickup_location": {\n    "name": "pass the registered pickup WH name"\n  }\n}'
+};
+
+fetch('https://staging-express.delhivery.com/api/cmu/create.json', options)
+	.then(res => res.json())
+	.then(res => console.log(res))
+	.catch(err => console.error(err));
+Test Environment URL
+https://staging-express.delhivery.com/api/cmu/create.json
+Production Environment URL
+https://track.delhivery.com/api/cmu/create.jso
