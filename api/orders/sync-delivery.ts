@@ -3,12 +3,15 @@ import { getBearerToken, readJsonBody, requirePost, sendError, sendJson, type Ap
 import {
   assertDeliveryOneEligible,
   createDeliveryOneShipmentPayload,
+  fetchDeliveryOneLabelBase64,
   hasDeliveryOneApiConfig,
   pushDeliveryOneOrder,
+  scheduleDeliveryOnePickup,
 } from "../_lib/delivery-one.js";
 
 interface SyncDeliveryBody {
   orderId?: string;
+  action?: "sync" | "label" | "pickup";
 }
 
 const getString = (value: unknown, fallback = "") => typeof value === "string" ? value : fallback;
@@ -36,6 +39,7 @@ export default async function handler(request: ApiRequest, response: ApiResponse
   try {
     const body = await readJsonBody<SyncDeliveryBody>(request);
     const orderId = getString(body.orderId).trim();
+    const action = getString(body.action, "sync") as "sync" | "label" | "pickup";
     if (!orderId) {
       sendError(response, 400, "orderId is required.");
       return;
@@ -58,6 +62,44 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     }
 
     const order = orderSnapshot.data() || {};
+
+    if (action === "label" || action === "pickup") {
+      const delivery = getRecord(order.delivery);
+      const waybill = getString(delivery.trackingNumber).trim();
+      if (!waybill) {
+        sendError(response, 400, "This order does not have a Delhivery waybill yet. Sync the shipment first.");
+        return;
+      }
+
+      if (action === "label") {
+        const labelBase64 = await fetchDeliveryOneLabelBase64(waybill);
+        sendJson(response, 200, { ok: true, orderId, labelBase64, waybill });
+        return;
+      }
+
+      // action === "pickup"
+      const existingPickupId = getString(delivery.pickupId).trim();
+      if (existingPickupId) {
+        sendJson(response, 200, { ok: true, orderId, pickupId: existingPickupId, message: "Pickup already scheduled for this waybill." });
+        return;
+      }
+      const { pickupId, pickupDate, message } = await scheduleDeliveryOnePickup(waybill);
+      const pickupOrderRef = db.doc(`orders/${orderId}`);
+      await pickupOrderRef.update({
+        "delivery.pickupId": pickupId || `requested-${pickupDate}`,
+        "delivery.pickupDate": pickupDate,
+        updatedAt: FieldValue.serverTimestamp(),
+        timeline: FieldValue.arrayUnion(createTimelineEvent(
+          order,
+          "Pickup scheduled",
+          `Delhivery pickup scheduled for ${pickupDate}${pickupId ? ` (ID: ${pickupId})` : ""}.`,
+          decoded.uid,
+        )),
+      });
+      sendJson(response, 200, { ok: true, orderId, pickupId, pickupDate, message });
+      return;
+    }
+
     assertDeliveryOneEligible(order);
 
     const existingDelivery = getRecord(order.delivery);

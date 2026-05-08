@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { arrayUnion, collection, deleteDoc, doc, onSnapshot, serverTimestamp, updateDoc } from "firebase/firestore";
-import { AlertTriangle, CalendarDays, ChevronRight, Clock, CreditCard, ExternalLink, Filter, Mail, MapPin, MessageCircle, PackageCheck, Phone, RefreshCw, Save, Search, Truck, UserRound, Trash2 } from "lucide-react";
+import { AlertTriangle, CalendarDays, ChevronRight, Clock, CreditCard, ExternalLink, Filter, Mail, MapPin, MessageCircle, PackageCheck, PackagePlus, Phone, Printer, RefreshCw, Save, Search, Truck, UserRound, Trash2 } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -31,8 +31,10 @@ import {
   getDeliveryOneSyncEligibility,
   normalizeCustomerOrder,
   ORDER_STATUS_LABELS,
+  printDeliveryOneLabel,
   refreshDeliveryOneTracking,
   rejectOrderCancellation,
+  scheduleDeliveryOnePickup,
   sendOrderAutomation,
   syncDeliveryOneOrder,
   sortOrdersNewestFirst,
@@ -104,6 +106,8 @@ const AdminOrders = () => {
   const [saving, setSaving] = useState(false);
   const [syncingDelivery, setSyncingDelivery] = useState(false);
   const [refreshingTracking, setRefreshingTracking] = useState(false);
+  const [printingLabel, setPrintingLabel] = useState(false);
+  const [schedulingPickup, setSchedulingPickup] = useState(false);
   const [processingCancellation, setProcessingCancellation] = useState(false);
   const [cancellationAdminNote, setCancellationAdminNote] = useState("");
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -327,6 +331,43 @@ const AdminOrders = () => {
       toast({ title: "Tracking refresh failed", description: error instanceof Error ? error.message : "Try again after checking credentials.", variant: "destructive" });
     } finally {
       setRefreshingTracking(false);
+    }
+  };
+
+  const handlePrintLabel = async () => {
+    if (!selectedOrder || !user) return;
+    if (!selectedOrder.delivery?.trackingNumber) {
+      toast({ title: "No waybill", description: "Sync the shipment with Delhivery first to get a waybill.", variant: "destructive" });
+      return;
+    }
+    setPrintingLabel(true);
+    try {
+      const idToken = await user.getIdToken();
+      await printDeliveryOneLabel(idToken, selectedOrder.id);
+    } catch (error) {
+      console.error("Unable to print Delivery One label", error);
+      toast({ title: "Label fetch failed", description: error instanceof Error ? error.message : "Try again or download from Delhivery dashboard.", variant: "destructive" });
+    } finally {
+      setPrintingLabel(false);
+    }
+  };
+
+  const handleSchedulePickup = async () => {
+    if (!selectedOrder || !user) return;
+    if (!selectedOrder.delivery?.trackingNumber) {
+      toast({ title: "No waybill", description: "Sync the shipment with Delhivery first to get a waybill.", variant: "destructive" });
+      return;
+    }
+    setSchedulingPickup(true);
+    try {
+      const idToken = await user.getIdToken();
+      const result = await scheduleDeliveryOnePickup(idToken, selectedOrder.id);
+      toast({ title: "Pickup scheduled", description: result.message || `Pickup date: ${result.pickupDate || "pending"}` });
+    } catch (error) {
+      console.error("Unable to schedule Delivery One pickup", error);
+      toast({ title: "Pickup scheduling failed", description: error instanceof Error ? error.message : "Try again or schedule from Delhivery dashboard.", variant: "destructive" });
+    } finally {
+      setSchedulingPickup(false);
     }
   };
 
@@ -605,6 +646,22 @@ const AdminOrders = () => {
                     >
                       <RefreshCw className={`h-4 w-4 ${refreshingTracking ? "animate-spin" : ""}`} /> {refreshingTracking ? "Refreshing" : "Track"}
                     </button>
+                    <button
+                      type="button"
+                      onClick={handlePrintLabel}
+                      disabled={printingLabel || !selectedOrder.delivery?.trackingNumber}
+                      className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-sm border border-gold/35 px-4 font-display text-xs font-semibold tracking-[0.08em] text-gold transition-colors hover:bg-gold/10 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      <Printer className={`h-4 w-4 ${printingLabel ? "animate-pulse" : ""}`} /> {printingLabel ? "Fetching" : "Print Label"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleSchedulePickup}
+                      disabled={schedulingPickup || !selectedOrder.delivery?.trackingNumber || Boolean(selectedOrder.delivery?.pickupId)}
+                      className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-sm border border-gold/35 px-4 font-display text-xs font-semibold tracking-[0.08em] text-gold transition-colors hover:bg-gold/10 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      <PackagePlus className={`h-4 w-4 ${schedulingPickup ? "animate-pulse" : ""}`} /> {schedulingPickup ? "Scheduling" : selectedOrder.delivery?.pickupId ? "Pickup Booked" : "Add to Pickup"}
+                    </button>
                   </div>
                 </div>
 
@@ -629,6 +686,13 @@ const AdminOrders = () => {
                   <p className="mt-3 rounded-lg border border-gold/20 bg-card p-3 font-body text-xs text-muted-foreground">
                     Delhivery status: <span className="font-semibold text-foreground">{selectedOrder.delivery.providerStatus}</span>
                     {selectedOrder.delivery.providerStatusType ? ` (${selectedOrder.delivery.providerStatusType})` : ""}
+                  </p>
+                )}
+
+                {selectedOrder.delivery?.pickupId && (
+                  <p className="mt-3 rounded-lg border border-gold/20 bg-card p-3 font-body text-xs text-muted-foreground">
+                    Pickup booked: <span className="font-semibold text-foreground">{selectedOrder.delivery.pickupId}</span>
+                    {selectedOrder.delivery.pickupDate ? ` · ${selectedOrder.delivery.pickupDate}` : ""}
                   </p>
                 )}
 

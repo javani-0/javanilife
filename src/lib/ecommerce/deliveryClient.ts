@@ -85,3 +85,38 @@ export const rejectOrderCancellation = (idToken: string, orderId: string, adminN
 export const refreshDeliveryOneTracking = (idToken: string, orderId: string): Promise<DeliveryOneTrackingResponse> => (
   postOrderDeliveryAction(idToken, "/api/orders/track-delivery", { orderId }, "Unable to refresh Delivery One tracking.")
 );
+
+export interface DeliveryOneLabelResponse {
+  ok: boolean;
+  orderId: string;
+  labelBase64: string;
+  waybill: string;
+}
+
+export interface DeliveryOnePickupResponse {
+  ok: boolean;
+  orderId: string;
+  pickupId?: string;
+  pickupDate?: string;
+  message?: string;
+}
+
+/** Fetches the packing-slip PDF for the order and opens it in a new browser tab. */
+export const printDeliveryOneLabel = async (idToken: string, orderId: string): Promise<void> => {
+  const data = await postOrderDeliveryAction<DeliveryOneLabelResponse>(
+    idToken,
+    "/api/orders/sync-delivery",
+    { orderId, action: "label" },
+    "Unable to fetch Delivery One label.",
+  );
+  const bytes = Uint8Array.from(atob(data.labelBase64), (c) => c.charCodeAt(0));
+  const blob = new Blob([bytes], { type: "application/pdf" });
+  const url = URL.createObjectURL(blob);
+  window.open(url, "_blank", "noopener");
+  // Revoke after a short delay so the tab has time to load the PDF.
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+};
+
+export const scheduleDeliveryOnePickup = (idToken: string, orderId: string): Promise<DeliveryOnePickupResponse> => (
+  postOrderDeliveryAction(idToken, "/api/orders/sync-delivery", { orderId, action: "pickup" }, "Unable to schedule Delivery One pickup.")
+);

@@ -622,3 +622,64 @@ export const trackDeliveryOneShipment = async (waybill: string, orderReference =
 
   return update;
 };
+
+export const scheduleDeliveryOnePickup = async (waybill: string): Promise<{ pickupId: string; pickupDate: string; message: string }> => {
+  const { token, pickupLocation } = requireDeliveryOneApiConfig();
+  const cleanWaybill = sanitizeDigits(waybill);
+  if (!cleanWaybill) throw new Error("A waybill number is required to schedule a pickup.");
+
+  // Delhivery's same-day cutoff is 2 PM IST (UTC+5:30).
+  // Use today if before cutoff, otherwise schedule for tomorrow.
+  const nowIST = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
+  const isPastCutoff = nowIST.getUTCHours() >= 14;
+  if (isPastCutoff) nowIST.setUTCDate(nowIST.getUTCDate() + 1);
+  const pickupDate = nowIST.toISOString().slice(0, 10); // YYYY-MM-DD
+
+  const response = await fetch(`${getDeliveryOneBaseUrl()}/fm/request/new/`, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      Authorization: `Token ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      pickup_time: "10:00:00",
+      pickup_date: pickupDate,
+      expected_package_count: 1,
+      pickup_location: pickupLocation,
+      shipments: [{ waybill: cleanWaybill }],
+    }),
+  });
+
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const reason = getDeliveryOneErrorMessage(data) || `Pickup creation failed (HTTP ${response.status}).`;
+    console.error("[Delhivery] pickup creation failed. HTTP status:", response.status, "Response body:", JSON.stringify(data));
+    throw new Error(reason);
+  }
+
+  const root = getRecord(data);
+  const pickupId = getString(root.pickup_id || root.id || root.pickupId || "");
+  const message = getString(root.message || root.status || "Pickup scheduled");
+
+  return { pickupId, pickupDate, message };
+};
+
+export const fetchDeliveryOneLabelBase64 = async (waybill: string): Promise<string> => {
+  const { token } = requireDeliveryOneApiConfig();
+  const cleanWaybill = sanitizeDigits(waybill);
+  if (!cleanWaybill) throw new Error("A waybill number is required to print the label.");
+
+  const url = `${getDeliveryOneBaseUrl()}/api/p/packing-slip?wbns=${encodeURIComponent(cleanWaybill)}&pdf=true`;
+  const response = await fetch(url, {
+    method: "GET",
+    headers: { Authorization: `Token ${token}` },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Label fetch failed (HTTP ${response.status}). Ensure the waybill is valid and the shipment has been manifested.`);
+  }
+
+  const arrayBuffer = await response.arrayBuffer();
+  return Buffer.from(arrayBuffer).toString("base64");
+};
