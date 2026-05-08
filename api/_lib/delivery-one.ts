@@ -398,13 +398,19 @@ const getDeliveryOneErrorMessage = (data: unknown) => {
   }
 
   // Django REST Framework field errors: {"pickup_location": ["..."], "non_field_errors": ["..."]}
+  // Also handles plain string field errors: {"prepaid": "Balance is ..."}
+  const skipDrfKeys = new Set(["message", "status", "error", "remark", "rmk", "data", "packages"]);
   for (const key of Object.keys(root)) {
+    if (skipDrfKeys.has(key)) continue;
     const fieldVal = root[key];
     if (Array.isArray(fieldVal) && fieldVal.length && typeof fieldVal[0] === "string") {
       const fieldMsg = (fieldVal as string[]).filter(Boolean).join("; ");
       if (fieldMsg && fieldMsg.toLowerCase() !== "fail" && fieldMsg.toLowerCase() !== "failed") {
         return key === "non_field_errors" ? fieldMsg : `${key}: ${fieldMsg}`;
       }
+    }
+    if (typeof fieldVal === "string" && fieldVal.trim()) {
+      return `${key}: ${fieldVal}`;
     }
   }
 
@@ -666,7 +672,7 @@ export const scheduleDeliveryOnePickup = async (waybill: string): Promise<{ pick
     const reason = getDeliveryOneErrorMessage(data);
     const raw = JSON.stringify(data);
     console.error("[Delhivery] pickup creation failed. HTTP status:", response.status, "Response body:", raw);
-    throw new Error(reason ? `${reason} [raw: ${raw}]` : `Pickup creation failed (HTTP ${response.status}). Raw: ${raw}`);
+    throw new Error(reason || `Pickup creation failed (HTTP ${response.status}). Raw: ${raw}`);
   }
 
   const root = getRecord(data);
@@ -697,7 +703,10 @@ export const fetchDeliveryOneLabelUrl = async (waybill: string): Promise<string>
   }
 
   const root = getRecord(data);
-  const pdfUrl = getString(root.pdf_download_link || root.package_url || root.url || root.link || root.pdf || root.packing_slip || "");
+  // Delhivery wraps the label inside a packages array: { packages: [{ pdf_download_link: "..." }] }
+  const packages = getArray(root.packages).map(getRecord);
+  const firstPkg = packages[0] || root;
+  const pdfUrl = getString(firstPkg.pdf_download_link || root.pdf_download_link || firstPkg.url || root.url || "");
   if (!pdfUrl) {
     const raw = JSON.stringify(data);
     console.error("[Delhivery] label response (no URL found):", raw);
