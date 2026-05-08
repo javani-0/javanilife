@@ -663,9 +663,10 @@ export const scheduleDeliveryOnePickup = async (waybill: string): Promise<{ pick
 
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    const reason = getDeliveryOneErrorMessage(data) || `Pickup creation failed (HTTP ${response.status}).`;
-    console.error("[Delhivery] pickup creation failed. HTTP status:", response.status, "Response body:", JSON.stringify(data));
-    throw new Error(reason);
+    const reason = getDeliveryOneErrorMessage(data);
+    const raw = JSON.stringify(data);
+    console.error("[Delhivery] pickup creation failed. HTTP status:", response.status, "Response body:", raw);
+    throw new Error(reason ? `${reason} [raw: ${raw}]` : `Pickup creation failed (HTTP ${response.status}). Raw: ${raw}`);
   }
 
   const root = getRecord(data);
@@ -696,10 +697,11 @@ export const fetchDeliveryOneLabelUrl = async (waybill: string): Promise<string>
   }
 
   const root = getRecord(data);
-  const pdfUrl = getString(root.pdf_download_link || root.package_url || root.url || root.link || "");
+  const pdfUrl = getString(root.pdf_download_link || root.package_url || root.url || root.link || root.pdf || root.packing_slip || "");
   if (!pdfUrl) {
-    console.error("[Delhivery] label response (no URL found):", JSON.stringify(data));
-    throw new Error("Delhivery did not return a label URL. The shipment may not be manifested yet. Check the Delhivery One panel.");
+    const raw = JSON.stringify(data);
+    console.error("[Delhivery] label response (no URL found):", raw);
+    throw new Error(`Delhivery label response had no URL. Raw: ${raw}`);
   }
 
   return pdfUrl;
