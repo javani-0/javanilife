@@ -647,7 +647,6 @@ export const scheduleDeliveryOnePickup = async (waybill: string): Promise<{ pick
       pickup_date: pickupDate,
       expected_package_count: 1,
       pickup_location: pickupLocation,
-      shipments: [{ waybill: cleanWaybill }],
     }),
   });
 
@@ -670,7 +669,7 @@ export const fetchDeliveryOneLabelBase64 = async (waybill: string): Promise<stri
   const cleanWaybill = sanitizeDigits(waybill);
   if (!cleanWaybill) throw new Error("A waybill number is required to print the label.");
 
-  const url = `${getDeliveryOneBaseUrl()}/api/p/packing-slip?wbns=${encodeURIComponent(cleanWaybill)}&pdf=true`;
+  const url = `${getDeliveryOneBaseUrl()}/api/p/packing_slip?wbns=${encodeURIComponent(cleanWaybill)}&pdf=true`;
   const response = await fetch(url, {
     method: "GET",
     headers: { Authorization: `Token ${token}` },
