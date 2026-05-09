@@ -147,6 +147,8 @@ describe("Delivery flow UI", () => {
           lifecycleStatus: "cancelled",
           trackingNumber: "1234567890123",
           labelUrl: "https://example.com/label.pdf",
+          pickupId: "PICKUP-1",
+          pickupDate: "2026-05-10",
           providerStatus: "Cancellation requested",
         }),
         status: "cancelled",
@@ -163,8 +165,9 @@ describe("Delivery flow UI", () => {
     expect(await screen.findByText("Label and pickup controls are locked because this order is Cancelled.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Manifest Order/i })).toBeDisabled();
     expect(screen.getByRole("button", { name: /Print Label/i })).toBeDisabled();
-    expect(screen.getByRole("button", { name: /Create Pickup/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /Pickup Booked/i })).toBeDisabled();
     expect(screen.queryByLabelText("Pickup date")).not.toBeInTheDocument();
+    expect(screen.getByTestId("pickup-cancellation-warning")).toHaveTextContent("Pickup request PICKUP-1 may still show Scheduled in Delhivery One");
     expect(screen.getByText("Open saved shipping label")).toBeInTheDocument();
   });
 

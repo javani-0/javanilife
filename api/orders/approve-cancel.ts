@@ -16,6 +16,16 @@ interface ApproveCancelBody {
   adminNote?: string;
 }
 
+const pickupCancellationClosedStatuses = new Set(["manual-required", "cancelled", "not-required"]);
+
+const createPickupCancellationMessage = (pickupId: string) => (
+  `Pickup request ${pickupId} may still show Scheduled in Delhivery One. Cancel it from Delhivery One > Pickup Requests if no other AWBs are attached.`
+);
+
+const shouldMarkPickupCancellationRequired = (pickupId: string, currentStatus: string) => (
+  Boolean(pickupId) && !pickupCancellationClosedStatuses.has(currentStatus)
+);
+
 export default async function handler(request: ApiRequest, response: ApiResponse) {
   if (!requirePost(request, response)) return;
 
@@ -52,8 +62,35 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     }
 
     const order = orderSnapshot.data() as OrderSnapshot;
+    const pickupId = getString(order.delivery?.pickupId).trim();
+    const currentPickupCancellationStatus = getString(order.delivery?.pickupCancellationStatus).trim();
+    const needsManualPickupCancellation = shouldMarkPickupCancellationRequired(pickupId, currentPickupCancellationStatus);
+    const pickupCancellationMessage = needsManualPickupCancellation ? createPickupCancellationMessage(pickupId) : "";
+
     if (order.status === "cancelled") {
-      sendJson(response, 200, { ok: true, orderId, cancellationStatus: "approved", message: "Order is already cancelled." });
+      if (needsManualPickupCancellation) {
+        await orderSnapshot.ref.update({
+          "delivery.pickupCancellationStatus": "manual-required",
+          "delivery.pickupCancellationReason": pickupCancellationMessage,
+          "delivery.pickupCancellationMarkedAt": FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
+          timeline: FieldValue.arrayUnion(createTimelineEvent(
+            "cancelled",
+            "Pickup cancellation needed",
+            pickupCancellationMessage,
+            decoded.uid,
+          )),
+        });
+      }
+
+      sendJson(response, 200, {
+        ok: true,
+        orderId,
+        cancellationStatus: "approved",
+        pickupCancellationStatus: needsManualPickupCancellation ? "manual-required" : currentPickupCancellationStatus,
+        pickupCancellationMessage: pickupCancellationMessage || undefined,
+        message: pickupCancellationMessage || "Order is already cancelled.",
+      });
       return;
     }
     if (isFinalOrderStatus(order.status)) {
@@ -64,6 +101,21 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     const hadCustomerRequest = getCancellationStatus(order) === "requested";
     const waybill = getString(order.delivery?.trackingNumber).trim();
     const providerResult = waybill ? await cancelDeliveryOneShipment(waybill) : null;
+    const timelineEvents = [createTimelineEvent(
+      "cancelled",
+      orderStatusLabels.cancelled,
+      adminNote || (hadCustomerRequest ? "Admin approved the customer's cancellation request." : "Admin cancelled this order."),
+      decoded.uid,
+    )];
+
+    if (needsManualPickupCancellation) {
+      timelineEvents.push(createTimelineEvent(
+        "cancelled",
+        "Pickup cancellation needed",
+        pickupCancellationMessage,
+        decoded.uid,
+      ));
+    }
 
     const payload: Record<string, unknown> = {
       status: "cancelled",
@@ -76,13 +128,14 @@ export default async function handler(request: ApiRequest, response: ApiResponse
       "cancellation.approvedBy": decoded.uid,
       "cancellation.adminNote": adminNote,
       updatedAt: FieldValue.serverTimestamp(),
-      timeline: FieldValue.arrayUnion(createTimelineEvent(
-        "cancelled",
-        orderStatusLabels.cancelled,
-        adminNote || (hadCustomerRequest ? "Admin approved the customer's cancellation request." : "Admin cancelled this order."),
-        decoded.uid,
-      )),
+      timeline: FieldValue.arrayUnion(...timelineEvents),
     };
+
+    if (needsManualPickupCancellation) {
+      payload["delivery.pickupCancellationStatus"] = "manual-required";
+      payload["delivery.pickupCancellationReason"] = pickupCancellationMessage;
+      payload["delivery.pickupCancellationMarkedAt"] = FieldValue.serverTimestamp();
+    }
 
     if (providerResult?.providerStatus) payload["delivery.providerStatus"] = providerResult.providerStatus;
     if (providerResult?.providerStatusType) payload["delivery.providerStatusType"] = providerResult.providerStatusType;
@@ -96,7 +149,9 @@ export default async function handler(request: ApiRequest, response: ApiResponse
       cancellationStatus: "approved",
       providerCancelled: Boolean(waybill),
       providerStatus: providerResult?.providerStatus,
-      message: waybill ? "Order cancelled and Delhivery cancellation was requested." : "Order cancelled. No Delhivery waybill was present.",
+      pickupCancellationStatus: needsManualPickupCancellation ? "manual-required" : undefined,
+      pickupCancellationMessage: pickupCancellationMessage || undefined,
+      message: pickupCancellationMessage || (waybill ? "Order cancelled and Delhivery cancellation was requested." : "Order cancelled. No Delhivery waybill was present."),
     });
   } catch (error) {
     console.error("Unable to approve order cancellation", error);

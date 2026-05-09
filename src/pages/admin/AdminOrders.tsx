@@ -177,6 +177,13 @@ const AdminOrders = () => {
   const hasDeliveryWaybill = Boolean(selectedOrder?.delivery?.trackingNumber);
   const isTerminalOrder = Boolean(selectedOrder && ["delivered", "cancelled", "returned"].includes(selectedOrder.status));
   const canUseDeliveryOneFulfillment = hasDeliveryWaybill && !isTerminalOrder;
+  const pickupCancellationStatus = selectedOrder?.delivery?.pickupCancellationStatus || "";
+  const needsManualPickupCancellation = Boolean(
+    selectedOrder?.delivery?.pickupId
+    && selectedOrder.status === "cancelled"
+    && pickupCancellationStatus !== "cancelled"
+    && pickupCancellationStatus !== "not-required",
+  );
   const canAdminCancelSyncedOrder = Boolean(selectedOrder?.delivery?.trackingNumber && !["delivered", "cancelled", "returned"].includes(selectedOrder.status));
 
   useEffect(() => {
@@ -414,7 +421,10 @@ const AdminOrders = () => {
         .catch((notificationError) => {
           console.error("Cancellation was approved but status automations could not be sent", notificationError);
         });
-      toast({ title: "Cancellation approved", description: result.message || selectedOrder.orderNumber || selectedOrder.id });
+      toast({
+        title: result.pickupCancellationStatus === "manual-required" ? "Cancellation approved, pickup needs action" : "Cancellation approved",
+        description: result.pickupCancellationMessage || result.message || selectedOrder.orderNumber || selectedOrder.id,
+      });
     } catch (error) {
       console.error("Unable to approve cancellation", error);
       toast({ title: "Cancellation approval failed", description: error instanceof Error ? error.message : "Try again after checking Delivery One status.", variant: "destructive" });
@@ -767,6 +777,13 @@ const AdminOrders = () => {
                     {selectedOrder.delivery.pickupDate ? ` · ${selectedOrder.delivery.pickupDate}` : ""}
                     {selectedOrder.delivery.pickupTime ? ` · ${selectedOrder.delivery.pickupTime}` : ""}
                     {selectedOrder.delivery.expectedPackageCount ? ` · ${selectedOrder.delivery.expectedPackageCount} package(s)` : ""}
+                  </p>
+                )}
+
+                {needsManualPickupCancellation && (
+                  <p data-testid="pickup-cancellation-warning" className="mt-3 rounded-lg border border-destructive/20 bg-destructive/10 p-3 font-body text-xs leading-relaxed text-destructive">
+                    Pickup request {selectedOrder.delivery?.pickupId}{" "}
+                    may still show Scheduled in Delhivery One. Cancel it from Delhivery One &gt; Pickup Requests if no other AWBs are attached.
                   </p>
                 )}
 

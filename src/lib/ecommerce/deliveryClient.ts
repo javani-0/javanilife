@@ -39,6 +39,8 @@ export interface OrderCancellationResponse {
   cancellationStatus: OrderCancellationStatus;
   providerCancelled?: boolean;
   providerStatus?: string;
+  pickupCancellationStatus?: "manual-required" | "cancelled" | "not-required" | "failed";
+  pickupCancellationMessage?: string;
   message?: string;
 }
 
