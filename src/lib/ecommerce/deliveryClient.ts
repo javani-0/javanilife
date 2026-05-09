@@ -44,6 +44,15 @@ export interface OrderCancellationResponse {
   message?: string;
 }
 
+export interface DeliveryOnePickupCancellationResponse {
+  ok: boolean;
+  orderId: string;
+  pickupId?: string;
+  pickupCancellationStatus: "manual-required" | "cancelled" | "not-required" | "failed";
+  pickupCancellationMessage?: string;
+  message?: string;
+}
+
 export interface DeliveryOneTrackingResponse {
   ok: boolean;
   orderId: string;
@@ -130,4 +139,8 @@ export const printDeliveryOneLabel = async (idToken: string, orderId: string, pd
 
 export const scheduleDeliveryOnePickup = (idToken: string, orderId: string, pickup?: DeliveryOnePickupRequest): Promise<DeliveryOnePickupResponse> => (
   postOrderDeliveryAction(idToken, "/api/orders/sync-delivery", { orderId, action: "pickup", ...pickup }, "Unable to schedule Delivery One pickup.")
+);
+
+export const cancelDeliveryOnePickup = (idToken: string, orderId: string): Promise<DeliveryOnePickupCancellationResponse> => (
+  postOrderDeliveryAction(idToken, "/api/orders/sync-delivery", { orderId, action: "cancel-pickup" }, "Unable to cancel Delivery One pickup.")
 );

@@ -1,6 +1,6 @@
 import { getFirebaseAdminAuth, getFirebaseAdminDb, FieldValue } from "../_lib/firebase-admin.js";
 import { getBearerToken, readJsonBody, requirePost, sendError, sendJson, type ApiRequest, type ApiResponse } from "../_lib/http.js";
-import { cancelDeliveryOneShipment } from "../_lib/delivery-one.js";
+import { cancelDeliveryOnePickup, cancelDeliveryOneShipment } from "../_lib/delivery-one.js";
 import {
   createTimelineEvent,
   getCancellationStatus,
@@ -16,15 +16,68 @@ interface ApproveCancelBody {
   adminNote?: string;
 }
 
-const pickupCancellationClosedStatuses = new Set(["manual-required", "cancelled", "not-required"]);
+type PickupCancellationStatus = "cancelled" | "not-required" | "failed";
 
-const createPickupCancellationMessage = (pickupId: string) => (
-  `Pickup request ${pickupId} may still show Scheduled in Delhivery One. Cancel it from Delhivery One > Pickup Requests if no other AWBs are attached.`
-);
+const pickupCancellationClosedStatuses = new Set(["cancelled", "not-required"]);
 
-const shouldMarkPickupCancellationRequired = (pickupId: string, currentStatus: string) => (
-  Boolean(pickupId) && !pickupCancellationClosedStatuses.has(currentStatus)
-);
+const createPickupCancelledMessage = (pickupId: string) => `Pickup request ${pickupId} was cancelled from Javani dashboard.`;
+const createPickupCancellationFailureMessage = (pickupId: string, reason: string) => `Pickup request ${pickupId} cancellation failed: ${reason}. Retry from the Javani dashboard.`;
+
+const getPickupCancellationResult = async (pickupId: string, currentStatus: string): Promise<{
+  status?: PickupCancellationStatus;
+  message?: string;
+  timelineLabel?: string;
+  shouldPersist: boolean;
+}> => {
+  if (!pickupId) {
+    return {
+      status: currentStatus === "not-required" ? undefined : "not-required",
+      message: "No Delhivery pickup request was booked for this order.",
+      shouldPersist: currentStatus !== "not-required",
+    };
+  }
+
+  if (pickupCancellationClosedStatuses.has(currentStatus)) {
+    return { shouldPersist: false };
+  }
+
+  try {
+    const result = await cancelDeliveryOnePickup(pickupId);
+    return {
+      status: "cancelled",
+      message: result.message || createPickupCancelledMessage(pickupId),
+      timelineLabel: "Pickup cancelled",
+      shouldPersist: true,
+    };
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : "Delhivery pickup cancellation failed.";
+    return {
+      status: "failed",
+      message: createPickupCancellationFailureMessage(pickupId, reason),
+      timelineLabel: "Pickup cancellation failed",
+      shouldPersist: true,
+    };
+  }
+};
+
+const applyPickupCancellationPayload = (payload: Record<string, unknown>, status?: PickupCancellationStatus, message?: string) => {
+  if (!status) return;
+  payload["delivery.pickupCancellationStatus"] = status;
+  payload["delivery.pickupCancellationReason"] = message || FieldValue.delete();
+
+  if (status === "cancelled") {
+    payload["delivery.pickupCancelledAt"] = FieldValue.serverTimestamp();
+    payload["delivery.pickupCancellationMarkedAt"] = FieldValue.delete();
+    return;
+  }
+
+  if (status === "failed") {
+    payload["delivery.pickupCancellationMarkedAt"] = FieldValue.serverTimestamp();
+    return;
+  }
+
+  payload["delivery.pickupCancellationMarkedAt"] = FieldValue.delete();
+};
 
 export default async function handler(request: ApiRequest, response: ApiResponse) {
   if (!requirePost(request, response)) return;
@@ -64,32 +117,30 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     const order = orderSnapshot.data() as OrderSnapshot;
     const pickupId = getString(order.delivery?.pickupId).trim();
     const currentPickupCancellationStatus = getString(order.delivery?.pickupCancellationStatus).trim();
-    const needsManualPickupCancellation = shouldMarkPickupCancellationRequired(pickupId, currentPickupCancellationStatus);
-    const pickupCancellationMessage = needsManualPickupCancellation ? createPickupCancellationMessage(pickupId) : "";
 
     if (order.status === "cancelled") {
-      if (needsManualPickupCancellation) {
-        await orderSnapshot.ref.update({
-          "delivery.pickupCancellationStatus": "manual-required",
-          "delivery.pickupCancellationReason": pickupCancellationMessage,
-          "delivery.pickupCancellationMarkedAt": FieldValue.serverTimestamp(),
-          updatedAt: FieldValue.serverTimestamp(),
-          timeline: FieldValue.arrayUnion(createTimelineEvent(
+      const pickupCancellation = await getPickupCancellationResult(pickupId, currentPickupCancellationStatus);
+      if (pickupCancellation.shouldPersist) {
+        const payload: Record<string, unknown> = { updatedAt: FieldValue.serverTimestamp() };
+        applyPickupCancellationPayload(payload, pickupCancellation.status, pickupCancellation.message);
+        if (pickupCancellation.status !== "not-required" && pickupCancellation.timelineLabel && pickupCancellation.message) {
+          payload.timeline = FieldValue.arrayUnion(createTimelineEvent(
             "cancelled",
-            "Pickup cancellation needed",
-            pickupCancellationMessage,
+            pickupCancellation.timelineLabel,
+            pickupCancellation.message,
             decoded.uid,
-          )),
-        });
+          ));
+        }
+        await orderSnapshot.ref.update(payload);
       }
 
       sendJson(response, 200, {
         ok: true,
         orderId,
         cancellationStatus: "approved",
-        pickupCancellationStatus: needsManualPickupCancellation ? "manual-required" : currentPickupCancellationStatus,
-        pickupCancellationMessage: pickupCancellationMessage || undefined,
-        message: pickupCancellationMessage || "Order is already cancelled.",
+        pickupCancellationStatus: pickupCancellation.status || currentPickupCancellationStatus || undefined,
+        pickupCancellationMessage: pickupCancellation.message || undefined,
+        message: pickupCancellation.message || "Order is already cancelled.",
       });
       return;
     }
@@ -101,6 +152,7 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     const hadCustomerRequest = getCancellationStatus(order) === "requested";
     const waybill = getString(order.delivery?.trackingNumber).trim();
     const providerResult = waybill ? await cancelDeliveryOneShipment(waybill) : null;
+    const pickupCancellation = await getPickupCancellationResult(pickupId, currentPickupCancellationStatus);
     const timelineEvents = [createTimelineEvent(
       "cancelled",
       orderStatusLabels.cancelled,
@@ -108,11 +160,11 @@ export default async function handler(request: ApiRequest, response: ApiResponse
       decoded.uid,
     )];
 
-    if (needsManualPickupCancellation) {
+    if (pickupCancellation.status !== "not-required" && pickupCancellation.timelineLabel && pickupCancellation.message) {
       timelineEvents.push(createTimelineEvent(
         "cancelled",
-        "Pickup cancellation needed",
-        pickupCancellationMessage,
+        pickupCancellation.timelineLabel,
+        pickupCancellation.message,
         decoded.uid,
       ));
     }
@@ -131,11 +183,7 @@ export default async function handler(request: ApiRequest, response: ApiResponse
       timeline: FieldValue.arrayUnion(...timelineEvents),
     };
 
-    if (needsManualPickupCancellation) {
-      payload["delivery.pickupCancellationStatus"] = "manual-required";
-      payload["delivery.pickupCancellationReason"] = pickupCancellationMessage;
-      payload["delivery.pickupCancellationMarkedAt"] = FieldValue.serverTimestamp();
-    }
+    applyPickupCancellationPayload(payload, pickupCancellation.status, pickupCancellation.message);
 
     if (providerResult?.providerStatus) payload["delivery.providerStatus"] = providerResult.providerStatus;
     if (providerResult?.providerStatusType) payload["delivery.providerStatusType"] = providerResult.providerStatusType;
@@ -149,9 +197,9 @@ export default async function handler(request: ApiRequest, response: ApiResponse
       cancellationStatus: "approved",
       providerCancelled: Boolean(waybill),
       providerStatus: providerResult?.providerStatus,
-      pickupCancellationStatus: needsManualPickupCancellation ? "manual-required" : undefined,
-      pickupCancellationMessage: pickupCancellationMessage || undefined,
-      message: pickupCancellationMessage || (waybill ? "Order cancelled and Delhivery cancellation was requested." : "Order cancelled. No Delhivery waybill was present."),
+      pickupCancellationStatus: pickupCancellation.status,
+      pickupCancellationMessage: pickupCancellation.message,
+      message: pickupCancellation.message || (waybill ? "Order cancelled and Delhivery cancellation was requested." : "Order cancelled. No Delhivery waybill was present."),
     });
   } catch (error) {
     console.error("Unable to approve order cancellation", error);

@@ -1,5 +1,6 @@
 import { describe, expect, it, beforeEach, afterEach } from "vitest";
 import {
+  createDeliveryOneCancelPickupRequest,
   createDeliveryOneCancelShipmentRequest,
   createDeliveryOneCreateShipmentRequest,
   createDeliveryOneLabelRequest,
@@ -128,6 +129,19 @@ describe("Delhivery Delivery One API mapping", () => {
       "Content-Type": "application/json",
     });
     expect(JSON.parse(request.init.body)).toEqual({ waybill: "1234567890123", cancellation: "true" });
+  });
+
+  it("creates a Delhivery pickup cancellation request from a pickup ID", () => {
+    const request = createDeliveryOneCancelPickupRequest("PICKUP-123");
+
+    expect(request.url).toBe("https://track.delhivery.com/fm/request/cancel/");
+    expect(request.init.method).toBe("POST");
+    expect(request.init.headers).toMatchObject({
+      Accept: "application/json",
+      Authorization: "Token token_test_123",
+      "Content-Type": "application/json",
+    });
+    expect(JSON.parse(request.init.body || "{}")).toEqual({ pickup_id: "PICKUP-123" });
   });
 
   it("creates a Delhivery label request with the requested PDF size", () => {

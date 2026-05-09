@@ -21,6 +21,7 @@ import {
   DELIVERY_LIFECYCLE_STATUS_LABELS,
   DELIVERY_SYNC_STATUS_LABELS,
   approveOrderCancellation,
+  cancelDeliveryOnePickup,
   filterAdminOrders,
   formatAccountDate,
   formatAccountDateTime,
@@ -112,6 +113,7 @@ const AdminOrders = () => {
   const [refreshingTracking, setRefreshingTracking] = useState(false);
   const [printingLabel, setPrintingLabel] = useState(false);
   const [schedulingPickup, setSchedulingPickup] = useState(false);
+  const [cancellingPickup, setCancellingPickup] = useState(false);
   const [labelPdfSize, setLabelPdfSize] = useState<"A4" | "4R">("A4");
   const [pickupDate, setPickupDate] = useState(getDefaultPickupDateInput());
   const [pickupTime, setPickupTime] = useState("10:00:00");
@@ -178,7 +180,7 @@ const AdminOrders = () => {
   const isTerminalOrder = Boolean(selectedOrder && ["delivered", "cancelled", "returned"].includes(selectedOrder.status));
   const canUseDeliveryOneFulfillment = hasDeliveryWaybill && !isTerminalOrder;
   const pickupCancellationStatus = selectedOrder?.delivery?.pickupCancellationStatus || "";
-  const needsManualPickupCancellation = Boolean(
+  const needsPickupCancellationAttention = Boolean(
     selectedOrder?.delivery?.pickupId
     && selectedOrder.status === "cancelled"
     && pickupCancellationStatus !== "cancelled"
@@ -410,6 +412,29 @@ const AdminOrders = () => {
     }
   };
 
+  const handleCancelPickup = async () => {
+    if (!selectedOrder || !user) return;
+    if (!selectedOrder.delivery?.pickupId) {
+      toast({ title: "No pickup booked", description: "This order does not have a Delhivery pickup request to cancel.", variant: "destructive" });
+      return;
+    }
+    setCancellingPickup(true);
+    try {
+      const idToken = await user.getIdToken();
+      const result = await cancelDeliveryOnePickup(idToken, selectedOrder.id);
+      toast({
+        title: result.pickupCancellationStatus === "cancelled" ? "Pickup cancelled" : "Pickup cancellation updated",
+        description: result.pickupCancellationMessage || result.message || selectedOrder.delivery.pickupId,
+        variant: result.pickupCancellationStatus === "failed" ? "destructive" : undefined,
+      });
+    } catch (error) {
+      console.error("Unable to cancel Delivery One pickup", error);
+      toast({ title: "Pickup cancellation failed", description: error instanceof Error ? error.message : "Try again after checking the order status.", variant: "destructive" });
+    } finally {
+      setCancellingPickup(false);
+    }
+  };
+
   const handleApproveCancellation = async () => {
     if (!selectedOrder || !user) return;
 
@@ -422,8 +447,9 @@ const AdminOrders = () => {
           console.error("Cancellation was approved but status automations could not be sent", notificationError);
         });
       toast({
-        title: result.pickupCancellationStatus === "manual-required" ? "Cancellation approved, pickup needs action" : "Cancellation approved",
+        title: result.pickupCancellationStatus === "failed" ? "Cancellation approved, pickup retry needed" : "Cancellation approved",
         description: result.pickupCancellationMessage || result.message || selectedOrder.orderNumber || selectedOrder.id,
+        variant: result.pickupCancellationStatus === "failed" ? "destructive" : undefined,
       });
     } catch (error) {
       console.error("Unable to approve cancellation", error);
@@ -780,11 +806,21 @@ const AdminOrders = () => {
                   </p>
                 )}
 
-                {needsManualPickupCancellation && (
-                  <p data-testid="pickup-cancellation-warning" className="mt-3 rounded-lg border border-destructive/20 bg-destructive/10 p-3 font-body text-xs leading-relaxed text-destructive">
-                    Pickup request {selectedOrder.delivery?.pickupId}{" "}
-                    may still show Scheduled in Delhivery One. Cancel it from Delhivery One &gt; Pickup Requests if no other AWBs are attached.
+                {selectedOrder.delivery?.pickupId && pickupCancellationStatus === "cancelled" && (
+                  <p data-testid="pickup-cancelled-status" className="mt-3 rounded-lg border border-emerald-500/20 bg-emerald-500/10 p-3 font-body text-xs leading-relaxed text-emerald-700">
+                    Pickup request {selectedOrder.delivery.pickupId} was cancelled from the Javani dashboard.
                   </p>
+                )}
+
+                {needsPickupCancellationAttention && (
+                  <div data-testid="pickup-cancellation-warning" className="mt-3 rounded-lg border border-destructive/20 bg-destructive/10 p-3 font-body text-xs leading-relaxed text-destructive">
+                    <p>
+                      Pickup request {selectedOrder.delivery?.pickupId} still needs cancellation. Retry it from this dashboard so the admin does not need to open Delhivery One.
+                    </p>
+                    <button type="button" onClick={handleCancelPickup} disabled={cancellingPickup} className="mt-3 inline-flex items-center justify-center gap-2 rounded-sm bg-destructive px-3 py-2 font-display text-[11px] font-semibold tracking-[0.08em] text-destructive-foreground transition-colors hover:bg-destructive/90 disabled:cursor-not-allowed disabled:opacity-60">
+                      <RefreshCw className={`h-3.5 w-3.5 ${cancellingPickup ? "animate-spin" : ""}`} /> {cancellingPickup ? "Cancelling..." : "Cancel Pickup"}
+                    </button>
+                  </div>
                 )}
 
                 {selectedOrder.delivery?.labelUrl && (

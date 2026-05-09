@@ -2,6 +2,7 @@ import { getFirebaseAdminAuth, getFirebaseAdminDb, FieldValue } from "../_lib/fi
 import { getBearerToken, readJsonBody, requirePost, sendError, sendJson, type ApiRequest, type ApiResponse } from "../_lib/http.js";
 import {
   assertDeliveryOneEligible,
+  cancelDeliveryOnePickup,
   createDeliveryOneShipmentPayload,
   fetchDeliveryOneLabelUrl,
   hasDeliveryOneApiConfig,
@@ -12,7 +13,7 @@ import {
 
 interface SyncDeliveryBody {
   orderId?: string;
-  action?: "sync" | "label" | "pickup";
+  action?: "sync" | "label" | "pickup" | "cancel-pickup";
   pdfSize?: string;
   pickupDate?: string;
   pickupTime?: string;
@@ -46,7 +47,7 @@ export default async function handler(request: ApiRequest, response: ApiResponse
   try {
     const body = await readJsonBody<SyncDeliveryBody>(request);
     const orderId = getString(body.orderId).trim();
-    const action = getString(body.action, "sync") as "sync" | "label" | "pickup";
+    const action = getString(body.action, "sync") as "sync" | "label" | "pickup" | "cancel-pickup";
     if (!orderId) {
       sendError(response, 400, "orderId is required.");
       return;
@@ -70,8 +71,75 @@ export default async function handler(request: ApiRequest, response: ApiResponse
 
     const order = orderSnapshot.data() || {};
 
-    if (action === "label" || action === "pickup") {
+    if (action === "label" || action === "pickup" || action === "cancel-pickup") {
       const delivery = getRecord(order.delivery);
+
+      if (action === "cancel-pickup") {
+        if (getString(order.status) !== "cancelled") {
+          sendError(response, 409, "Pickup cancellation is only available after the order is cancelled.");
+          return;
+        }
+
+        const pickupId = getString(delivery.pickupId).trim();
+        if (!pickupId) {
+          await orderSnapshot.ref.update({
+            "delivery.pickupCancellationStatus": "not-required",
+            "delivery.pickupCancellationReason": FieldValue.delete(),
+            updatedAt: FieldValue.serverTimestamp(),
+          });
+          sendJson(response, 200, { ok: true, orderId, pickupCancellationStatus: "not-required", message: "No Delhivery pickup request was booked for this order." });
+          return;
+        }
+
+        const currentPickupCancellationStatus = getString(delivery.pickupCancellationStatus).trim();
+        if (currentPickupCancellationStatus === "cancelled" || currentPickupCancellationStatus === "not-required") {
+          sendJson(response, 200, {
+            ok: true,
+            orderId,
+            pickupId,
+            pickupCancellationStatus: currentPickupCancellationStatus,
+            message: currentPickupCancellationStatus === "cancelled" ? "Pickup is already cancelled from Javani dashboard." : "No pickup cancellation is required for this order.",
+          });
+          return;
+        }
+
+        try {
+          const pickupResult = await cancelDeliveryOnePickup(pickupId);
+          const message = `Pickup request ${pickupId} was cancelled from Javani dashboard.`;
+          await orderSnapshot.ref.update({
+            "delivery.pickupCancellationStatus": "cancelled",
+            "delivery.pickupCancellationReason": pickupResult.message || message,
+            "delivery.pickupCancelledAt": FieldValue.serverTimestamp(),
+            "delivery.pickupCancellationMarkedAt": FieldValue.delete(),
+            updatedAt: FieldValue.serverTimestamp(),
+            timeline: FieldValue.arrayUnion(createTimelineEvent(
+              order,
+              "Pickup cancelled",
+              message,
+              decoded.uid,
+            )),
+          });
+          sendJson(response, 200, { ok: true, orderId, pickupId, pickupCancellationStatus: "cancelled", message });
+        } catch (pickupError) {
+          const reason = pickupError instanceof Error ? pickupError.message : "Delhivery pickup cancellation failed.";
+          const message = `Pickup request ${pickupId} cancellation failed: ${reason}`;
+          await orderSnapshot.ref.update({
+            "delivery.pickupCancellationStatus": "failed",
+            "delivery.pickupCancellationReason": message,
+            "delivery.pickupCancellationMarkedAt": FieldValue.serverTimestamp(),
+            updatedAt: FieldValue.serverTimestamp(),
+            timeline: FieldValue.arrayUnion(createTimelineEvent(
+              order,
+              "Pickup cancellation failed",
+              `${message}. Retry from the Javani dashboard.`,
+              decoded.uid,
+            )),
+          });
+          sendJson(response, 200, { ok: true, orderId, pickupId, pickupCancellationStatus: "failed", pickupCancellationMessage: message, message });
+        }
+        return;
+      }
+
       const waybill = getString(delivery.trackingNumber).trim();
       if (!waybill) {
         sendError(response, 400, "This order does not have a Delhivery waybill yet. Manifest the shipment first.");

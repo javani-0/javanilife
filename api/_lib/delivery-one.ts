@@ -110,6 +110,12 @@ interface DeliveryOnePickupRequest extends DeliveryOneRequest {
   expectedPackageCount: number;
 }
 
+export interface DeliveryOnePickupCancellationResult {
+  pickupId: string;
+  message: string;
+  rawResponse: unknown;
+}
+
 const PRODUCTION_BASE_URL = "https://track.delhivery.com";
 const STAGING_BASE_URL = "https://staging-express.delhivery.com";
 const DEFAULT_COUNTRY = "India";
@@ -166,6 +172,11 @@ const getDeliveryOneEditOrderUrl = () => getFirstEnvValue([
   "DELIVERY_ONE_EDIT_ORDER_URL",
   "DELHIVERY_EDIT_ORDER_URL",
 ]) || `${getDeliveryOneBaseUrl()}/api/p/edit`;
+
+const getDeliveryOneCancelPickupUrl = () => getFirstEnvValue([
+  "DELIVERY_ONE_CANCEL_PICKUP_URL",
+  "DELHIVERY_CANCEL_PICKUP_URL",
+]) || `${getDeliveryOneBaseUrl()}/fm/request/cancel/`;
 
 const getDeliveryOneTrackingApiUrl = (waybill: string, orderReference = "") => {
   const configuredUrl = getFirstEnvValue(["DELIVERY_ONE_TRACKING_API_URL", "DELHIVERY_TRACKING_API_URL"])
@@ -400,6 +411,25 @@ export const createDeliveryOneCancelShipmentRequest = (waybill: string): Deliver
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ waybill: cleanWaybill, cancellation: "true" }),
+    },
+  };
+};
+
+export const createDeliveryOneCancelPickupRequest = (pickupId: string): DeliveryOneRequest => {
+  const token = requireDeliveryOneApiToken();
+  const cleanPickupId = sanitizeDelhiveryText(pickupId);
+  if (!cleanPickupId) throw new Error("A Delhivery pickup request ID is required to cancel a pickup.");
+
+  return {
+    url: getDeliveryOneCancelPickupUrl(),
+    init: {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        Authorization: `Token ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ pickup_id: cleanPickupId }),
     },
   };
 };
@@ -755,6 +785,25 @@ export const cancelDeliveryOneShipment = async (waybill: string): Promise<Delive
     orderStatus: update.orderStatus || "cancelled",
     lifecycleStatus: update.lifecycleStatus || "cancelled",
     providerStatus: update.providerStatus || "Cancellation requested",
+    rawResponse: data,
+  };
+};
+
+export const cancelDeliveryOnePickup = async (pickupId: string): Promise<DeliveryOnePickupCancellationResult> => {
+  const request = createDeliveryOneCancelPickupRequest(pickupId);
+  const response = await fetch(request.url, request.init);
+  const data = await response.json().catch(() => ({}));
+
+  if (!response.ok || isDeliveryOneOperationFailed(data)) {
+    throw new Error(getDeliveryOneErrorMessage(data) || "Delhivery pickup cancellation failed.");
+  }
+
+  const root = getRecord(data);
+  const message = getString(root.message || root.status || "Pickup cancellation requested");
+
+  return {
+    pickupId: sanitizeDelhiveryText(pickupId),
+    message,
     rawResponse: data,
   };
 };

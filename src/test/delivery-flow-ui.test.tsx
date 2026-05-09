@@ -150,6 +150,8 @@ describe("Delivery flow UI", () => {
           pickupId: "PICKUP-1",
           pickupDate: "2026-05-10",
           providerStatus: "Cancellation requested",
+          pickupCancellationStatus: "failed",
+          pickupCancellationReason: "Pickup request PICKUP-1 cancellation failed.",
         }),
         status: "cancelled",
         cancellation: {
@@ -167,7 +169,8 @@ describe("Delivery flow UI", () => {
     expect(screen.getByRole("button", { name: /Print Label/i })).toBeDisabled();
     expect(screen.getByRole("button", { name: /Pickup Booked/i })).toBeDisabled();
     expect(screen.queryByLabelText("Pickup date")).not.toBeInTheDocument();
-    expect(screen.getByTestId("pickup-cancellation-warning")).toHaveTextContent("Pickup request PICKUP-1 may still show Scheduled in Delhivery One");
+    expect(screen.getByTestId("pickup-cancellation-warning")).toHaveTextContent("Retry it from this dashboard");
+    expect(screen.getByRole("button", { name: /Cancel Pickup/i })).toBeInTheDocument();
     expect(screen.getByText("Open saved shipping label")).toBeInTheDocument();
   });
 
