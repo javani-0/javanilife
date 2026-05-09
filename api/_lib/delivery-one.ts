@@ -116,6 +116,8 @@ export interface DeliveryOnePickupCancellationResult {
   rawResponse: unknown;
 }
 
+export type DeliveryOnePickupRequestStatus = "booked" | "id-missing";
+
 const PRODUCTION_BASE_URL = "https://track.delhivery.com";
 const STAGING_BASE_URL = "https://staging-express.delhivery.com";
 const DEFAULT_COUNTRY = "India";
@@ -210,6 +212,52 @@ const sanitizeDelhiveryText = (value: unknown, fallback = "") => {
 };
 
 const sanitizeDigits = (value: unknown) => getString(value).replace(/\D/g, "");
+
+const normalizeObjectKey = (key: string) => key.toLowerCase().replace(/[^a-z0-9]/g, "");
+
+export const isDeliveryOnePickupPlaceholderId = (pickupId: unknown) => getString(pickupId).trim().toLowerCase().startsWith("requested-");
+
+export const isUsableDeliveryOnePickupId = (pickupId: unknown) => Boolean(getString(pickupId).trim()) && !isDeliveryOnePickupPlaceholderId(pickupId);
+
+export const extractDeliveryOnePickupId = (data: unknown): string => {
+  const seen = new Set<unknown>();
+  const visit = (value: unknown): string => {
+    if (!value || seen.has(value)) return "";
+    if (typeof value !== "object") return "";
+    seen.add(value);
+
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        const found = visit(item);
+        if (found) return found;
+      }
+      return "";
+    }
+
+    const record = getRecord(value);
+    for (const [key, rawValue] of Object.entries(record)) {
+      const normalizedKey = normalizeObjectKey(key);
+      const isPickupIdKey = normalizedKey === "pickupid"
+        || normalizedKey === "pickuprequestid"
+        || normalizedKey === "pickuprequestnumber"
+        || normalizedKey === "purid";
+      if (isPickupIdKey) {
+        const candidate = typeof rawValue === "number" && Number.isFinite(rawValue)
+          ? String(rawValue)
+          : sanitizeDelhiveryText(rawValue);
+        if (candidate) return candidate;
+      }
+    }
+
+    for (const rawValue of Object.values(record)) {
+      const found = visit(rawValue);
+      if (found) return found;
+    }
+    return "";
+  };
+
+  return visit(data);
+};
 
 const sanitizePhone = (value: unknown) => {
   const digits = sanitizeDigits(value);
@@ -825,7 +873,7 @@ export const trackDeliveryOneShipment = async (waybill: string, orderReference =
   return update;
 };
 
-export const scheduleDeliveryOnePickup = async (waybill: string, options: DeliveryOnePickupOptions = {}): Promise<{ pickupId: string; pickupDate: string; pickupTime: string; pickupLocation: string; expectedPackageCount: number; message: string }> => {
+export const scheduleDeliveryOnePickup = async (waybill: string, options: DeliveryOnePickupOptions = {}): Promise<{ pickupId: string; pickupDate: string; pickupTime: string; pickupLocation: string; expectedPackageCount: number; message: string; pickupRequestStatus: DeliveryOnePickupRequestStatus; rawResponse: unknown }> => {
   const request = createDeliveryOnePickupRequest(waybill, options);
   const response = await fetch(request.url, request.init);
 
@@ -838,8 +886,13 @@ export const scheduleDeliveryOnePickup = async (waybill: string, options: Delive
   }
 
   const root = getRecord(data);
-  const pickupId = getString(root.pickup_id || root.id || root.pickupId || "");
+  const pickupId = extractDeliveryOnePickupId(data);
   const message = getString(root.message || root.status || "Pickup scheduled");
+  const pickupRequestStatus: DeliveryOnePickupRequestStatus = pickupId ? "booked" : "id-missing";
+
+  if (!pickupId) {
+    console.error("[Delhivery] pickup creation returned no pickup ID. Response body:", JSON.stringify(data));
+  }
 
   return {
     pickupId,
@@ -848,6 +901,8 @@ export const scheduleDeliveryOnePickup = async (waybill: string, options: Delive
     pickupLocation: request.pickupLocation,
     expectedPackageCount: request.expectedPackageCount,
     message,
+    pickupRequestStatus,
+    rawResponse: data,
   };
 };
 

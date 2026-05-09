@@ -139,6 +139,27 @@ describe("Delivery flow UI", () => {
     expect(screen.queryByLabelText("Pickup date")).not.toBeInTheDocument();
   });
 
+  it("does not treat placeholder pickup IDs as booked pickups", async () => {
+    firestoreState.orders = [{
+      id: "order-1",
+      data: createOrder({
+        lifecycleStatus: "ready-for-pickup",
+        trackingNumber: "1234567890123",
+        pickupId: "requested-2026-05-10",
+        pickupRequestStatus: "id-missing",
+        pickupRequestMessage: "Delhivery did not return a pickup ID.",
+      }),
+    }];
+
+    render(<AdminOrders />);
+
+    expect(await screen.findByText("Manifest Order")).toBeInTheDocument();
+    expect(screen.getByText("Ready to Ship")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Pickup ID Missing/i })).toBeDisabled();
+    expect(screen.getByTestId("pickup-id-missing-warning")).toHaveTextContent("does not have a real Delhivery pickup ID");
+    expect(screen.queryByText(/Pickup booked:/i)).not.toBeInTheDocument();
+  });
+
   it("locks admin fulfillment controls for cancelled synced orders", async () => {
     firestoreState.orders = [{
       id: "order-1",

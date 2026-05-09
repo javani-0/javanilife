@@ -1,6 +1,6 @@
 import { getFirebaseAdminAuth, getFirebaseAdminDb, FieldValue } from "../_lib/firebase-admin.js";
 import { getBearerToken, readJsonBody, requirePost, sendError, sendJson, type ApiRequest, type ApiResponse } from "../_lib/http.js";
-import { cancelDeliveryOnePickup, cancelDeliveryOneShipment } from "../_lib/delivery-one.js";
+import { cancelDeliveryOnePickup, cancelDeliveryOneShipment, isUsableDeliveryOnePickupId } from "../_lib/delivery-one.js";
 import {
   createTimelineEvent,
   getCancellationStatus,
@@ -23,13 +23,22 @@ const pickupCancellationClosedStatuses = new Set(["cancelled", "not-required"]);
 const createPickupCancelledMessage = (pickupId: string) => `Pickup request ${pickupId} was cancelled from Javani dashboard.`;
 const createPickupCancellationFailureMessage = (pickupId: string, reason: string) => `Pickup request ${pickupId} cancellation failed: ${reason}. Retry from the Javani dashboard.`;
 
-const getPickupCancellationResult = async (pickupId: string, currentStatus: string): Promise<{
+const getPickupCancellationResult = async (pickupId: string, currentStatus: string, pickupRequestStatus = ""): Promise<{
   status?: PickupCancellationStatus;
   message?: string;
   timelineLabel?: string;
   shouldPersist: boolean;
 }> => {
-  if (!pickupId) {
+  if (!isUsableDeliveryOnePickupId(pickupId)) {
+    if (pickupRequestStatus === "id-missing") {
+      return {
+        status: "failed",
+        message: "Javani does not have a real Delhivery pickup ID for this pickup request, so it cannot cancel the pickup slot from the dashboard. Future pickup requests will no longer be saved without a real Delhivery ID.",
+        timelineLabel: "Pickup cancellation skipped",
+        shouldPersist: true,
+      };
+    }
+
     return {
       status: currentStatus === "not-required" ? undefined : "not-required",
       message: "No Delhivery pickup request was booked for this order.",
@@ -116,10 +125,11 @@ export default async function handler(request: ApiRequest, response: ApiResponse
 
     const order = orderSnapshot.data() as OrderSnapshot;
     const pickupId = getString(order.delivery?.pickupId).trim();
+    const pickupRequestStatus = getString(order.delivery?.pickupRequestStatus).trim();
     const currentPickupCancellationStatus = getString(order.delivery?.pickupCancellationStatus).trim();
 
     if (order.status === "cancelled") {
-      const pickupCancellation = await getPickupCancellationResult(pickupId, currentPickupCancellationStatus);
+      const pickupCancellation = await getPickupCancellationResult(pickupId, currentPickupCancellationStatus, pickupRequestStatus);
       if (pickupCancellation.shouldPersist) {
         const payload: Record<string, unknown> = { updatedAt: FieldValue.serverTimestamp() };
         applyPickupCancellationPayload(payload, pickupCancellation.status, pickupCancellation.message);
@@ -152,7 +162,7 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     const hadCustomerRequest = getCancellationStatus(order) === "requested";
     const waybill = getString(order.delivery?.trackingNumber).trim();
     const providerResult = waybill ? await cancelDeliveryOneShipment(waybill) : null;
-    const pickupCancellation = await getPickupCancellationResult(pickupId, currentPickupCancellationStatus);
+    const pickupCancellation = await getPickupCancellationResult(pickupId, currentPickupCancellationStatus, pickupRequestStatus);
     const timelineEvents = [createTimelineEvent(
       "cancelled",
       orderStatusLabels.cancelled,

@@ -214,6 +214,7 @@ describe("e-commerce delivery foundation", () => {
     expect(getDeliveryLifecycleStatus(baseOrder)).toBe("pending");
     expect(getDeliveryLifecycleStatus({ ...baseOrder, delivery: { ...baseOrder.delivery, trackingNumber: "1234567890123" } })).toBe("ready-to-ship");
     expect(getDeliveryLifecycleStatus({ ...baseOrder, delivery: { ...baseOrder.delivery, pickupId: "PICKUP-1" } })).toBe("ready-for-pickup");
+    expect(getDeliveryLifecycleStatus({ ...baseOrder, delivery: { ...baseOrder.delivery, pickupId: "requested-2026-05-10", pickupRequestStatus: "id-missing", lifecycleStatus: "ready-for-pickup" } })).toBe("ready-to-ship");
     expect(getDeliveryLifecycleStatus({ ...baseOrder, status: "out-for-delivery" })).toBe("out-for-delivery");
     expect(getDeliveryLifecycleStatus({ ...baseOrder, status: "returned" })).toBe("rto-returned");
   });

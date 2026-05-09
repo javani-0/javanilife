@@ -37,6 +37,7 @@ export interface ProductDeliveryProfile {
 export type DeliveryProvider = "manual" | "delivery-one";
 export type DeliverySyncStatus = "manual-ready" | "pending" | "synced" | "failed";
 export type DeliveryLifecycleStatus = "pending" | "ready-to-ship" | "ready-for-pickup" | "in-transit" | "out-for-delivery" | "delivered" | "cancelled" | "rto-in-transit" | "rto-returned" | "lost" | "ndr";
+export type DeliveryPickupRequestStatus = "booked" | "id-missing";
 export type DeliveryPickupCancellationStatus = "manual-required" | "cancelled" | "not-required" | "failed";
 
 export interface DeliveryPricingSettings {
@@ -141,6 +142,8 @@ export interface DeliveryInfo {
   labelFetchedAt?: unknown;
   manifestedAt?: unknown;
   pickupId?: string;
+  pickupRequestStatus?: DeliveryPickupRequestStatus;
+  pickupRequestMessage?: string;
   pickupDate?: string;
   pickupTime?: string;
   pickupLocation?: string;

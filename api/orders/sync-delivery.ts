@@ -6,6 +6,7 @@ import {
   createDeliveryOneShipmentPayload,
   fetchDeliveryOneLabelUrl,
   hasDeliveryOneApiConfig,
+  isUsableDeliveryOnePickupId,
   normalizeDeliveryOneLabelPdfSize,
   pushDeliveryOneOrder,
   scheduleDeliveryOnePickup,
@@ -81,13 +82,24 @@ export default async function handler(request: ApiRequest, response: ApiResponse
         }
 
         const pickupId = getString(delivery.pickupId).trim();
-        if (!pickupId) {
+        if (!isUsableDeliveryOnePickupId(pickupId)) {
+          const pickupRequestStatus = getString(delivery.pickupRequestStatus).trim();
+          const message = pickupRequestStatus === "id-missing"
+            ? "Javani does not have a real Delhivery pickup ID for this pickup request, so it cannot cancel the pickup slot from the dashboard. Future pickup requests will no longer be saved without a real Delhivery ID."
+            : "No Delhivery pickup request was booked for this order.";
           await orderSnapshot.ref.update({
-            "delivery.pickupCancellationStatus": "not-required",
-            "delivery.pickupCancellationReason": FieldValue.delete(),
+            "delivery.pickupId": FieldValue.delete(),
+            "delivery.pickupCancellationStatus": pickupRequestStatus === "id-missing" ? "failed" : "not-required",
+            "delivery.pickupCancellationReason": pickupRequestStatus === "id-missing" ? message : FieldValue.delete(),
             updatedAt: FieldValue.serverTimestamp(),
           });
-          sendJson(response, 200, { ok: true, orderId, pickupCancellationStatus: "not-required", message: "No Delhivery pickup request was booked for this order." });
+          sendJson(response, 200, {
+            ok: true,
+            orderId,
+            pickupCancellationStatus: pickupRequestStatus === "id-missing" ? "failed" : "not-required",
+            pickupCancellationMessage: pickupRequestStatus === "id-missing" ? message : undefined,
+            message,
+          });
           return;
         }
 
@@ -167,33 +179,53 @@ export default async function handler(request: ApiRequest, response: ApiResponse
 
       // action === "pickup"
       const existingPickupId = getString(delivery.pickupId).trim();
-      if (existingPickupId) {
+      if (isUsableDeliveryOnePickupId(existingPickupId)) {
         sendJson(response, 200, { ok: true, orderId, pickupId: existingPickupId, message: "Pickup already scheduled for this waybill." });
         return;
       }
-      const { pickupId, pickupDate, pickupTime, pickupLocation, expectedPackageCount, message } = await scheduleDeliveryOnePickup(waybill, {
+      if (existingPickupId) {
+        const message = "This order has an old placeholder pickup ID, not a real Delhivery pickup ID. Javani will not create another pickup request until this state is reviewed.";
+        await orderSnapshot.ref.update({
+          "delivery.pickupId": FieldValue.delete(),
+          "delivery.pickupRequestStatus": "id-missing",
+          "delivery.pickupRequestMessage": message,
+          "delivery.lifecycleStatus": "ready-to-ship",
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+        sendJson(response, 200, { ok: true, orderId, pickupRequestStatus: "id-missing", message });
+        return;
+      }
+      const { pickupId, pickupDate, pickupTime, pickupLocation, expectedPackageCount, message, pickupRequestStatus } = await scheduleDeliveryOnePickup(waybill, {
         pickupDate: body.pickupDate,
         pickupTime: body.pickupTime,
         pickupLocation: body.pickupLocation,
         expectedPackageCount: getNumber(body.expectedPackageCount, 1),
       });
+      const booked = isUsableDeliveryOnePickupId(pickupId);
+      const pickupMessage = booked
+        ? message
+        : "Pickup request was sent to Delhivery, but Delhivery did not return a real pickup ID. Javani did not mark this order as pickup booked, so it will not try to cancel a fake pickup ID later.";
       const pickupOrderRef = db.doc(`orders/${orderId}`);
       await pickupOrderRef.update({
-        "delivery.pickupId": pickupId || `requested-${pickupDate}`,
+        "delivery.pickupId": booked ? pickupId : FieldValue.delete(),
         "delivery.pickupDate": pickupDate,
         "delivery.pickupTime": pickupTime,
         "delivery.pickupLocation": pickupLocation,
         "delivery.expectedPackageCount": expectedPackageCount,
-        "delivery.lifecycleStatus": "ready-for-pickup",
+        "delivery.pickupRequestStatus": pickupRequestStatus,
+        "delivery.pickupRequestMessage": pickupMessage,
+        "delivery.lifecycleStatus": booked ? "ready-for-pickup" : "ready-to-ship",
         updatedAt: FieldValue.serverTimestamp(),
         timeline: FieldValue.arrayUnion(createTimelineEvent(
           order,
-          "Pickup scheduled",
-          `Delhivery pickup scheduled for ${pickupDate} at ${pickupTime}${pickupId ? ` (ID: ${pickupId})` : ""}.`,
+          booked ? "Pickup scheduled" : "Pickup ID missing",
+          booked
+            ? `Delhivery pickup scheduled for ${pickupDate} at ${pickupTime} (ID: ${pickupId}).`
+            : pickupMessage,
           decoded.uid,
         )),
       });
-      sendJson(response, 200, { ok: true, orderId, pickupId, pickupDate, pickupTime, pickupLocation, expectedPackageCount, message });
+      sendJson(response, 200, { ok: true, orderId, pickupId: booked ? pickupId : undefined, pickupDate, pickupTime, pickupLocation, expectedPackageCount, pickupRequestStatus, message: pickupMessage });
       return;
     }
 

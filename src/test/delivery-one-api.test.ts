@@ -7,6 +7,7 @@ import {
   createDeliveryOnePickupRequest,
   createDeliveryOneTrackingRequest,
   createDeliveryOneShipmentPayload,
+  extractDeliveryOnePickupId,
   extractDeliveryOneTrackingUpdate,
   extractDeliveryOneWebhookUpdate,
   extractDeliveryOneProviderResult,
@@ -172,6 +173,13 @@ describe("Delhivery Delivery One API mapping", () => {
       expected_package_count: 3,
       pickup_location: "Javani Warehouse",
     });
+  });
+
+  it("extracts Delhivery pickup IDs from nested pickup responses", () => {
+    expect(extractDeliveryOnePickupId({ pickup_id: "289736613" })).toBe("289736613");
+    expect(extractDeliveryOnePickupId({ data: { pickup_request_id: 289736613 } })).toBe("289736613");
+    expect(extractDeliveryOnePickupId({ results: [{ pur_id: "289736613" }] })).toBe("289736613");
+    expect(extractDeliveryOnePickupId({ success: true, message: "Pickup scheduled" })).toBe("");
   });
 
   it("creates a Delhivery tracking request and extracts the latest shipment update", () => {

@@ -95,6 +95,9 @@ type DeleteToastHandle = {
 
 type UndoSource = "toast" | "inline";
 
+const isPlaceholderPickupId = (pickupId?: string) => (pickupId || "").trim().toLowerCase().startsWith("requested-");
+const isRealPickupId = (pickupId?: string) => Boolean((pickupId || "").trim()) && !isPlaceholderPickupId(pickupId);
+
 const AdminOrders = () => {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -179,10 +182,14 @@ const AdminOrders = () => {
   const hasDeliveryWaybill = Boolean(selectedOrder?.delivery?.trackingNumber);
   const isTerminalOrder = Boolean(selectedOrder && ["delivered", "cancelled", "returned"].includes(selectedOrder.status));
   const canUseDeliveryOneFulfillment = hasDeliveryWaybill && !isTerminalOrder;
+  const selectedPickupId = selectedOrder?.delivery?.pickupId || "";
+  const hasRealPickupId = isRealPickupId(selectedPickupId);
+  const hasPlaceholderPickupId = isPlaceholderPickupId(selectedPickupId);
+  const hasPickupRequestMissingId = selectedOrder?.delivery?.pickupRequestStatus === "id-missing" || hasPlaceholderPickupId;
   const pickupCancellationStatus = selectedOrder?.delivery?.pickupCancellationStatus || "";
   const needsPickupCancellationAttention = Boolean(
-    selectedOrder?.delivery?.pickupId
-    && selectedOrder.status === "cancelled"
+    hasRealPickupId
+    && selectedOrder?.status === "cancelled"
     && pickupCancellationStatus !== "cancelled"
     && pickupCancellationStatus !== "not-required",
   );
@@ -403,7 +410,11 @@ const AdminOrders = () => {
         pickupLocation: pickupLocation.trim() || undefined,
         expectedPackageCount: Number(expectedPackageCount) || 1,
       });
-      toast({ title: "Pickup scheduled", description: result.message || `Pickup date: ${result.pickupDate || "pending"}` });
+      toast({
+        title: result.pickupRequestStatus === "id-missing" ? "Pickup ID missing" : "Pickup scheduled",
+        description: result.message || `Pickup date: ${result.pickupDate || "pending"}`,
+        variant: result.pickupRequestStatus === "id-missing" ? "destructive" : undefined,
+      });
     } catch (error) {
       console.error("Unable to schedule Delivery One pickup", error);
       toast({ title: "Pickup scheduling failed", description: error instanceof Error ? error.message : "Try again or schedule from Delhivery dashboard.", variant: "destructive" });
@@ -414,8 +425,8 @@ const AdminOrders = () => {
 
   const handleCancelPickup = async () => {
     if (!selectedOrder || !user) return;
-    if (!selectedOrder.delivery?.pickupId) {
-      toast({ title: "No pickup booked", description: "This order does not have a Delhivery pickup request to cancel.", variant: "destructive" });
+    if (!hasRealPickupId) {
+      toast({ title: "No real pickup ID", description: "Javani does not have a real Delhivery pickup ID for this order, so it will not send a fake cancellation request.", variant: "destructive" });
       return;
     }
     setCancellingPickup(true);
@@ -725,10 +736,10 @@ const AdminOrders = () => {
                     <button
                       type="button"
                       onClick={handleSchedulePickup}
-                      disabled={schedulingPickup || !canUseDeliveryOneFulfillment || Boolean(selectedOrder.delivery?.pickupId)}
+                      disabled={schedulingPickup || !canUseDeliveryOneFulfillment || hasRealPickupId || hasPickupRequestMissingId}
                       className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-sm border border-gold/35 px-4 font-display text-xs font-semibold tracking-[0.08em] text-gold transition-colors hover:bg-gold/10 disabled:cursor-not-allowed disabled:opacity-60"
                     >
-                      <PackagePlus className={`h-4 w-4 ${schedulingPickup ? "animate-pulse" : ""}`} /> {schedulingPickup ? "Scheduling" : selectedOrder.delivery?.pickupId ? "Pickup Booked" : "Create Pickup"}
+                      <PackagePlus className={`h-4 w-4 ${schedulingPickup ? "animate-pulse" : ""}`} /> {schedulingPickup ? "Scheduling" : hasRealPickupId ? "Pickup Booked" : hasPickupRequestMissingId ? "Pickup ID Missing" : "Create Pickup"}
                     </button>
                   </div>
                 </div>
@@ -797,25 +808,31 @@ const AdminOrders = () => {
                   </p>
                 )}
 
-                {selectedOrder.delivery?.pickupId && (
+                {hasRealPickupId && (
                   <p className="mt-3 rounded-lg border border-gold/20 bg-card p-3 font-body text-xs text-muted-foreground">
-                    Pickup booked: <span className="font-semibold text-foreground">{selectedOrder.delivery.pickupId}</span>
+                    Pickup booked: <span className="font-semibold text-foreground">{selectedPickupId}</span>
                     {selectedOrder.delivery.pickupDate ? ` · ${selectedOrder.delivery.pickupDate}` : ""}
                     {selectedOrder.delivery.pickupTime ? ` · ${selectedOrder.delivery.pickupTime}` : ""}
                     {selectedOrder.delivery.expectedPackageCount ? ` · ${selectedOrder.delivery.expectedPackageCount} package(s)` : ""}
                   </p>
                 )}
 
-                {selectedOrder.delivery?.pickupId && pickupCancellationStatus === "cancelled" && (
+                {hasPickupRequestMissingId && (
+                  <p data-testid="pickup-id-missing-warning" className="mt-3 rounded-lg border border-destructive/20 bg-destructive/10 p-3 font-body text-xs leading-relaxed text-destructive">
+                    Pickup request was sent, but Javani does not have a real Delhivery pickup ID. The order is not marked Pickup Booked, and cancellation will not use the old placeholder ID.
+                  </p>
+                )}
+
+                {hasRealPickupId && pickupCancellationStatus === "cancelled" && (
                   <p data-testid="pickup-cancelled-status" className="mt-3 rounded-lg border border-emerald-500/20 bg-emerald-500/10 p-3 font-body text-xs leading-relaxed text-emerald-700">
-                    Pickup request {selectedOrder.delivery.pickupId} was cancelled from the Javani dashboard.
+                    Pickup request {selectedPickupId} was cancelled from the Javani dashboard.
                   </p>
                 )}
 
                 {needsPickupCancellationAttention && (
                   <div data-testid="pickup-cancellation-warning" className="mt-3 rounded-lg border border-destructive/20 bg-destructive/10 p-3 font-body text-xs leading-relaxed text-destructive">
                     <p>
-                      Pickup request {selectedOrder.delivery?.pickupId} still needs cancellation. Retry it from this dashboard so the admin does not need to open Delhivery One.
+                      Pickup request {selectedPickupId} still needs cancellation. Retry it from this dashboard so the admin does not need to open Delhivery One.
                     </p>
                     <button type="button" onClick={handleCancelPickup} disabled={cancellingPickup} className="mt-3 inline-flex items-center justify-center gap-2 rounded-sm bg-destructive px-3 py-2 font-display text-[11px] font-semibold tracking-[0.08em] text-destructive-foreground transition-colors hover:bg-destructive/90 disabled:cursor-not-allowed disabled:opacity-60">
                       <RefreshCw className={`h-3.5 w-3.5 ${cancellingPickup ? "animate-spin" : ""}`} /> {cancellingPickup ? "Cancelling..." : "Cancel Pickup"}

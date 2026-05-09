@@ -254,13 +254,14 @@ export const canPrepareDeliveryOneSync = (order?: Partial<Order> | null): boolea
 
 export const getDeliveryLifecycleStatus = (order?: Partial<Order> | null): DeliveryLifecycleStatus => {
   if (!order) return "pending";
+  if (order.delivery?.pickupRequestStatus === "id-missing" && order.delivery?.lifecycleStatus === "ready-for-pickup") return "ready-to-ship";
   if (order.delivery?.lifecycleStatus) return order.delivery.lifecycleStatus;
   if (order.status === "delivered") return "delivered";
   if (order.status === "cancelled") return "cancelled";
   if (order.status === "returned") return "rto-returned";
   if (order.status === "out-for-delivery") return "out-for-delivery";
   if (order.status === "shipped") return "in-transit";
-  if (order.delivery?.pickupId) return "ready-for-pickup";
+  if (order.delivery?.pickupId && !order.delivery.pickupId.toLowerCase().startsWith("requested-")) return "ready-for-pickup";
   if (order.delivery?.trackingNumber) return "ready-to-ship";
   return "pending";
 };

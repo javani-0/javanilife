@@ -27,6 +27,7 @@ export interface OrderDeliverySnapshot {
   providerStatus?: string;
   providerStatusType?: string;
   pickupId?: string;
+  pickupRequestStatus?: string;
   pickupCancellationStatus?: string;
 }
 

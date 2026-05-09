@@ -111,6 +111,7 @@ export interface DeliveryOnePickupResponse {
   ok: boolean;
   orderId: string;
   pickupId?: string;
+  pickupRequestStatus?: "booked" | "id-missing";
   pickupDate?: string;
   pickupTime?: string;
   pickupLocation?: string;
