@@ -22,6 +22,7 @@ import {
   DELIVERY_SYNC_STATUS_LABELS,
   approveOrderCancellation,
   cancelDeliveryOnePickup,
+  markDeliveryOnePickupManuallyCancelled,
   filterAdminOrders,
   formatAccountDate,
   formatAccountDateTime,
@@ -117,6 +118,7 @@ const AdminOrders = () => {
   const [printingLabel, setPrintingLabel] = useState(false);
   const [schedulingPickup, setSchedulingPickup] = useState(false);
   const [cancellingPickup, setCancellingPickup] = useState(false);
+  const [markingPickupCancelled, setMarkingPickupCancelled] = useState(false);
   const [labelPdfSize, setLabelPdfSize] = useState<"A4" | "4R">("A4");
   const [pickupDate, setPickupDate] = useState(getDefaultPickupDateInput());
   const [pickupTime, setPickupTime] = useState("10:00:00");
@@ -432,6 +434,21 @@ const AdminOrders = () => {
       toast({ title: "Pickup scheduling failed", description: error instanceof Error ? error.message : "Try again or schedule from Delhivery dashboard.", variant: "destructive" });
     } finally {
       setSchedulingPickup(false);
+    }
+  };
+
+  const handleMarkPickupManuallyCancelled = async () => {
+    if (!selectedOrder || !user) return;
+    setMarkingPickupCancelled(true);
+    try {
+      const idToken = await user.getIdToken();
+      const result = await markDeliveryOnePickupManuallyCancelled(idToken, selectedOrder.id);
+      toast({ title: "Pickup marked as cancelled", description: result.message || selectedOrder.delivery?.pickupId });
+    } catch (error) {
+      console.error("Unable to mark pickup as manually cancelled", error);
+      toast({ title: "Failed", description: error instanceof Error ? error.message : "Try again.", variant: "destructive" });
+    } finally {
+      setMarkingPickupCancelled(false);
     }
   };
 
@@ -853,9 +870,26 @@ const AdminOrders = () => {
                 {hasRealPickupId && selectedOrder.status === "cancelled" && pickupCancellationNeedsConfig && (
                   <div data-testid="pickup-cancellation-config-warning" className="mt-3 rounded-lg border border-destructive/20 bg-destructive/10 p-3 font-body text-xs leading-relaxed text-destructive">
                     <p>
-                      Pickup request {selectedPickupId} could not be cancelled because Delhivery has not provided a working pickup-cancellation API endpoint for this dashboard.
+                      Pickup request <strong>{selectedPickupId}</strong> must be cancelled manually on the Delhivery One dashboard — Delhivery&apos;s public cancel API is unavailable.
                     </p>
-                    {selectedOrder.delivery?.pickupCancellationReason && <p className="mt-2">{selectedOrder.delivery.pickupCancellationReason}</p>}
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <a
+                        href={`https://one.delhivery.com/pickup-requests/${selectedPickupId}?international=false`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1.5 rounded-sm bg-destructive px-3 py-2 font-display text-[11px] font-semibold tracking-[0.08em] text-destructive-foreground transition-colors hover:bg-destructive/90"
+                      >
+                        Open in Delhivery One <ExternalLink className="h-3.5 w-3.5" />
+                      </a>
+                      <button
+                        type="button"
+                        onClick={handleMarkPickupManuallyCancelled}
+                        disabled={markingPickupCancelled}
+                        className="inline-flex items-center justify-center gap-2 rounded-sm border border-destructive px-3 py-2 font-display text-[11px] font-semibold tracking-[0.08em] text-destructive transition-colors hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {markingPickupCancelled ? "Saving..." : "Mark as manually cancelled"}
+                      </button>
+                    </div>
                   </div>
                 )}
 

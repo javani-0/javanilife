@@ -14,7 +14,7 @@ import {
 
 interface SyncDeliveryBody {
   orderId?: string;
-  action?: "sync" | "label" | "pickup" | "cancel-pickup";
+  action?: "sync" | "label" | "pickup" | "cancel-pickup" | "mark-pickup-cancelled";
   pdfSize?: string;
   pickupDate?: string;
   pickupTime?: string;
@@ -50,7 +50,7 @@ export default async function handler(request: ApiRequest, response: ApiResponse
   try {
     const body = await readJsonBody<SyncDeliveryBody>(request);
     const orderId = getString(body.orderId).trim();
-    const action = getString(body.action, "sync") as "sync" | "label" | "pickup" | "cancel-pickup";
+    const action = getString(body.action, "sync") as "sync" | "label" | "pickup" | "cancel-pickup" | "mark-pickup-cancelled";
     if (!orderId) {
       sendError(response, 400, "orderId is required.");
       return;
@@ -73,6 +73,31 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     }
 
     const order = orderSnapshot.data() || {};
+
+    if (action === "mark-pickup-cancelled") {
+      if (getString(order.status) !== "cancelled") {
+        sendError(response, 409, "Pickup can only be marked as manually cancelled after the order is cancelled.");
+        return;
+      }
+      const delivery = getRecord(order.delivery);
+      const pickupId = getString(delivery.pickupId).trim();
+      const message = `Pickup request ${pickupId} was manually cancelled on Delhivery One dashboard.`;
+      await orderSnapshot.ref.update({
+        "delivery.pickupCancellationStatus": "cancelled",
+        "delivery.pickupCancellationReason": message,
+        "delivery.pickupCancelledAt": FieldValue.serverTimestamp(),
+        "delivery.pickupCancellationMarkedAt": FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+        timeline: FieldValue.arrayUnion(createTimelineEvent(
+          order,
+          "Pickup manually cancelled",
+          message,
+          decoded.uid,
+        )),
+      });
+      sendJson(response, 200, { ok: true, orderId, pickupId, pickupCancellationStatus: "cancelled", message });
+      return;
+    }
 
     if (action === "label" || action === "pickup" || action === "cancel-pickup") {
       const delivery = getRecord(order.delivery);

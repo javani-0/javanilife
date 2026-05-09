@@ -145,3 +145,7 @@ export const scheduleDeliveryOnePickup = (idToken: string, orderId: string, pick
 export const cancelDeliveryOnePickup = (idToken: string, orderId: string): Promise<DeliveryOnePickupCancellationResponse> => (
   postOrderDeliveryAction(idToken, "/api/orders/sync-delivery", { orderId, action: "cancel-pickup" }, "Unable to cancel Delivery One pickup.")
 );
+
+export const markDeliveryOnePickupManuallyCancelled = (idToken: string, orderId: string): Promise<DeliveryOnePickupCancellationResponse> => (
+  postOrderDeliveryAction(idToken, "/api/orders/sync-delivery", { orderId, action: "mark-pickup-cancelled" }, "Unable to mark pickup as manually cancelled.")
+);
