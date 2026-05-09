@@ -1,6 +1,6 @@
 import { getFirebaseAdminAuth, getFirebaseAdminDb, getFirebaseAdminMessaging, FieldValue } from "../_lib/firebase-admin.js";
 import { getBearerToken, readJsonBody, requirePost, sendError, sendJson, type ApiRequest, type ApiResponse } from "../_lib/http.js";
-import { sendWhatsAppTemplate, sanitizeWhatsAppNumber } from "../_lib/whatsapp.js";
+import { getWhatsAppConfigStatus, getWhatsAppEnvValue, sendWhatsAppTemplate, sanitizeWhatsAppNumber } from "../_lib/whatsapp.js";
 
 type OrderAutomationEvent = "order-placed" | "order-status-updated" | "payment-status-updated";
 type OrderStatus = "placed" | "confirmed" | "packed" | "shipped" | "out-for-delivery" | "delivered" | "cancelled" | "returned";
@@ -33,11 +33,9 @@ interface OrderSnapshot {
 
 const allowedEvents: OrderAutomationEvent[] = ["order-placed", "order-status-updated", "payment-status-updated"];
 
-const getEnvValue = (key: string, fallback = "") => process.env[key]?.trim() || fallback;
-
-const templateLanguage = () => getEnvValue("WHATSAPP_TEMPLATE_LANGUAGE", getEnvValue("VITE_WHATSAPP_TEMPLATE_LANGUAGE", "en"));
-const customerOrderPlacedTemplate = () => getEnvValue("WHATSAPP_ORDER_PLACED_CUSTOMER_TEMPLATE", getEnvValue("VITE_WHATSAPP_ORDER_PLACED_CUSTOMER_TEMPLATE", "order_confirmed"));
-const adminOrderPlacedTemplate = () => getEnvValue("WHATSAPP_ORDER_PLACED_ADMIN_TEMPLATE", getEnvValue("VITE_WHATSAPP_ORDER_PLACED_ADMIN_TEMPLATE", "admin_order_alert"));
+const templateLanguage = () => getWhatsAppEnvValue("WHATSAPP_TEMPLATE_LANGUAGE", getWhatsAppEnvValue("VITE_WHATSAPP_TEMPLATE_LANGUAGE", "en"));
+const customerOrderPlacedTemplate = () => getWhatsAppEnvValue("WHATSAPP_ORDER_PLACED_CUSTOMER_TEMPLATE", getWhatsAppEnvValue("VITE_WHATSAPP_ORDER_PLACED_CUSTOMER_TEMPLATE", "order_confirmed"));
+const adminOrderPlacedTemplate = () => getWhatsAppEnvValue("WHATSAPP_ORDER_PLACED_ADMIN_TEMPLATE", getWhatsAppEnvValue("VITE_WHATSAPP_ORDER_PLACED_ADMIN_TEMPLATE", "admin_order_alert"));
 
 const customerStatusTemplates: Partial<Record<OrderStatus, string>> = {
   "out-for-delivery": "order_out_for_delivery",
@@ -66,6 +64,9 @@ const paymentStatusLabels: Record<PaymentStatus, string> = {
 };
 
 const getString = (value: unknown, fallback = "") => typeof value === "string" ? value : fallback;
+const getRecord = (value: unknown): Record<string, unknown> => (
+  typeof value === "object" && value !== null ? value as Record<string, unknown> : {}
+);
 
 const getErrorMessage = (error: unknown) => {
   if (error instanceof Error) return error.message;
@@ -78,6 +79,33 @@ const summarizeSettledResult = (result: PromiseSettledResult<unknown>) => (
     ? { status: "fulfilled", value: result.value }
     : { status: "rejected", reason: getErrorMessage(result.reason) }
 );
+
+const sanitizeForFirestore = (value: unknown): unknown => {
+  if (value === undefined) return undefined;
+  if (value === null || ["string", "number", "boolean"].includes(typeof value)) return value;
+  if (Array.isArray(value)) return value.map(sanitizeForFirestore).filter((item) => item !== undefined);
+  if (typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .map(([key, item]) => [key, sanitizeForFirestore(item)] as const)
+        .filter(([, item]) => item !== undefined),
+    );
+  }
+  return String(value);
+};
+
+const collectAutomationWarnings = (result: Record<string, unknown>) => Object.entries(result).flatMap(([channel, settledResult]) => {
+  const settled = getRecord(settledResult);
+  if (settled.status === "rejected") return [`${channel}: ${getString(settled.reason, "request rejected")}`];
+
+  const value = getRecord(settled.value);
+  const status = getString(value.status);
+  const errorMessage = getString(value.errorMessage || value.reason);
+  if ((status === "failed" || status === "manual-ready") && errorMessage) return [`${channel}: ${errorMessage}`];
+  return [];
+});
+
+const notificationEventField = (event: OrderAutomationEvent) => event.replace(/-([a-z])/g, (_match, letter: string) => letter.toUpperCase());
 
 const safeResolve = async <T>(label: string, operation: () => Promise<T>, fallback: T): Promise<T> => {
   try {
@@ -396,7 +424,31 @@ export default async function handler(request: ApiRequest, response: ApiResponse
         ? await sendStatusMessages(orderId, order, body.status)
         : await sendPaymentMessages(orderId, order, body.paymentStatus);
 
-    sendJson(response, 200, { ok: true, event, orderId, result });
+    const warnings = collectAutomationWarnings(result);
+    const notificationStatus = warnings.length > 0 ? "attention" : "sent";
+    const whatsappConfig = getWhatsAppConfigStatus();
+
+    if (warnings.length > 0) {
+      console.warn("[notify] order automation warnings", { orderId, event, warnings, whatsappConfig });
+    }
+
+    await orderSnapshot.ref.update({
+      [`notifications.${notificationEventField(event)}`]: sanitizeForFirestore({
+        event,
+        status: notificationStatus,
+        warnings,
+        whatsappConfig,
+        result,
+        recordedAt: new Date().toISOString(),
+      }),
+      "notifications.lastAutomationEvent": event,
+      "notifications.lastAutomationStatus": notificationStatus,
+      "notifications.lastAutomationWarnings": warnings,
+      "notifications.lastAutomationAt": FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+
+    sendJson(response, 200, { ok: true, event, orderId, result, warnings, whatsappConfig });
   } catch (error) {
     console.error("Unable to send order automations", error);
     sendError(response, 500, error instanceof Error ? error.message : "Unable to send order automations.");

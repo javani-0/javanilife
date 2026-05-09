@@ -455,6 +455,11 @@ const Checkout = () => {
 
       const notificationIdToken = idToken || await user.getIdToken();
       void sendOrderAutomation(notificationIdToken, { orderId: orderDocument.id, event: "order-placed" })
+        .then((automationResult) => {
+          if (automationResult.warnings?.length) {
+            console.warn("Order was created but some automatic messages need attention", automationResult.warnings);
+          }
+        })
         .catch((notificationError) => {
           console.error("Order was created but automatic messages could not be sent", notificationError);
         });

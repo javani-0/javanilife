@@ -132,17 +132,22 @@ describe("Delhivery Delivery One API mapping", () => {
     expect(JSON.parse(request.init.body)).toEqual({ waybill: "1234567890123", cancellation: "true" });
   });
 
-  it("creates a Delhivery pickup cancellation request from a pickup ID", () => {
-    const request = createDeliveryOneCancelPickupRequest("PICKUP-123");
+  it("creates an AWB-based Delhivery pickup cancellation request when the endpoint is configured", () => {
+    process.env.DELIVERY_ONE_CANCEL_PICKUP_URL = "https://one.delhivery.com/web/api/forward_orders/shipments/cancel_pickup_request";
+    const request = createDeliveryOneCancelPickupRequest("PICKUP-123", "1234567890123");
 
-    expect(request.url).toBe("https://track.delhivery.com/fm/request/cancel/");
+    expect(request.url).toBe("https://one.delhivery.com/web/api/forward_orders/shipments/cancel_pickup_request");
     expect(request.init.method).toBe("POST");
     expect(request.init.headers).toMatchObject({
       Accept: "application/json",
       Authorization: "Token token_test_123",
       "Content-Type": "application/json",
     });
-    expect(JSON.parse(request.init.body || "{}")).toEqual({ pickup_id: "PICKUP-123" });
+    expect(JSON.parse(request.init.body || "{}")).toEqual({ awb_numbers: ["1234567890123"] });
+  });
+
+  it("does not call the old Delhivery pickup cancellation endpoint by default", () => {
+    expect(() => createDeliveryOneCancelPickupRequest("PICKUP-123", "1234567890123")).toThrow(/pickup-slot cancellation endpoint is not configured/i);
   });
 
   it("creates a Delhivery label request with the requested PDF size", () => {
@@ -172,6 +177,9 @@ describe("Delhivery Delivery One API mapping", () => {
       pickup_date: "2026-05-10",
       expected_package_count: 3,
       pickup_location: "Javani Warehouse",
+      waybill: "1234567890123",
+      awb_number: ["1234567890123"],
+      start_time: "11:30:00",
     });
   });
 

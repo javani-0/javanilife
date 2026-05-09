@@ -16,14 +16,15 @@ interface ApproveCancelBody {
   adminNote?: string;
 }
 
-type PickupCancellationStatus = "cancelled" | "not-required" | "failed";
+type PickupCancellationStatus = "cancelled" | "not-required" | "failed" | "manual-required";
 
 const pickupCancellationClosedStatuses = new Set(["cancelled", "not-required"]);
 
 const createPickupCancelledMessage = (pickupId: string) => `Pickup request ${pickupId} was cancelled from Javani dashboard.`;
-const createPickupCancellationFailureMessage = (pickupId: string, reason: string) => `Pickup request ${pickupId} cancellation failed: ${reason}. Retry from the Javani dashboard.`;
+const createPickupCancellationFailureMessage = (pickupId: string, reason: string) => `Pickup request ${pickupId} cancellation failed: ${reason}`;
+const requiresManualPickupConfig = (message: string) => message.toLowerCase().includes("pickup-slot cancellation endpoint is not configured");
 
-const getPickupCancellationResult = async (pickupId: string, currentStatus: string, pickupRequestStatus = ""): Promise<{
+const getPickupCancellationResult = async (pickupId: string, currentStatus: string, pickupRequestStatus = "", waybill = ""): Promise<{
   status?: PickupCancellationStatus;
   message?: string;
   timelineLabel?: string;
@@ -51,7 +52,7 @@ const getPickupCancellationResult = async (pickupId: string, currentStatus: stri
   }
 
   try {
-    const result = await cancelDeliveryOnePickup(pickupId);
+    const result = await cancelDeliveryOnePickup(pickupId, waybill);
     return {
       status: "cancelled",
       message: result.message || createPickupCancelledMessage(pickupId),
@@ -61,7 +62,7 @@ const getPickupCancellationResult = async (pickupId: string, currentStatus: stri
   } catch (error) {
     const reason = error instanceof Error ? error.message : "Delhivery pickup cancellation failed.";
     return {
-      status: "failed",
+      status: requiresManualPickupConfig(reason) ? "manual-required" : "failed",
       message: createPickupCancellationFailureMessage(pickupId, reason),
       timelineLabel: "Pickup cancellation failed",
       shouldPersist: true,
@@ -80,7 +81,7 @@ const applyPickupCancellationPayload = (payload: Record<string, unknown>, status
     return;
   }
 
-  if (status === "failed") {
+  if (status === "failed" || status === "manual-required") {
     payload["delivery.pickupCancellationMarkedAt"] = FieldValue.serverTimestamp();
     return;
   }
@@ -129,7 +130,8 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     const currentPickupCancellationStatus = getString(order.delivery?.pickupCancellationStatus).trim();
 
     if (order.status === "cancelled") {
-      const pickupCancellation = await getPickupCancellationResult(pickupId, currentPickupCancellationStatus, pickupRequestStatus);
+      const waybill = getString(order.delivery?.trackingNumber).trim();
+      const pickupCancellation = await getPickupCancellationResult(pickupId, currentPickupCancellationStatus, pickupRequestStatus, waybill);
       if (pickupCancellation.shouldPersist) {
         const payload: Record<string, unknown> = { updatedAt: FieldValue.serverTimestamp() };
         applyPickupCancellationPayload(payload, pickupCancellation.status, pickupCancellation.message);
@@ -162,7 +164,7 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     const hadCustomerRequest = getCancellationStatus(order) === "requested";
     const waybill = getString(order.delivery?.trackingNumber).trim();
     const providerResult = waybill ? await cancelDeliveryOneShipment(waybill) : null;
-    const pickupCancellation = await getPickupCancellationResult(pickupId, currentPickupCancellationStatus, pickupRequestStatus);
+    const pickupCancellation = await getPickupCancellationResult(pickupId, currentPickupCancellationStatus, pickupRequestStatus, waybill);
     const timelineEvents = [createTimelineEvent(
       "cancelled",
       orderStatusLabels.cancelled,

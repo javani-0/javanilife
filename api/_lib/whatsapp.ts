@@ -7,6 +7,21 @@ export interface WhatsAppSendResult {
   errorMessage?: string;
 }
 
+const WHATSAPP_TOKEN_KEYS = [
+  "WHATSAPP_TOKEN",
+  "WHATSAPP_ACCESS_TOKEN",
+  "WHATSAPP_API_TOKEN",
+  "META_WHATSAPP_TOKEN",
+  "META_WHATSAPP_ACCESS_TOKEN",
+];
+
+const WHATSAPP_PHONE_ID_KEYS = [
+  "WHATSAPP_PHONE_ID",
+  "WHATSAPP_PHONE_NUMBER_ID",
+  "META_WHATSAPP_PHONE_NUMBER_ID",
+  "META_PHONE_NUMBER_ID",
+];
+
 let localEnvCache: Record<string, string> | null = null;
 
 const getLocalEnvValue = (key: string) => {
@@ -32,7 +47,8 @@ const getLocalEnvValue = (key: string) => {
   return localEnvCache[key] || "";
 };
 
-const getEnvValue = (key: string, fallback = "") => process.env[key] || getLocalEnvValue(key) || fallback;
+export const getWhatsAppEnvValue = (key: string, fallback = "") => process.env[key]?.trim() || getLocalEnvValue(key) || fallback;
+const getFirstWhatsAppEnvValue = (keys: string[], fallback = "") => keys.map((key) => getWhatsAppEnvValue(key)).find(Boolean) || fallback;
 
 export const sanitizeWhatsAppNumber = (phone: string) => {
   const digits = phone.replace(/\D/g, "");
@@ -40,14 +56,30 @@ export const sanitizeWhatsAppNumber = (phone: string) => {
 };
 
 const getWhatsAppConfig = () => ({
-  token: getEnvValue("WHATSAPP_TOKEN"),
-  phoneId: getEnvValue("WHATSAPP_PHONE_ID"),
+  token: getFirstWhatsAppEnvValue(WHATSAPP_TOKEN_KEYS),
+  phoneId: getFirstWhatsAppEnvValue(WHATSAPP_PHONE_ID_KEYS),
 });
+
+export const getWhatsAppConfigStatus = () => {
+  const { token, phoneId } = getWhatsAppConfig();
+  return {
+    hasToken: Boolean(token),
+    hasPhoneId: Boolean(phoneId),
+    graphApiVersion: getWhatsAppEnvValue("WHATSAPP_GRAPH_API_VERSION", "v21.0"),
+  };
+};
 
 const readWhatsAppError = (data: unknown) => {
   if (typeof data === "object" && data !== null && "error" in data) {
-    const error = (data as { error?: { message?: string; code?: number } }).error;
-    return [error?.message, error?.code ? `code ${error.code}` : ""].filter(Boolean).join(" ");
+    const error = (data as { error?: { message?: string; code?: number; error_subcode?: number; error_user_title?: string; error_user_msg?: string; error_data?: { details?: string } } }).error;
+    return [
+      error?.message,
+      error?.error_user_title,
+      error?.error_user_msg,
+      error?.error_data?.details,
+      error?.code ? `code ${error.code}` : "",
+      error?.error_subcode ? `subcode ${error.error_subcode}` : "",
+    ].filter(Boolean).join(" ");
   }
   return "WhatsApp API request failed.";
 };
@@ -57,11 +89,11 @@ const postWhatsAppMessage = async (body: Record<string, unknown>): Promise<Whats
   if (!token || !phoneId) {
     return {
       status: "manual-ready",
-      errorMessage: "WhatsApp API env vars are missing. Set WHATSAPP_TOKEN and WHATSAPP_PHONE_ID.",
+      errorMessage: "WhatsApp API env vars are missing. Set WHATSAPP_TOKEN and WHATSAPP_PHONE_ID, or WHATSAPP_ACCESS_TOKEN and WHATSAPP_PHONE_NUMBER_ID, in Vercel.",
     };
   }
 
-  const graphApiVersion = getEnvValue("WHATSAPP_GRAPH_API_VERSION", "v21.0");
+  const graphApiVersion = getWhatsAppEnvValue("WHATSAPP_GRAPH_API_VERSION", "v21.0");
   const response = await fetch(`https://graph.facebook.com/${graphApiVersion}/${phoneId}/messages`, {
     method: "POST",
     headers: {
@@ -73,7 +105,9 @@ const postWhatsAppMessage = async (body: Record<string, unknown>): Promise<Whats
   const data = await response.json().catch(() => ({}));
 
   if (!response.ok) {
-    return { status: "failed", errorMessage: readWhatsAppError(data) };
+    const errorMessage = readWhatsAppError(data);
+    console.error("[WhatsApp] message send failed", { httpStatus: response.status, errorMessage });
+    return { status: "failed", errorMessage };
   }
 
   const messages = typeof data === "object" && data !== null && "messages" in data
@@ -156,8 +190,8 @@ export const sendWhatsAppText = (to: string, message: string) => {
 };
 
 export const sendWhatsAppOtpTemplate = ({ to, code }: { to: string; code: string }) => {
-  const resolvedTemplateName = getEnvValue("WHATSAPP_OTP_TEMPLATE", "otp_login");
-  const languageCode = getEnvValue("WHATSAPP_OTP_LANG", "en");
+  const resolvedTemplateName = getWhatsAppEnvValue("WHATSAPP_OTP_TEMPLATE", "otp_login");
+  const languageCode = getWhatsAppEnvValue("WHATSAPP_OTP_LANG", "en");
   const safeNumber = sanitizeWhatsAppNumber(to);
 
   if (!safeNumber) {

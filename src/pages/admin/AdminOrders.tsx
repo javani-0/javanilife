@@ -187,11 +187,13 @@ const AdminOrders = () => {
   const hasPlaceholderPickupId = isPlaceholderPickupId(selectedPickupId);
   const hasPickupRequestMissingId = selectedOrder?.delivery?.pickupRequestStatus === "id-missing" || hasPlaceholderPickupId;
   const pickupCancellationStatus = selectedOrder?.delivery?.pickupCancellationStatus || "";
+  const pickupCancellationNeedsConfig = pickupCancellationStatus === "manual-required";
   const needsPickupCancellationAttention = Boolean(
     hasRealPickupId
     && selectedOrder?.status === "cancelled"
     && pickupCancellationStatus !== "cancelled"
-    && pickupCancellationStatus !== "not-required",
+    && pickupCancellationStatus !== "not-required"
+    && !pickupCancellationNeedsConfig,
   );
   const canAdminCancelSyncedOrder = Boolean(selectedOrder?.delivery?.trackingNumber && !["delivered", "cancelled", "returned"].includes(selectedOrder.status));
 
@@ -304,12 +306,22 @@ const AdminOrders = () => {
       const notificationIdToken = await user?.getIdToken();
       if (notificationIdToken && statusChanged) {
         void sendOrderAutomation(notificationIdToken, { orderId: selectedOrder.id, event: "order-status-updated", status: selectedStatus })
+          .then((automationResult) => {
+            if (automationResult.warnings?.length) {
+              console.warn("Order was updated but some status automations need attention", automationResult.warnings);
+            }
+          })
           .catch((notificationError) => {
             console.error("Order was updated but status automations could not be sent", notificationError);
           });
       }
       if (notificationIdToken && paymentChanged) {
         void sendOrderAutomation(notificationIdToken, { orderId: selectedOrder.id, event: "payment-status-updated", paymentStatus: selectedPaymentStatus })
+          .then((automationResult) => {
+            if (automationResult.warnings?.length) {
+              console.warn("Order was updated but some payment automations need attention", automationResult.warnings);
+            }
+          })
           .catch((notificationError) => {
             console.error("Order was updated but payment automations could not be sent", notificationError);
           });
@@ -436,7 +448,7 @@ const AdminOrders = () => {
       toast({
         title: result.pickupCancellationStatus === "cancelled" ? "Pickup cancelled" : "Pickup cancellation updated",
         description: result.pickupCancellationMessage || result.message || selectedOrder.delivery.pickupId,
-        variant: result.pickupCancellationStatus === "failed" ? "destructive" : undefined,
+        variant: ["failed", "manual-required"].includes(result.pickupCancellationStatus || "") ? "destructive" : undefined,
       });
     } catch (error) {
       console.error("Unable to cancel Delivery One pickup", error);
@@ -454,13 +466,22 @@ const AdminOrders = () => {
       const idToken = await user.getIdToken();
       const result = await approveOrderCancellation(idToken, selectedOrder.id, cancellationAdminNote.trim());
       void sendOrderAutomation(idToken, { orderId: selectedOrder.id, event: "order-status-updated", status: "cancelled" })
+        .then((automationResult) => {
+          if (automationResult.warnings?.length) {
+            console.warn("Cancellation was approved but some status automations need attention", automationResult.warnings);
+          }
+        })
         .catch((notificationError) => {
           console.error("Cancellation was approved but status automations could not be sent", notificationError);
         });
       toast({
-        title: result.pickupCancellationStatus === "failed" ? "Cancellation approved, pickup retry needed" : "Cancellation approved",
+        title: result.pickupCancellationStatus === "manual-required"
+          ? "Cancellation approved, pickup endpoint needed"
+          : result.pickupCancellationStatus === "failed"
+            ? "Cancellation approved, pickup retry needed"
+            : "Cancellation approved",
         description: result.pickupCancellationMessage || result.message || selectedOrder.orderNumber || selectedOrder.id,
-        variant: result.pickupCancellationStatus === "failed" ? "destructive" : undefined,
+        variant: ["failed", "manual-required"].includes(result.pickupCancellationStatus || "") ? "destructive" : undefined,
       });
     } catch (error) {
       console.error("Unable to approve cancellation", error);
@@ -827,6 +848,15 @@ const AdminOrders = () => {
                   <p data-testid="pickup-cancelled-status" className="mt-3 rounded-lg border border-emerald-500/20 bg-emerald-500/10 p-3 font-body text-xs leading-relaxed text-emerald-700">
                     Pickup request {selectedPickupId} was cancelled from the Javani dashboard.
                   </p>
+                )}
+
+                {hasRealPickupId && selectedOrder.status === "cancelled" && pickupCancellationNeedsConfig && (
+                  <div data-testid="pickup-cancellation-config-warning" className="mt-3 rounded-lg border border-destructive/20 bg-destructive/10 p-3 font-body text-xs leading-relaxed text-destructive">
+                    <p>
+                      Pickup request {selectedPickupId} could not be cancelled because Delhivery has not provided a working pickup-cancellation API endpoint for this dashboard.
+                    </p>
+                    {selectedOrder.delivery?.pickupCancellationReason && <p className="mt-2">{selectedOrder.delivery.pickupCancellationReason}</p>}
+                  </div>
                 )}
 
                 {needsPickupCancellationAttention && (

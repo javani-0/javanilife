@@ -104,6 +104,7 @@ interface DeliveryOneRequest {
 }
 
 interface DeliveryOnePickupRequest extends DeliveryOneRequest {
+  waybill: string;
   pickupDate: string;
   pickupTime: string;
   pickupLocation: string;
@@ -175,10 +176,36 @@ const getDeliveryOneEditOrderUrl = () => getFirstEnvValue([
   "DELHIVERY_EDIT_ORDER_URL",
 ]) || `${getDeliveryOneBaseUrl()}/api/p/edit`;
 
-const getDeliveryOneCancelPickupUrl = () => getFirstEnvValue([
+const getDeliveryOnePickupRequestUrl = () => getFirstEnvValue([
+  "DELIVERY_ONE_PICKUP_REQUEST_URL",
+  "DELHIVERY_PICKUP_REQUEST_URL",
+]) || `${getDeliveryOneBaseUrl()}/fm/request/new/`;
+
+const getDeliveryOneCancelPickupUrl = (pickupId: string) => getFirstEnvValue([
   "DELIVERY_ONE_CANCEL_PICKUP_URL",
   "DELHIVERY_CANCEL_PICKUP_URL",
-]) || `${getDeliveryOneBaseUrl()}/fm/request/cancel/`;
+]).replace("{pickupId}", encodeURIComponent(pickupId)).replace("{pickup_id}", encodeURIComponent(pickupId));
+
+const getDeliveryOnePickupFacilityId = () => getFirstEnvValue([
+  "DELIVERY_ONE_FACILITY_ID",
+  "DELHIVERY_FACILITY_ID",
+  "DELIVERY_ONE_PICKUP_FACILITY_ID",
+  "DELHIVERY_PICKUP_FACILITY_ID",
+]);
+
+const getDeliveryOnePickupFacilityCode = () => getFirstEnvValue([
+  "DELIVERY_ONE_FACILITY_CODE",
+  "DELHIVERY_FACILITY_CODE",
+  "DELIVERY_ONE_PICKUP_FACILITY_CODE",
+  "DELHIVERY_PICKUP_FACILITY_CODE",
+]);
+
+const getDeliveryOnePickupPincode = () => sanitizeDigits(getFirstEnvValue([
+  "DELIVERY_ONE_PICKUP_PINCODE",
+  "DELHIVERY_PICKUP_PINCODE",
+  "DELIVERY_ONE_WAREHOUSE_PINCODE",
+  "DELHIVERY_WAREHOUSE_PINCODE",
+]));
 
 const getDeliveryOneTrackingApiUrl = (waybill: string, orderReference = "") => {
   const configuredUrl = getFirstEnvValue(["DELIVERY_ONE_TRACKING_API_URL", "DELHIVERY_TRACKING_API_URL"])
@@ -463,13 +490,23 @@ export const createDeliveryOneCancelShipmentRequest = (waybill: string): Deliver
   };
 };
 
-export const createDeliveryOneCancelPickupRequest = (pickupId: string): DeliveryOneRequest => {
+export const createDeliveryOneCancelPickupRequest = (pickupId: string, waybill = ""): DeliveryOneRequest => {
   const token = requireDeliveryOneApiToken();
   const cleanPickupId = sanitizeDelhiveryText(pickupId);
+  const cleanWaybill = sanitizeDigits(waybill);
   if (!cleanPickupId) throw new Error("A Delhivery pickup request ID is required to cancel a pickup.");
 
+  const url = getDeliveryOneCancelPickupUrl(cleanPickupId);
+  if (!url) {
+    throw new Error("Delhivery pickup-slot cancellation endpoint is not configured. The old public /fm/request/cancel/ endpoint returns 404; set DELIVERY_ONE_CANCEL_PICKUP_URL to the working Delhivery endpoint if your account provides one.");
+  }
+
+  const body = cleanWaybill
+    ? { awb_numbers: [cleanWaybill] }
+    : { pickup_id: cleanPickupId };
+
   return {
-    url: getDeliveryOneCancelPickupUrl(),
+    url,
     init: {
       method: "POST",
       headers: {
@@ -477,7 +514,7 @@ export const createDeliveryOneCancelPickupRequest = (pickupId: string): Delivery
         Authorization: `Token ${token}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ pickup_id: cleanPickupId }),
+      body: JSON.stringify(body),
     },
   };
 };
@@ -532,9 +569,27 @@ export const createDeliveryOnePickupRequest = (waybill: string, options: Deliver
   const pickupDate = normalizeDeliveryOnePickupDate(options.pickupDate);
   const pickupTime = normalizeDeliveryOnePickupTime(options.pickupTime);
   const expectedPackageCount = normalizeExpectedPackageCount(options.expectedPackageCount);
+  const pickupFacilityId = getDeliveryOnePickupFacilityId();
+  const pickupFacilityCode = getDeliveryOnePickupFacilityCode();
+  const pickupPincode = getDeliveryOnePickupPincode();
+
+  const body: Record<string, unknown> = {
+    pickup_time: pickupTime,
+    pickup_date: pickupDate,
+    expected_package_count: expectedPackageCount,
+    pickup_location: pickupLocation,
+    waybill: cleanWaybill,
+    awb_number: [cleanWaybill],
+  };
+
+  if (pickupFacilityId) body.facility_id = pickupFacilityId;
+  if (pickupFacilityCode) body.facility_code = pickupFacilityCode;
+  if (pickupPincode) body.pincode = pickupPincode;
+  if (pickupTime) body.start_time = pickupTime;
 
   return {
-    url: `${getDeliveryOneBaseUrl()}/fm/request/new/`,
+    url: getDeliveryOnePickupRequestUrl(),
+    waybill: cleanWaybill,
     pickupDate,
     pickupTime,
     pickupLocation,
@@ -546,12 +601,7 @@ export const createDeliveryOnePickupRequest = (waybill: string, options: Deliver
         Authorization: `Token ${token}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        pickup_time: pickupTime,
-        pickup_date: pickupDate,
-        expected_package_count: expectedPackageCount,
-        pickup_location: pickupLocation,
-      }),
+      body: JSON.stringify(body),
     },
   };
 };
@@ -837,8 +887,8 @@ export const cancelDeliveryOneShipment = async (waybill: string): Promise<Delive
   };
 };
 
-export const cancelDeliveryOnePickup = async (pickupId: string): Promise<DeliveryOnePickupCancellationResult> => {
-  const request = createDeliveryOneCancelPickupRequest(pickupId);
+export const cancelDeliveryOnePickup = async (pickupId: string, waybill = ""): Promise<DeliveryOnePickupCancellationResult> => {
+  const request = createDeliveryOneCancelPickupRequest(pickupId, waybill);
   const response = await fetch(request.url, request.init);
   const data = await response.json().catch(() => ({}));
 

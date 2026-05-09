@@ -14,6 +14,12 @@ export interface OrderAutomationResponse {
   event: OrderAutomationEvent;
   orderId: string;
   result: unknown;
+  warnings?: string[];
+  whatsappConfig?: {
+    hasToken: boolean;
+    hasPhoneId: boolean;
+    graphApiVersion: string;
+  };
 }
 
 const postAutomationJson = async <T>(url: string, idToken: string, payload: unknown): Promise<T> => {

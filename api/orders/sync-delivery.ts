@@ -36,6 +36,8 @@ const createTimelineEvent = (order: { status?: string }, label: string, note: st
   createdBy,
 });
 
+const requiresManualPickupConfig = (message: string) => message.toLowerCase().includes("pickup-slot cancellation endpoint is not configured");
+
 export default async function handler(request: ApiRequest, response: ApiResponse) {
   if (!requirePost(request, response)) return;
 
@@ -115,8 +117,10 @@ export default async function handler(request: ApiRequest, response: ApiResponse
           return;
         }
 
+        const waybill = getString(delivery.trackingNumber).trim();
+
         try {
-          const pickupResult = await cancelDeliveryOnePickup(pickupId);
+          const pickupResult = await cancelDeliveryOnePickup(pickupId, waybill);
           const message = `Pickup request ${pickupId} was cancelled from Javani dashboard.`;
           await orderSnapshot.ref.update({
             "delivery.pickupCancellationStatus": "cancelled",
@@ -135,19 +139,20 @@ export default async function handler(request: ApiRequest, response: ApiResponse
         } catch (pickupError) {
           const reason = pickupError instanceof Error ? pickupError.message : "Delhivery pickup cancellation failed.";
           const message = `Pickup request ${pickupId} cancellation failed: ${reason}`;
+          const pickupCancellationStatus = requiresManualPickupConfig(reason) ? "manual-required" : "failed";
           await orderSnapshot.ref.update({
-            "delivery.pickupCancellationStatus": "failed",
+            "delivery.pickupCancellationStatus": pickupCancellationStatus,
             "delivery.pickupCancellationReason": message,
             "delivery.pickupCancellationMarkedAt": FieldValue.serverTimestamp(),
             updatedAt: FieldValue.serverTimestamp(),
             timeline: FieldValue.arrayUnion(createTimelineEvent(
               order,
               "Pickup cancellation failed",
-              `${message}. Retry from the Javani dashboard.`,
+              message,
               decoded.uid,
             )),
           });
-          sendJson(response, 200, { ok: true, orderId, pickupId, pickupCancellationStatus: "failed", pickupCancellationMessage: message, message });
+          sendJson(response, 200, { ok: true, orderId, pickupId, pickupCancellationStatus, pickupCancellationMessage: message, message });
         }
         return;
       }
