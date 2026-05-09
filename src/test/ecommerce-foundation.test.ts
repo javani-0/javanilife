@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   BUY_NOW_STORAGE_KEY,
   CART_STORAGE_KEY,
+  DELIVERY_LIFECYCLE_STATUS_LABELS,
+  DELIVERY_PROGRESS_STEPS,
   calculateDeliveryEstimate,
   calculateCartTotals,
   createDeliveryOneShipmentPayload,
@@ -13,6 +15,8 @@ import {
   filterAdminOrders,
   formatPaiseAsRupees,
   getAdminOrderMetrics,
+  getDeliveryLifecycleProgressIndex,
+  getDeliveryLifecycleStatus,
   getDeliveryOneSyncEligibility,
   getOrderPlacedDateValue,
   isProductActive,
@@ -187,6 +191,31 @@ describe("e-commerce delivery foundation", () => {
     expect(getDeliveryOneSyncEligibility(eligibleOrder)).toEqual({ eligible: true });
     expect(getDeliveryOneSyncEligibility({ ...eligibleOrder, status: "cancelled" })).toMatchObject({ eligible: false });
     expect(getDeliveryOneSyncEligibility({ ...eligibleOrder, payment: { method: "razorpay", status: "pending" } })).toMatchObject({ eligible: false });
+  });
+
+  it("keeps delivery lifecycle labels and progress simple for admin and customer screens", () => {
+    expect(DELIVERY_LIFECYCLE_STATUS_LABELS["ready-to-ship"]).toBe("Ready to Ship");
+    expect(DELIVERY_LIFECYCLE_STATUS_LABELS["ready-for-pickup"]).toBe("Ready for Pickup");
+    expect(DELIVERY_PROGRESS_STEPS).toEqual(["pending", "ready-to-ship", "ready-for-pickup", "in-transit", "out-for-delivery", "delivered"]);
+    expect(getDeliveryLifecycleProgressIndex("out-for-delivery")).toBe(4);
+    expect(getDeliveryLifecycleProgressIndex("ndr")).toBe(4);
+    expect(getDeliveryLifecycleProgressIndex("rto-returned")).toBe(3);
+  });
+
+  it("infers delivery lifecycle from existing order snapshots", () => {
+    const baseOrder = {
+      id: "order-delivery-lifecycle",
+      status: "confirmed",
+      payment: { method: "cod", status: "cod-pending" },
+      delivery: { chargeInPaise: 7000, provider: "delivery-one" },
+      items: [],
+    } as Order;
+
+    expect(getDeliveryLifecycleStatus(baseOrder)).toBe("pending");
+    expect(getDeliveryLifecycleStatus({ ...baseOrder, delivery: { ...baseOrder.delivery, trackingNumber: "1234567890123" } })).toBe("ready-to-ship");
+    expect(getDeliveryLifecycleStatus({ ...baseOrder, delivery: { ...baseOrder.delivery, pickupId: "PICKUP-1" } })).toBe("ready-for-pickup");
+    expect(getDeliveryLifecycleStatus({ ...baseOrder, status: "out-for-delivery" })).toBe("out-for-delivery");
+    expect(getDeliveryLifecycleStatus({ ...baseOrder, status: "returned" })).toBe("rto-returned");
   });
 });
 

@@ -58,6 +58,7 @@ export default async function handler(request: ApiRequest, response: ApiResponse
       providerStatus: update.providerStatus,
       providerStatusType: update.providerStatusType,
       orderStatus: update.orderStatus,
+      lifecycleStatus: update.lifecycleStatus,
       message: "Delivery One tracking refreshed.",
     });
   } catch (error) {

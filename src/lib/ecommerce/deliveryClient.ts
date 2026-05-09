@@ -1,10 +1,11 @@
-import type { DeliverySyncStatus, OrderCancellationStatus, OrderStatus } from "./types";
+import type { DeliveryLifecycleStatus, DeliverySyncStatus, OrderCancellationStatus, OrderStatus } from "./types";
 
 export interface DeliveryOneSyncResponse {
   ok: boolean;
   orderId: string;
   syncStatus: DeliverySyncStatus;
   mode: "manual-ready" | "api-sync";
+  lifecycleStatus?: DeliveryLifecycleStatus;
   providerOrderId?: string;
   trackingNumber?: string;
   trackingUrl?: string;
@@ -48,6 +49,7 @@ export interface DeliveryOneTrackingResponse {
   providerStatus?: string;
   providerStatusType?: string;
   orderStatus?: OrderStatus;
+  lifecycleStatus?: DeliveryLifecycleStatus;
   message?: string;
 }
 
@@ -91,6 +93,7 @@ export interface DeliveryOneLabelResponse {
   orderId: string;
   labelUrl: string;
   waybill: string;
+  pdfSize?: "A4" | "4R";
 }
 
 export interface DeliveryOnePickupResponse {
@@ -98,20 +101,31 @@ export interface DeliveryOnePickupResponse {
   orderId: string;
   pickupId?: string;
   pickupDate?: string;
+  pickupTime?: string;
+  pickupLocation?: string;
+  expectedPackageCount?: number;
   message?: string;
 }
 
+export interface DeliveryOnePickupRequest {
+  pickupDate?: string;
+  pickupTime?: string;
+  pickupLocation?: string;
+  expectedPackageCount?: number;
+}
+
 /** Fetches the packing-slip S3 URL from Delhivery and opens the PDF in a new browser tab. */
-export const printDeliveryOneLabel = async (idToken: string, orderId: string): Promise<void> => {
+export const printDeliveryOneLabel = async (idToken: string, orderId: string, pdfSize: "A4" | "4R" = "A4"): Promise<DeliveryOneLabelResponse> => {
   const data = await postOrderDeliveryAction<DeliveryOneLabelResponse>(
     idToken,
     "/api/orders/sync-delivery",
-    { orderId, action: "label" },
+    { orderId, action: "label", pdfSize },
     "Unable to fetch Delivery One label.",
   );
   window.open(data.labelUrl, "_blank", "noopener");
+  return data;
 };
 
-export const scheduleDeliveryOnePickup = (idToken: string, orderId: string): Promise<DeliveryOnePickupResponse> => (
-  postOrderDeliveryAction(idToken, "/api/orders/sync-delivery", { orderId, action: "pickup" }, "Unable to schedule Delivery One pickup.")
+export const scheduleDeliveryOnePickup = (idToken: string, orderId: string, pickup?: DeliveryOnePickupRequest): Promise<DeliveryOnePickupResponse> => (
+  postOrderDeliveryAction(idToken, "/api/orders/sync-delivery", { orderId, action: "pickup", ...pickup }, "Unable to schedule Delivery One pickup.")
 );

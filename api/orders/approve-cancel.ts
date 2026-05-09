@@ -68,6 +68,7 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     const payload: Record<string, unknown> = {
       status: "cancelled",
       "delivery.status": "cancelled",
+      "delivery.lifecycleStatus": "cancelled",
       "delivery.cancelledAt": FieldValue.serverTimestamp(),
       "delivery.lastSyncedAt": FieldValue.serverTimestamp(),
       "cancellation.status": "approved",

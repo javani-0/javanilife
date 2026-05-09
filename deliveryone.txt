@@ -1118,4 +1118,113 @@ fetch('https://staging-express.delhivery.com/api/cmu/create.json', options)
 Test Environment URL
 https://staging-express.delhivery.com/api/cmu/create.json
 Production Environment URL
-https://track.delhivery.com/api/cmu/create.jso
+https://track.delhivery.com/api/cmu/create.json
+
+__________________________________
+
+Fetch WayBill
+This API is used to generate the bulk waybill list in advance, which can be stored and used in the order creation API.
+The Bulk Waybill API generates waybills in bulk, which can be used during shipment manifestation or creation.
+Up to 10,000 waybills in a single request can be fetched using this API and can be stored in the database for later use in the shipment manifestation.
+A maximum of 50,000 waybills can be fetched within a 5-minute window. Exceeding this limit will result in your IP being throttled for 1 minute.
+Note: Waybills are generated in batches of 25 at the backend. Using them immediately after fetching may occasionally result in errors, so we recommend storing them on your end and using them later during manifest creation.
+
+Parameters
+PARAMETERS	MANDATORY	DESCRIPTION
+count
+Integer
+true
+Number of waybills you want to fetch; Should not be more than 10,000
+Rate Limit and Latency
+METRICS	VALUE
+Average Latency (PRODUCTION)
+129.84ms
+P99 Latency (PRODUCTION)
+154.02ms
+Rate Limit (Requests/5 Minute/IP) (PRODUCTION)
+5
+Request
+
+javascript-fetch
+const options = {method: 'GET', headers: {Accept: 'application/json'}};
+
+fetch('https://staging-express.delhivery.com/waybill/api/bulk/json/?token=xxxxxxxxxxxxxxxx&count=5', options)
+	.then(res => res.json())
+	.then(res => console.log(res))
+	.catch(err => console.error(err));
+Test Environment URL
+https://staging-express.delhivery.com/waybill/api/bulk/json/?count=count
+Production Environment URL
+https://track.delhivery.com/waybill/api/bulk/json/?count=count
+Fetch Single WayBill API
+Fetch waybill API helps to fetch a single waybill at a time, every time the API is hit.
+The Fetch Waybill API generates a single waybill at a time
+Parameters
+PARAMETERS	MANDATORY	DESCRIPTION
+token
+String
+true
+Pass the account token
+Rate Limit and Latency
+METRICS	VALUE
+Average Latency (PRODUCTION)
+69.84ms
+P99 Latency (PRODUCTION)
+94.02ms
+Rate Limit (Requests/5 Minute/IP) (PRODUCTION)
+750
+Request
+
+shell-curl
+curl --request GET \
+	--url 'https://staging-express.delhivery.com/waybill/api/fetch/json/?token=xxxxxxxxxxxxxxxx' \
+	--header 'Accept: application/json'
+Test Environment URL
+https://staging-express.delhivery.com/waybill/api/fetch/json/
+Production Environment URL
+https://track.delhivery.com/waybill/api/fetch/json/
+
+__________________________________
+
+Ewaybill Update API
+This API allows to update the e-waybill of the shipment.
+An E-Way Bill is an electronic document (having details such as the goods being transported, their value, the sender, the receiver, and the route.) that is required for the transportation of goods having shipment value>50k as per the Indian government laws.
+Use the EWB update API to update the e-waybill of the shipments having value > 50k
+This API updates the forward E-waybill when the shipment is in the forward flow, and updates the return E-waybill when the shipment is in the return flow.
+Parameters
+PARAMETERS	MANDATORY	DESCRIPTION
+dcn
+Varchar
+true
+Pass the invoice number
+ewbn
+Varchar
+true
+Pass the ewb (e-waybill) number that needs to be updated
+Rate Limit and Latency
+METRICS	VALUE
+Average Latency (PRODUCTION)
+327.6ms
+P99 Latency (PRODUCTION)
+501.68ms
+Rate Limit (Requests/5 Minute/IP) (PRODUCTION)
+250
+Request
+
+javascript-fetch
+const options = {
+	method: 'PUT',
+	headers: {Authorization: 'Token xxxxxxxxxxxxxxxx', 'content-type': 'application/json'},
+	body: JSON.stringify({data: [{dcn: 'pass the invoice number', ewbn: 'pass the ewb number'}]})
+};
+
+fetch('https://staging-express.delhivery.com/api/rest/ewaybill/XXXXXXXXXXXXX/', options)
+	.then(res => res.json())
+	.then(res => console.log(res))
+	.catch(err => console.error(err));
+Test Environment URL
+https://staging-express.delhivery.com/api/rest/ewaybill/{waybill}/
+Production Environment URL
+https://track.delhivery.com/api/rest/ewaybill/{waybill}/
+
+__________________________________

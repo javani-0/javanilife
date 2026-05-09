@@ -16,7 +16,7 @@ import AccountLayout from "@/components/account/AccountLayout";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { db } from "@/lib/firebase";
-import { DELIVERY_SYNC_STATUS_LABELS, formatAccountDate, formatOrderPlacedDate, formatPaiseAsRupees, formatShipmentWeight, normalizeCustomerOrder, ORDER_STATUS_LABELS, requestOrderCancellation, type DeliverySyncStatus, type Order, type OrderCancellationStatus } from "@/lib/ecommerce";
+import { DELIVERY_LIFECYCLE_STATUS_LABELS, DELIVERY_PROGRESS_STEPS, formatAccountDate, formatOrderPlacedDate, formatPaiseAsRupees, formatShipmentWeight, getDeliveryLifecycleProgressIndex, getDeliveryLifecycleStatus, normalizeCustomerOrder, ORDER_STATUS_LABELS, requestOrderCancellation, type Order, type OrderCancellationStatus } from "@/lib/ecommerce";
 
 const cancellationStatusLabels: Record<OrderCancellationStatus, string> = {
   none: "No request",
@@ -60,7 +60,8 @@ const OrderDetail = () => {
   }, [id]);
 
   const ownsOrder = order && user && order.customerId === user.uid;
-  const deliverySyncStatus = (order?.delivery?.syncStatus || "manual-ready") as DeliverySyncStatus;
+  const deliveryLifecycleStatus = getDeliveryLifecycleStatus(order);
+  const deliveryProgressIndex = getDeliveryLifecycleProgressIndex(deliveryLifecycleStatus);
   const hasTrackingInfo = Boolean(order?.delivery?.providerOrderId || order?.delivery?.trackingNumber || order?.delivery?.trackingUrl || order?.delivery?.providerStatus);
   const cancellationStatus = (order?.cancellation?.status || "none") as OrderCancellationStatus;
   const canRequestCancellation = Boolean(order && !finalOrderStatuses.includes(order.status) && cancellationStatus !== "requested" && cancellationStatus !== "approved");
@@ -162,13 +163,25 @@ const OrderDetail = () => {
                     <h3 className="font-display text-xl text-foreground">Delivery Tracking</h3>
                   </div>
                   <div className="space-y-3 font-body text-sm text-muted-foreground">
-                    <div className="flex items-center justify-between gap-4">
-                      <span>Provider</span>
-                      <span className="font-semibold text-foreground">Delivery One</span>
+                    <div className="rounded-xl border border-gold/20 bg-gold/10 p-3">
+                      <span className="block text-xs font-semibold uppercase tracking-[0.14em] text-gold">Current status</span>
+                      <p className="mt-1 font-display text-lg text-foreground">{DELIVERY_LIFECYCLE_STATUS_LABELS[deliveryLifecycleStatus] || deliveryLifecycleStatus}</p>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2 text-center text-[11px] sm:grid-cols-6">
+                      {DELIVERY_PROGRESS_STEPS.map((step, index) => {
+                        const isActive = index <= deliveryProgressIndex && !["cancelled", "lost", "rto-in-transit", "rto-returned", "ndr"].includes(deliveryLifecycleStatus);
+                        const isCurrent = step === deliveryLifecycleStatus;
+                        return (
+                          <div key={step} className="min-w-0">
+                            <div className={`mx-auto mb-1 h-2.5 w-2.5 rounded-full ${isActive || isCurrent ? "bg-gold" : "bg-border"}`} />
+                            <span className={`${isCurrent ? "font-semibold text-foreground" : "text-muted-foreground"}`}>{DELIVERY_LIFECYCLE_STATUS_LABELS[step]}</span>
+                          </div>
+                        );
+                      })}
                     </div>
                     <div className="flex items-center justify-between gap-4">
-                      <span>Sync status</span>
-                      <span className="font-semibold text-foreground">{DELIVERY_SYNC_STATUS_LABELS[deliverySyncStatus] || deliverySyncStatus}</span>
+                      <span>Carrier</span>
+                      <span className="font-semibold text-foreground">Delhivery</span>
                     </div>
                     <div className="flex items-center justify-between gap-4">
                       <span>Shipment weight</span>
@@ -184,8 +197,14 @@ const OrderDetail = () => {
                         )}
                         {order.delivery?.trackingNumber && (
                           <div className="flex items-center justify-between gap-4">
-                            <span>Tracking number</span>
+                            <span>AWB number</span>
                             <span className="font-semibold text-foreground">{order.delivery.trackingNumber}</span>
+                          </div>
+                        )}
+                        {order.delivery?.pickupDate && (
+                          <div className="flex items-center justify-between gap-4">
+                            <span>Pickup</span>
+                            <span className="font-semibold text-foreground">{order.delivery.pickupDate}{order.delivery.pickupTime ? ` · ${order.delivery.pickupTime}` : ""}</span>
                           </div>
                         )}
                         {order.delivery?.providerStatus && (
@@ -194,6 +213,12 @@ const OrderDetail = () => {
                             <span className="font-semibold text-foreground">{order.delivery.providerStatus}</span>
                           </div>
                         )}
+                        {order.delivery?.ndrReason && (
+                          <p className="rounded-xl border border-destructive/20 bg-destructive/10 p-3 text-xs text-destructive">Delivery attempt failed: {order.delivery.ndrReason}</p>
+                        )}
+                        {order.delivery?.rtoReason && (
+                          <p className="rounded-xl border border-destructive/20 bg-destructive/10 p-3 text-xs text-destructive">Return update: {order.delivery.rtoReason}</p>
+                        )}
                         {order.delivery?.trackingUrl && (
                           <a href={order.delivery.trackingUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 font-body text-sm font-semibold text-gold hover:text-gold-light">
                             Open tracking link <ExternalLink className="h-4 w-4" />
@@ -201,7 +226,7 @@ const OrderDetail = () => {
                         )}
                       </>
                     ) : (
-                      <p className="rounded-xl border border-gold/20 bg-gold/10 p-3 text-xs leading-relaxed text-foreground">Tracking details will appear here after admin prepares or saves the Delivery One shipment reference.</p>
+                      <p className="rounded-xl border border-gold/20 bg-gold/10 p-3 text-xs leading-relaxed text-foreground">Tracking details will appear here once your shipment is manifested and the AWB is ready.</p>
                     )}
                   </div>
                 </section>

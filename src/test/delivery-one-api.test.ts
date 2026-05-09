@@ -2,12 +2,15 @@ import { describe, expect, it, beforeEach, afterEach } from "vitest";
 import {
   createDeliveryOneCancelShipmentRequest,
   createDeliveryOneCreateShipmentRequest,
+  createDeliveryOneLabelRequest,
+  createDeliveryOnePickupRequest,
   createDeliveryOneTrackingRequest,
   createDeliveryOneShipmentPayload,
   extractDeliveryOneTrackingUpdate,
   extractDeliveryOneWebhookUpdate,
   extractDeliveryOneProviderResult,
   isDeliveryOnePincodeServiceable,
+  mapDeliveryOneStatusToLifecycleStatus,
   mapDeliveryOneStatusToOrderStatus,
 } from "../../api/_lib/delivery-one";
 
@@ -127,6 +130,36 @@ describe("Delhivery Delivery One API mapping", () => {
     expect(JSON.parse(request.init.body)).toEqual({ waybill: "1234567890123", cancellation: "true" });
   });
 
+  it("creates a Delhivery label request with the requested PDF size", () => {
+    const request = createDeliveryOneLabelRequest("1234567890123", "4R");
+
+    expect(request.url).toBe("https://track.delhivery.com/api/p/packing_slip?wbns=1234567890123&pdf=true&pdf_size=4R");
+    expect(request.pdfSize).toBe("4R");
+    expect(request.init.method).toBe("GET");
+    expect(request.init.headers.Authorization).toBe("Token token_test_123");
+  });
+
+  it("creates a Delhivery pickup request from admin-selected inputs", () => {
+    const request = createDeliveryOnePickupRequest("1234567890123", {
+      pickupDate: "2026-05-10",
+      pickupTime: "11:30",
+      pickupLocation: "Javani Warehouse",
+      expectedPackageCount: 3,
+    });
+
+    expect(request.url).toBe("https://track.delhivery.com/fm/request/new/");
+    expect(request.pickupDate).toBe("2026-05-10");
+    expect(request.pickupTime).toBe("11:30:00");
+    expect(request.pickupLocation).toBe("Javani Warehouse");
+    expect(request.expectedPackageCount).toBe(3);
+    expect(JSON.parse(request.init.body || "{}")).toEqual({
+      pickup_time: "11:30:00",
+      pickup_date: "2026-05-10",
+      expected_package_count: 3,
+      pickup_location: "Javani Warehouse",
+    });
+  });
+
   it("creates a Delhivery tracking request and extracts the latest shipment update", () => {
     const request = createDeliveryOneTrackingRequest("1234567890123", "JAV-20260507-ABC12");
 
@@ -162,6 +195,19 @@ describe("Delhivery Delivery One API mapping", () => {
     expect(mapDeliveryOneStatusToOrderStatus("In Transit", "UD")).toBe("shipped");
     expect(mapDeliveryOneStatusToOrderStatus("RTO", "DL")).toBe("returned");
     expect(mapDeliveryOneStatusToOrderStatus("Canceled", "CN")).toBe("cancelled");
+  });
+
+  it("maps Delhivery statuses into required delivery lifecycle states", () => {
+    expect(mapDeliveryOneStatusToLifecycleStatus("Manifested", "UD")).toBe("ready-to-ship");
+    expect(mapDeliveryOneStatusToLifecycleStatus("Not Picked", "UD")).toBe("ready-for-pickup");
+    expect(mapDeliveryOneStatusToLifecycleStatus("In Transit", "UD")).toBe("in-transit");
+    expect(mapDeliveryOneStatusToLifecycleStatus("Dispatched", "UD")).toBe("out-for-delivery");
+    expect(mapDeliveryOneStatusToLifecycleStatus("Delivered", "DL")).toBe("delivered");
+    expect(mapDeliveryOneStatusToLifecycleStatus("RTO", "DL")).toBe("rto-returned");
+    expect(mapDeliveryOneStatusToLifecycleStatus("In Transit", "RT")).toBe("rto-in-transit");
+    expect(mapDeliveryOneStatusToLifecycleStatus("Lost", "UD")).toBe("lost");
+    expect(mapDeliveryOneStatusToLifecycleStatus("NDR", "UD")).toBe("ndr");
+    expect(mapDeliveryOneStatusToLifecycleStatus("Canceled", "CN")).toBe("cancelled");
   });
 
   it("extracts tracking data from Delhivery webhook payloads", () => {

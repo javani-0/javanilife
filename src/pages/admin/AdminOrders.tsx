@@ -18,6 +18,7 @@ import { db } from "@/lib/firebase";
 import {
   ADMIN_ORDER_STATUS_OPTIONS,
   ADMIN_PAYMENT_STATUS_OPTIONS,
+  DELIVERY_LIFECYCLE_STATUS_LABELS,
   DELIVERY_SYNC_STATUS_LABELS,
   approveOrderCancellation,
   filterAdminOrders,
@@ -28,6 +29,7 @@ import {
   formatOrderUpdatedDateTime,
   formatPaiseAsRupees,
   getAdminOrderMetrics,
+  getDeliveryLifecycleStatus,
   getDeliveryOneSyncEligibility,
   normalizeCustomerOrder,
   ORDER_STATUS_LABELS,
@@ -78,6 +80,8 @@ const paymentStatusLabels: Record<PaymentStatus, string> = {
   "cod-collected": "COD Collected",
 };
 
+const getDefaultPickupDateInput = () => new Date(Date.now() + 5.5 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
 type DeleteToastHandle = {
   dismiss: () => void;
   update: (props: {
@@ -108,6 +112,11 @@ const AdminOrders = () => {
   const [refreshingTracking, setRefreshingTracking] = useState(false);
   const [printingLabel, setPrintingLabel] = useState(false);
   const [schedulingPickup, setSchedulingPickup] = useState(false);
+  const [labelPdfSize, setLabelPdfSize] = useState<"A4" | "4R">("A4");
+  const [pickupDate, setPickupDate] = useState(getDefaultPickupDateInput());
+  const [pickupTime, setPickupTime] = useState("10:00:00");
+  const [pickupLocation, setPickupLocation] = useState("");
+  const [expectedPackageCount, setExpectedPackageCount] = useState("1");
   const [processingCancellation, setProcessingCancellation] = useState(false);
   const [cancellationAdminNote, setCancellationAdminNote] = useState("");
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -163,7 +172,11 @@ const AdminOrders = () => {
   const selectedOrder = useMemo(() => orders.find((order) => order.id === selectedOrderId) || null, [orders, selectedOrderId]);
   const deliveryEligibility = useMemo(() => getDeliveryOneSyncEligibility(selectedOrder), [selectedOrder]);
   const selectedDeliverySyncStatus = (selectedOrder?.delivery?.syncStatus || "manual-ready") as DeliverySyncStatus;
+  const selectedDeliveryLifecycleStatus = getDeliveryLifecycleStatus(selectedOrder);
   const selectedCancellationStatus = (selectedOrder?.cancellation?.status || "none") as OrderCancellationStatus;
+  const hasDeliveryWaybill = Boolean(selectedOrder?.delivery?.trackingNumber);
+  const isTerminalOrder = Boolean(selectedOrder && ["delivered", "cancelled", "returned"].includes(selectedOrder.status));
+  const canUseDeliveryOneFulfillment = hasDeliveryWaybill && !isTerminalOrder;
   const canAdminCancelSyncedOrder = Boolean(selectedOrder?.delivery?.trackingNumber && !["delivered", "cancelled", "returned"].includes(selectedOrder.status));
 
   useEffect(() => {
@@ -178,6 +191,11 @@ const AdminOrders = () => {
     setProviderOrderId(selectedOrder.delivery?.providerOrderId || "");
     setTrackingNumber(selectedOrder.delivery?.trackingNumber || "");
     setTrackingUrl(selectedOrder.delivery?.trackingUrl || "");
+    setLabelPdfSize(selectedOrder.delivery?.labelPdfSize || "A4");
+    setPickupDate(selectedOrder.delivery?.pickupDate || getDefaultPickupDateInput());
+    setPickupTime(selectedOrder.delivery?.pickupTime || "10:00:00");
+    setPickupLocation(selectedOrder.delivery?.pickupLocation || "");
+    setExpectedPackageCount(String(selectedOrder.delivery?.expectedPackageCount || 1));
     setCancellationAdminNote("");
   }, [selectedOrder]);
 
@@ -340,10 +358,15 @@ const AdminOrders = () => {
       toast({ title: "No waybill", description: "Sync the shipment with Delhivery first to get a waybill.", variant: "destructive" });
       return;
     }
+    if (["delivered", "cancelled", "returned"].includes(selectedOrder.status)) {
+      toast({ title: "Order closed", description: "Shipping label actions are locked for completed, cancelled, or returned orders.", variant: "destructive" });
+      return;
+    }
     setPrintingLabel(true);
     try {
       const idToken = await user.getIdToken();
-      await printDeliveryOneLabel(idToken, selectedOrder.id);
+      const result = await printDeliveryOneLabel(idToken, selectedOrder.id, labelPdfSize);
+      toast({ title: "Shipping label ready", description: `${result.pdfSize || labelPdfSize} label opened in a new tab.` });
     } catch (error) {
       console.error("Unable to print Delivery One label", error);
       toast({ title: "Label fetch failed", description: error instanceof Error ? error.message : "Try again or download from Delhivery dashboard.", variant: "destructive" });
@@ -358,10 +381,19 @@ const AdminOrders = () => {
       toast({ title: "No waybill", description: "Sync the shipment with Delhivery first to get a waybill.", variant: "destructive" });
       return;
     }
+    if (["delivered", "cancelled", "returned"].includes(selectedOrder.status)) {
+      toast({ title: "Order closed", description: "Pickup cannot be scheduled for completed, cancelled, or returned orders.", variant: "destructive" });
+      return;
+    }
     setSchedulingPickup(true);
     try {
       const idToken = await user.getIdToken();
-      const result = await scheduleDeliveryOnePickup(idToken, selectedOrder.id);
+      const result = await scheduleDeliveryOnePickup(idToken, selectedOrder.id, {
+        pickupDate,
+        pickupTime,
+        pickupLocation: pickupLocation.trim() || undefined,
+        expectedPackageCount: Number(expectedPackageCount) || 1,
+      });
       toast({ title: "Pickup scheduled", description: result.message || `Pickup date: ${result.pickupDate || "pending"}` });
     } catch (error) {
       console.error("Unable to schedule Delivery One pickup", error);
@@ -627,7 +659,7 @@ const AdminOrders = () => {
                       <Truck className="h-4 w-4 text-gold" />
                       <h3 className="font-display text-lg text-foreground">Delivery One</h3>
                     </div>
-                    <p className="font-body text-xs leading-relaxed text-muted-foreground">Prepare the shipment payload, push when API credentials are configured, or save manual tracking references.</p>
+                    <p className="font-body text-xs leading-relaxed text-muted-foreground">Manifest the order, print the shipping label, schedule pickup, and refresh Delhivery status.</p>
                   </div>
                   <div className="flex flex-wrap gap-2">
                     <button
@@ -636,20 +668,20 @@ const AdminOrders = () => {
                       disabled={syncingDelivery || !deliveryEligibility.eligible}
                       className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-sm bg-gold px-4 font-display text-xs font-semibold tracking-[0.08em] text-charcoal transition-colors hover:bg-gold-light disabled:cursor-not-allowed disabled:opacity-60"
                     >
-                      <RefreshCw className={`h-4 w-4 ${syncingDelivery ? "animate-spin" : ""}`} /> {syncingDelivery ? "Syncing" : "Prepare Sync"}
+                      <RefreshCw className={`h-4 w-4 ${syncingDelivery ? "animate-spin" : ""}`} /> {syncingDelivery ? "Manifesting" : "Manifest Order"}
                     </button>
                     <button
                       type="button"
                       onClick={handleRefreshTracking}
-                      disabled={refreshingTracking || !selectedOrder.delivery?.trackingNumber}
+                      disabled={refreshingTracking || !hasDeliveryWaybill}
                       className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-sm border border-gold/35 px-4 font-display text-xs font-semibold tracking-[0.08em] text-gold transition-colors hover:bg-gold/10 disabled:cursor-not-allowed disabled:opacity-60"
                     >
-                      <RefreshCw className={`h-4 w-4 ${refreshingTracking ? "animate-spin" : ""}`} /> {refreshingTracking ? "Refreshing" : "Track"}
+                      <RefreshCw className={`h-4 w-4 ${refreshingTracking ? "animate-spin" : ""}`} /> {refreshingTracking ? "Refreshing" : "Refresh Tracking"}
                     </button>
                     <button
                       type="button"
                       onClick={handlePrintLabel}
-                      disabled={printingLabel || !selectedOrder.delivery?.trackingNumber}
+                      disabled={printingLabel || !canUseDeliveryOneFulfillment}
                       className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-sm border border-gold/35 px-4 font-display text-xs font-semibold tracking-[0.08em] text-gold transition-colors hover:bg-gold/10 disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       <Printer className={`h-4 w-4 ${printingLabel ? "animate-pulse" : ""}`} /> {printingLabel ? "Fetching" : "Print Label"}
@@ -657,19 +689,23 @@ const AdminOrders = () => {
                     <button
                       type="button"
                       onClick={handleSchedulePickup}
-                      disabled={schedulingPickup || !selectedOrder.delivery?.trackingNumber || Boolean(selectedOrder.delivery?.pickupId)}
+                      disabled={schedulingPickup || !canUseDeliveryOneFulfillment || Boolean(selectedOrder.delivery?.pickupId)}
                       className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-sm border border-gold/35 px-4 font-display text-xs font-semibold tracking-[0.08em] text-gold transition-colors hover:bg-gold/10 disabled:cursor-not-allowed disabled:opacity-60"
                     >
-                      <PackagePlus className={`h-4 w-4 ${schedulingPickup ? "animate-pulse" : ""}`} /> {schedulingPickup ? "Scheduling" : selectedOrder.delivery?.pickupId ? "Pickup Booked" : "Add to Pickup"}
+                      <PackagePlus className={`h-4 w-4 ${schedulingPickup ? "animate-pulse" : ""}`} /> {schedulingPickup ? "Scheduling" : selectedOrder.delivery?.pickupId ? "Pickup Booked" : "Create Pickup"}
                     </button>
                   </div>
                 </div>
 
                 {!deliveryEligibility.eligible && <p className="mt-3 rounded-lg border border-destructive/20 bg-destructive/10 p-3 font-body text-xs text-destructive">{deliveryEligibility.reason}</p>}
 
-                <div className="mt-4 grid gap-3 font-body text-xs sm:grid-cols-3">
+                <div className="mt-4 grid gap-3 font-body text-xs sm:grid-cols-2">
                   <div className="rounded-lg border border-gold/20 bg-card p-3">
-                    <span className="block text-muted-foreground">Sync status</span>
+                    <span className="block text-muted-foreground">Delivery status</span>
+                    <span className="mt-1 block font-semibold text-foreground">{DELIVERY_LIFECYCLE_STATUS_LABELS[selectedDeliveryLifecycleStatus] || selectedDeliveryLifecycleStatus}</span>
+                  </div>
+                  <div className="rounded-lg border border-gold/20 bg-card p-3">
+                    <span className="block text-muted-foreground">Manifest status</span>
                     <span className="mt-1 block font-semibold text-foreground">{DELIVERY_SYNC_STATUS_LABELS[selectedDeliverySyncStatus] || selectedDeliverySyncStatus}</span>
                   </div>
                   <div className="rounded-lg border border-gold/20 bg-card p-3">
@@ -682,6 +718,42 @@ const AdminOrders = () => {
                   </div>
                 </div>
 
+                {canUseDeliveryOneFulfillment ? (
+                  <div className="mt-4 grid gap-3 font-body text-sm sm:grid-cols-2">
+                    <label className="font-semibold text-foreground">
+                      Label size
+                      <select value={labelPdfSize} onChange={(event) => setLabelPdfSize(event.target.value as "A4" | "4R")} className="mt-2 h-10 w-full rounded-md border border-border bg-background px-3 font-body text-sm outline-none focus:border-gold">
+                        <option value="A4">A4</option>
+                        <option value="4R">4R</option>
+                      </select>
+                    </label>
+                    <label className="font-semibold text-foreground">
+                      Pickup packages
+                      <input type="number" min="1" value={expectedPackageCount} onChange={(event) => setExpectedPackageCount(event.target.value)} className="mt-2 h-10 w-full rounded-md border border-border bg-background px-3 font-body text-sm outline-none focus:border-gold" />
+                    </label>
+                    <label className="font-semibold text-foreground">
+                      Pickup date
+                      <input type="date" value={pickupDate} onChange={(event) => setPickupDate(event.target.value)} className="mt-2 h-10 w-full rounded-md border border-border bg-background px-3 font-body text-sm outline-none focus:border-gold" />
+                    </label>
+                    <label className="font-semibold text-foreground">
+                      Pickup time
+                      <input type="time" value={pickupTime.slice(0, 5)} onChange={(event) => setPickupTime(`${event.target.value}:00`)} className="mt-2 h-10 w-full rounded-md border border-border bg-background px-3 font-body text-sm outline-none focus:border-gold" />
+                    </label>
+                    <label className="font-semibold text-foreground sm:col-span-2">
+                      Pickup warehouse
+                      <input value={pickupLocation} onChange={(event) => setPickupLocation(event.target.value)} className="mt-2 h-10 w-full rounded-md border border-border bg-background px-3 font-body text-sm outline-none focus:border-gold" placeholder="Leave blank to use DELIVERY_ONE_PICKUP_LOCATION" />
+                    </label>
+                  </div>
+                ) : hasDeliveryWaybill ? (
+                  <p className="mt-4 rounded-lg border border-gold/20 bg-gold/10 p-3 font-body text-xs leading-relaxed text-foreground">
+                    Label and pickup controls are locked because this order is {ORDER_STATUS_LABELS[selectedOrder.status] || selectedOrder.status}.
+                  </p>
+                ) : (
+                  <p className="mt-4 rounded-lg border border-gold/20 bg-gold/10 p-3 font-body text-xs leading-relaxed text-foreground">
+                    Manifest this order first. Label printing, pickup scheduling, and tracking unlock after the AWB is saved.
+                  </p>
+                )}
+
                 {selectedOrder.delivery?.providerStatus && (
                   <p className="mt-3 rounded-lg border border-gold/20 bg-card p-3 font-body text-xs text-muted-foreground">
                     Delhivery status: <span className="font-semibold text-foreground">{selectedOrder.delivery.providerStatus}</span>
@@ -693,7 +765,15 @@ const AdminOrders = () => {
                   <p className="mt-3 rounded-lg border border-gold/20 bg-card p-3 font-body text-xs text-muted-foreground">
                     Pickup booked: <span className="font-semibold text-foreground">{selectedOrder.delivery.pickupId}</span>
                     {selectedOrder.delivery.pickupDate ? ` · ${selectedOrder.delivery.pickupDate}` : ""}
+                    {selectedOrder.delivery.pickupTime ? ` · ${selectedOrder.delivery.pickupTime}` : ""}
+                    {selectedOrder.delivery.expectedPackageCount ? ` · ${selectedOrder.delivery.expectedPackageCount} package(s)` : ""}
                   </p>
+                )}
+
+                {selectedOrder.delivery?.labelUrl && (
+                  <a href={selectedOrder.delivery.labelUrl} target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-2 font-body text-xs font-semibold text-gold hover:text-gold-light">
+                    Open saved shipping label <ExternalLink className="h-3.5 w-3.5" />
+                  </a>
                 )}
 
                 {selectedOrder.delivery?.lastSyncError && <p className="mt-3 rounded-lg border border-destructive/20 bg-destructive/10 p-3 font-body text-xs text-destructive">{selectedOrder.delivery.lastSyncError.split(" | Raw:")[0]}</p>}

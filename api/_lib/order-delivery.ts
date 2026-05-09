@@ -1,5 +1,5 @@
 import { FieldValue, getFirebaseAdminDb } from "./firebase-admin.js";
-import type { DeliveryOneTrackingUpdate } from "./delivery-one.js";
+import type { DeliveryOneLifecycleStatus, DeliveryOneTrackingUpdate } from "./delivery-one.js";
 
 export type OrderStatus = "placed" | "confirmed" | "packed" | "shipped" | "out-for-delivery" | "delivered" | "cancelled" | "returned";
 export type CancellationStatus = "none" | "requested" | "approved" | "rejected";
@@ -20,6 +20,7 @@ export interface OrderCancellationSnapshot {
 export interface OrderDeliverySnapshot {
   provider?: string;
   syncStatus?: string;
+  lifecycleStatus?: DeliveryOneLifecycleStatus;
   providerOrderId?: string;
   trackingNumber?: string;
   trackingUrl?: string;
@@ -44,6 +45,20 @@ export const orderStatusLabels: Record<OrderStatus, string> = {
   delivered: "Delivered",
   cancelled: "Cancelled",
   returned: "Returned",
+};
+
+export const deliveryLifecycleStatusLabels: Record<DeliveryOneLifecycleStatus, string> = {
+  pending: "Pending",
+  "ready-to-ship": "Ready to Ship",
+  "ready-for-pickup": "Ready for Pickup",
+  "in-transit": "In Transit",
+  "out-for-delivery": "Out for Delivery",
+  delivered: "Delivered",
+  cancelled: "Cancelled",
+  "rto-in-transit": "RTO In Transit",
+  "rto-returned": "RTO Returned",
+  lost: "Lost",
+  ndr: "NDR",
 };
 
 const finalStatuses: OrderStatus[] = ["delivered", "cancelled", "returned"];
@@ -92,6 +107,8 @@ export const createTrackingUpdatePayload = ({
   const currentStatus = order.status || "placed";
   const nextStatus = update.orderStatus;
   const statusChanged = Boolean(nextStatus && nextStatus !== currentStatus);
+  const nextLifecycleStatus = update.lifecycleStatus;
+  const lifecycleChanged = Boolean(nextLifecycleStatus && nextLifecycleStatus !== order.delivery?.lifecycleStatus);
   const payload: Record<string, unknown> = {
     "delivery.provider": "delivery-one",
     "delivery.lastSyncedAt": FieldValue.serverTimestamp(),
@@ -104,15 +121,28 @@ export const createTrackingUpdatePayload = ({
   if (update.trackingUrl) payload["delivery.trackingUrl"] = update.trackingUrl;
   if (update.providerStatus) payload["delivery.providerStatus"] = update.providerStatus;
   if (update.providerStatusType) payload["delivery.providerStatusType"] = update.providerStatusType;
+  if (nextLifecycleStatus) payload["delivery.lifecycleStatus"] = nextLifecycleStatus;
+  if (update.eventAt) payload["delivery.lastCarrierEventAt"] = update.eventAt;
+  if (update.ndrReason) payload["delivery.ndrReason"] = update.ndrReason;
+  if (update.rtoReason) payload["delivery.rtoReason"] = update.rtoReason;
+  if (createdBy === "delivery-one-webhook") payload["delivery.lastWebhookAt"] = FieldValue.serverTimestamp();
 
   if (statusChanged && nextStatus) {
     payload.status = nextStatus;
     payload["delivery.status"] = nextStatus;
-    if (nextStatus === "delivered") payload["delivery.deliveredAt"] = FieldValue.serverTimestamp();
-    if (nextStatus === "cancelled") payload["delivery.cancelledAt"] = FieldValue.serverTimestamp();
+  }
+
+  if (nextStatus === "delivered" || nextLifecycleStatus === "delivered") payload["delivery.deliveredAt"] = FieldValue.serverTimestamp();
+  if (nextStatus === "cancelled" || nextLifecycleStatus === "cancelled") payload["delivery.cancelledAt"] = FieldValue.serverTimestamp();
+
+  if ((statusChanged && nextStatus) || (lifecycleChanged && nextLifecycleStatus)) {
+    const timelineStatus = nextStatus || currentStatus;
+    const label = nextLifecycleStatus
+      ? deliveryLifecycleStatusLabels[nextLifecycleStatus]
+      : orderStatusLabels[timelineStatus] || timelineStatus;
     payload.timeline = FieldValue.arrayUnion(createTimelineEvent(
-      nextStatus,
-      orderStatusLabels[nextStatus] || nextStatus,
+      timelineStatus,
+      label,
       update.providerStatus ? `Delhivery marked shipment as ${update.providerStatus}.` : "Delhivery shipment status changed.",
       createdBy,
     ));

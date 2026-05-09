@@ -5,7 +5,7 @@ import { ChevronRight, PackageCheck } from "lucide-react";
 import AccountLayout from "@/components/account/AccountLayout";
 import { useAuth } from "@/contexts/AuthContext";
 import { db } from "@/lib/firebase";
-import { formatOrderPlacedDate, formatPaiseAsRupees, normalizeCustomerOrder, ORDER_STATUS_LABELS, sortOrdersNewestFirst, type Order } from "@/lib/ecommerce";
+import { DELIVERY_LIFECYCLE_STATUS_LABELS, formatOrderPlacedDate, formatPaiseAsRupees, getDeliveryLifecycleStatus, normalizeCustomerOrder, ORDER_STATUS_LABELS, sortOrdersNewestFirst, type Order } from "@/lib/ecommerce";
 
 const Orders = () => {
   const { user } = useAuth();
@@ -59,6 +59,10 @@ const Orders = () => {
                     <span className="rounded-full bg-gold/10 px-2.5 py-1 font-body text-xs font-semibold text-gold">{ORDER_STATUS_LABELS[order.status] || order.status}</span>
                   </div>
                   <p className="mt-1 font-body text-sm text-muted-foreground">{formatOrderPlacedDate(order)} · {order.items?.length || 0} items · {order.payment?.method?.toUpperCase()} / {order.payment?.status}</p>
+                  <p className="mt-1 font-body text-xs text-muted-foreground">
+                    Delivery: {DELIVERY_LIFECYCLE_STATUS_LABELS[getDeliveryLifecycleStatus(order)]}
+                    {order.delivery?.trackingNumber ? ` · AWB ${order.delivery.trackingNumber}` : ""}
+                  </p>
                 </div>
                 <div className="flex items-center justify-between gap-4 sm:justify-end">
                   <span className="font-body font-semibold text-gold">{formatPaiseAsRupees(order.totalInPaise || 0)}</span>

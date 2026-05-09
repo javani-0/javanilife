@@ -36,6 +36,7 @@ export interface ProductDeliveryProfile {
 
 export type DeliveryProvider = "manual" | "delivery-one";
 export type DeliverySyncStatus = "manual-ready" | "pending" | "synced" | "failed";
+export type DeliveryLifecycleStatus = "pending" | "ready-to-ship" | "ready-for-pickup" | "in-transit" | "out-for-delivery" | "delivered" | "cancelled" | "rto-in-transit" | "rto-returned" | "lost" | "ndr";
 
 export interface DeliveryPricingSettings {
   baseChargeInPaise?: number;
@@ -128,11 +129,25 @@ export interface DeliveryInfo {
   status?: OrderStatus;
   provider?: DeliveryProvider;
   syncStatus?: DeliverySyncStatus;
+  lifecycleStatus?: DeliveryLifecycleStatus;
   providerOrderId?: string;
   trackingNumber?: string;
   trackingUrl?: string;
   providerStatus?: string;
   providerStatusType?: string;
+  labelUrl?: string;
+  labelPdfSize?: "A4" | "4R";
+  labelFetchedAt?: unknown;
+  manifestedAt?: unknown;
+  pickupId?: string;
+  pickupDate?: string;
+  pickupTime?: string;
+  pickupLocation?: string;
+  expectedPackageCount?: number;
+  lastWebhookAt?: unknown;
+  lastCarrierEventAt?: unknown;
+  ndrReason?: string;
+  rtoReason?: string;
   shipmentWeightInGrams?: number;
   usesFallbackWeight?: boolean;
   lastSyncedAt?: unknown;

@@ -75,11 +75,23 @@ export interface DeliveryOneProviderResult {
 }
 
 export type DeliveryOneMappedOrderStatus = "placed" | "confirmed" | "packed" | "shipped" | "out-for-delivery" | "delivered" | "cancelled" | "returned";
+export type DeliveryOneLifecycleStatus = "pending" | "ready-to-ship" | "ready-for-pickup" | "in-transit" | "out-for-delivery" | "delivered" | "cancelled" | "rto-in-transit" | "rto-returned" | "lost" | "ndr";
+export type DeliveryOneLabelPdfSize = "A4" | "4R";
+
+export interface DeliveryOnePickupOptions {
+  pickupDate?: string;
+  pickupTime?: string;
+  pickupLocation?: string;
+  expectedPackageCount?: number;
+}
 
 export interface DeliveryOneTrackingUpdate extends DeliveryOneProviderResult {
   providerStatusType?: string;
   orderStatus?: DeliveryOneMappedOrderStatus;
+  lifecycleStatus?: DeliveryOneLifecycleStatus;
   eventAt?: string;
+  ndrReason?: string;
+  rtoReason?: string;
 }
 
 interface DeliveryOneRequest {
@@ -89,6 +101,13 @@ interface DeliveryOneRequest {
     headers: Record<string, string>;
     body?: string;
   };
+}
+
+interface DeliveryOnePickupRequest extends DeliveryOneRequest {
+  pickupDate: string;
+  pickupTime: string;
+  pickupLocation: string;
+  expectedPackageCount: number;
 }
 
 const PRODUCTION_BASE_URL = "https://track.delhivery.com";
@@ -184,6 +203,41 @@ const sanitizeDigits = (value: unknown) => getString(value).replace(/\D/g, "");
 const sanitizePhone = (value: unknown) => {
   const digits = sanitizeDigits(value);
   return digits.length > 10 ? digits.slice(-10) : digits;
+};
+
+export const normalizeDeliveryOneLabelPdfSize = (value: unknown): DeliveryOneLabelPdfSize => {
+  const cleanValue = getString(value).trim().toUpperCase();
+  return cleanValue === "4R" ? "4R" : "A4";
+};
+
+const getDefaultPickupDate = () => {
+  const nowIST = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
+  const isPastCutoff = nowIST.getUTCHours() >= 14;
+  if (isPastCutoff) nowIST.setUTCDate(nowIST.getUTCDate() + 1);
+  return nowIST.toISOString().slice(0, 10);
+};
+
+const normalizeDeliveryOnePickupDate = (value: unknown) => {
+  const date = getString(value).trim() || getDefaultPickupDate();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    throw new Error("Pickup date must use YYYY-MM-DD format.");
+  }
+  return date;
+};
+
+const normalizeDeliveryOnePickupTime = (value: unknown) => {
+  const time = getString(value).trim() || getFirstEnvValue(["DELIVERY_ONE_DEFAULT_PICKUP_TIME", "DELHIVERY_DEFAULT_PICKUP_TIME"]) || "10:00:00";
+  const withSeconds = /^\d{2}:\d{2}$/.test(time) ? `${time}:00` : time;
+  if (!/^\d{2}:\d{2}:\d{2}$/.test(withSeconds)) {
+    throw new Error("Pickup time must use HH:mm or HH:mm:ss format.");
+  }
+  return withSeconds;
+};
+
+const normalizeExpectedPackageCount = (value: unknown) => {
+  const count = typeof value === "number" && Number.isFinite(value) ? Math.floor(value) : 1;
+  if (count < 1) throw new Error("Expected package count must be at least 1.");
+  return count;
 };
 
 const formatPaiseAsRupees = (paise: number) => {
@@ -368,6 +422,62 @@ export const createDeliveryOneTrackingRequest = (waybill: string, orderReference
   };
 };
 
+export const createDeliveryOneLabelRequest = (waybill: string, pdfSize?: DeliveryOneLabelPdfSize): DeliveryOneRequest & { pdfSize: DeliveryOneLabelPdfSize } => {
+  const { token } = requireDeliveryOneApiConfig();
+  const cleanWaybill = sanitizeDigits(waybill);
+  if (!cleanWaybill) throw new Error("A waybill number is required to print the label.");
+
+  const normalizedPdfSize = normalizeDeliveryOneLabelPdfSize(pdfSize);
+  const url = new URL(`${getDeliveryOneBaseUrl()}/api/p/packing_slip`);
+  url.searchParams.set("wbns", cleanWaybill);
+  url.searchParams.set("pdf", "true");
+  url.searchParams.set("pdf_size", normalizedPdfSize);
+
+  return {
+    url: url.toString(),
+    pdfSize: normalizedPdfSize,
+    init: {
+      method: "GET",
+      headers: { Authorization: `Token ${token}`, Accept: "application/json" },
+    },
+  };
+};
+
+export const createDeliveryOnePickupRequest = (waybill: string, options: DeliveryOnePickupOptions = {}): DeliveryOnePickupRequest => {
+  const { token, pickupLocation: configuredPickupLocation } = requireDeliveryOneApiConfig();
+  const cleanWaybill = sanitizeDigits(waybill);
+  if (!cleanWaybill) throw new Error("A waybill number is required to schedule a pickup.");
+
+  const pickupLocation = sanitizeDelhiveryText(options.pickupLocation, configuredPickupLocation);
+  if (!pickupLocation) throw new Error("Pickup location is required to schedule a Delhivery pickup.");
+
+  const pickupDate = normalizeDeliveryOnePickupDate(options.pickupDate);
+  const pickupTime = normalizeDeliveryOnePickupTime(options.pickupTime);
+  const expectedPackageCount = normalizeExpectedPackageCount(options.expectedPackageCount);
+
+  return {
+    url: `${getDeliveryOneBaseUrl()}/fm/request/new/`,
+    pickupDate,
+    pickupTime,
+    pickupLocation,
+    expectedPackageCount,
+    init: {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        Authorization: `Token ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        pickup_time: pickupTime,
+        pickup_date: pickupDate,
+        expected_package_count: expectedPackageCount,
+        pickup_location: pickupLocation,
+      }),
+    },
+  };
+};
+
 export const isDeliveryOnePincodeServiceable = (data: unknown) => {
   const root = getRecord(data);
   const deliveryCodes = getArray(root.delivery_codes).length
@@ -480,16 +590,33 @@ export const extractDeliveryOneProviderResult = (data: unknown): DeliveryOneProv
 };
 
 export const mapDeliveryOneStatusToOrderStatus = (status: unknown, statusType?: unknown): DeliveryOneMappedOrderStatus | undefined => {
+  const lifecycleStatus = mapDeliveryOneStatusToLifecycleStatus(status, statusType);
+
+  if (lifecycleStatus === "cancelled") return "cancelled";
+  if (lifecycleStatus === "delivered") return "delivered";
+  if (lifecycleStatus === "rto-returned") return "returned";
+  if (lifecycleStatus === "out-for-delivery" || lifecycleStatus === "ndr") return "out-for-delivery";
+  if (lifecycleStatus === "in-transit" || lifecycleStatus === "rto-in-transit" || lifecycleStatus === "lost") return "shipped";
+  if (lifecycleStatus === "ready-to-ship" || lifecycleStatus === "ready-for-pickup") return "packed";
+
+  return undefined;
+};
+
+export const mapDeliveryOneStatusToLifecycleStatus = (status: unknown, statusType?: unknown): DeliveryOneLifecycleStatus | undefined => {
   const cleanStatus = getString(status).trim().toLowerCase();
   const cleanStatusType = getString(statusType).trim().toUpperCase();
 
+  if (!cleanStatus && !cleanStatusType) return undefined;
   if (cleanStatusType === "CN" || ["canceled", "cancelled", "closed"].includes(cleanStatus)) return "cancelled";
-  if (cleanStatusType === "DL" && ["rto", "dto"].includes(cleanStatus)) return "returned";
-  if (cleanStatus === "rto" || cleanStatus === "dto" || cleanStatus.includes("return")) return "returned";
+  if (cleanStatus.includes("lost")) return "lost";
+  if (cleanStatus.includes("ndr") || cleanStatus.includes("non delivery") || cleanStatus.includes("not delivered") || cleanStatus.includes("undelivered")) return "ndr";
+  if (cleanStatus === "rto" || cleanStatus === "dto" || cleanStatus.includes("return to origin")) return "rto-returned";
+  if (cleanStatusType === "RT" || cleanStatus.includes("return")) return "rto-in-transit";
   if (cleanStatusType === "DL" || cleanStatus === "delivered") return "delivered";
   if (cleanStatus === "dispatched" || cleanStatus.includes("out for delivery")) return "out-for-delivery";
-  if (cleanStatus === "in transit" || cleanStatus === "pending") return "shipped";
-  if (cleanStatus === "manifested" || cleanStatus === "not picked") return "packed";
+  if (cleanStatus === "not picked") return "ready-for-pickup";
+  if (cleanStatus === "in transit" || cleanStatus === "pending" || cleanStatus.includes("picked")) return "in-transit";
+  if (cleanStatus === "manifested") return "ready-to-ship";
 
   return undefined;
 };
@@ -522,6 +649,7 @@ export const extractDeliveryOneTrackingUpdate = (data: unknown): DeliveryOneTrac
   const providerStatus = pickString(records, ["Status", "status", "Scan", "scan", "shipment_status", "providerStatus"]);
   const providerStatusType = pickString(records, ["StatusType", "status_type", "statusType"]);
   const eventAt = pickString(records, ["StatusDateTime", "status_date_time", "ScanDateTime", "scan_date_time", "event_time", "eventAt"]);
+  const lifecycleStatus = mapDeliveryOneStatusToLifecycleStatus(providerStatus, providerStatusType);
 
   return {
     providerOrderId,
@@ -530,7 +658,10 @@ export const extractDeliveryOneTrackingUpdate = (data: unknown): DeliveryOneTrac
     providerStatus,
     providerStatusType,
     orderStatus: mapDeliveryOneStatusToOrderStatus(providerStatus, providerStatusType),
+    lifecycleStatus,
     eventAt,
+    ndrReason: lifecycleStatus === "ndr" ? providerStatus : "",
+    rtoReason: lifecycleStatus === "rto-in-transit" || lifecycleStatus === "rto-returned" ? providerStatus : "",
     rawResponse: data,
   };
 };
@@ -547,6 +678,7 @@ export const extractDeliveryOneWebhookUpdate = (data: unknown): DeliveryOneTrack
   const providerStatus = pickString(records, ["status", "Status", "scan", "Scan", "shipment_status", "providerStatus"]);
   const providerStatusType = pickString(records, ["status_type", "StatusType", "statusType"]);
   const eventAt = pickString(records, ["event_time", "eventAt", "StatusDateTime", "status_date_time", "ScanDateTime", "scan_date_time"]);
+  const lifecycleStatus = mapDeliveryOneStatusToLifecycleStatus(providerStatus, providerStatusType);
 
   return {
     providerOrderId,
@@ -555,7 +687,10 @@ export const extractDeliveryOneWebhookUpdate = (data: unknown): DeliveryOneTrack
     providerStatus,
     providerStatusType,
     orderStatus: mapDeliveryOneStatusToOrderStatus(providerStatus, providerStatusType),
+    lifecycleStatus,
     eventAt,
+    ndrReason: lifecycleStatus === "ndr" ? providerStatus : "",
+    rtoReason: lifecycleStatus === "rto-in-transit" || lifecycleStatus === "rto-returned" ? providerStatus : "",
     rawResponse: data,
   };
 };
@@ -618,6 +753,7 @@ export const cancelDeliveryOneShipment = async (waybill: string): Promise<Delive
     ...update,
     trackingNumber: update.trackingNumber || sanitizeDigits(waybill),
     orderStatus: update.orderStatus || "cancelled",
+    lifecycleStatus: update.lifecycleStatus || "cancelled",
     providerStatus: update.providerStatus || "Cancellation requested",
     rawResponse: data,
   };
@@ -640,32 +776,9 @@ export const trackDeliveryOneShipment = async (waybill: string, orderReference =
   return update;
 };
 
-export const scheduleDeliveryOnePickup = async (waybill: string): Promise<{ pickupId: string; pickupDate: string; message: string }> => {
-  const { token, pickupLocation } = requireDeliveryOneApiConfig();
-  const cleanWaybill = sanitizeDigits(waybill);
-  if (!cleanWaybill) throw new Error("A waybill number is required to schedule a pickup.");
-
-  // Delhivery's same-day cutoff is 2 PM IST (UTC+5:30).
-  // Use today if before cutoff, otherwise schedule for tomorrow.
-  const nowIST = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
-  const isPastCutoff = nowIST.getUTCHours() >= 14;
-  if (isPastCutoff) nowIST.setUTCDate(nowIST.getUTCDate() + 1);
-  const pickupDate = nowIST.toISOString().slice(0, 10); // YYYY-MM-DD
-
-  const response = await fetch(`${getDeliveryOneBaseUrl()}/fm/request/new/`, {
-    method: "POST",
-    headers: {
-      Accept: "application/json",
-      Authorization: `Token ${token}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      pickup_time: "10:00:00",
-      pickup_date: pickupDate,
-      expected_package_count: 1,
-      pickup_location: pickupLocation,
-    }),
-  });
+export const scheduleDeliveryOnePickup = async (waybill: string, options: DeliveryOnePickupOptions = {}): Promise<{ pickupId: string; pickupDate: string; pickupTime: string; pickupLocation: string; expectedPackageCount: number; message: string }> => {
+  const request = createDeliveryOnePickupRequest(waybill, options);
+  const response = await fetch(request.url, request.init);
 
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
@@ -679,19 +792,19 @@ export const scheduleDeliveryOnePickup = async (waybill: string): Promise<{ pick
   const pickupId = getString(root.pickup_id || root.id || root.pickupId || "");
   const message = getString(root.message || root.status || "Pickup scheduled");
 
-  return { pickupId, pickupDate, message };
+  return {
+    pickupId,
+    pickupDate: request.pickupDate,
+    pickupTime: request.pickupTime,
+    pickupLocation: request.pickupLocation,
+    expectedPackageCount: request.expectedPackageCount,
+    message,
+  };
 };
 
-export const fetchDeliveryOneLabelUrl = async (waybill: string): Promise<string> => {
-  const { token } = requireDeliveryOneApiConfig();
-  const cleanWaybill = sanitizeDigits(waybill);
-  if (!cleanWaybill) throw new Error("A waybill number is required to print the label.");
-
-  const url = `${getDeliveryOneBaseUrl()}/api/p/packing_slip?wbns=${encodeURIComponent(cleanWaybill)}&pdf=true`;
-  const response = await fetch(url, {
-    method: "GET",
-    headers: { Authorization: `Token ${token}`, Accept: "application/json" },
-  });
+export const fetchDeliveryOneLabelUrl = async (waybill: string, pdfSize?: DeliveryOneLabelPdfSize): Promise<string> => {
+  const request = createDeliveryOneLabelRequest(waybill, pdfSize);
+  const response = await fetch(request.url, request.init);
 
   // Delhivery returns JSON: { "pdf_download_link": "https://s3..." } when pdf=true
   const data = await response.json().catch(() => ({}));

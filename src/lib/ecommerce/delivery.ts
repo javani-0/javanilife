@@ -2,6 +2,7 @@ import type {
   CartItem,
   CheckoutAddress,
   DeliveryInfo,
+  DeliveryLifecycleStatus,
   DeliveryPricingSettings,
   DeliveryProvider,
   DeliverySyncStatus,
@@ -70,6 +71,29 @@ export const DELIVERY_SYNC_STATUS_LABELS: Record<DeliverySyncStatus, string> = {
   synced: "Synced",
   failed: "Failed",
 };
+
+export const DELIVERY_LIFECYCLE_STATUS_LABELS: Record<DeliveryLifecycleStatus, string> = {
+  pending: "Pending",
+  "ready-to-ship": "Ready to Ship",
+  "ready-for-pickup": "Ready for Pickup",
+  "in-transit": "In Transit",
+  "out-for-delivery": "Out for Delivery",
+  delivered: "Delivered",
+  cancelled: "Cancelled",
+  "rto-in-transit": "RTO In Transit",
+  "rto-returned": "RTO Returned",
+  lost: "Lost",
+  ndr: "NDR",
+};
+
+export const DELIVERY_PROGRESS_STEPS: DeliveryLifecycleStatus[] = [
+  "pending",
+  "ready-to-ship",
+  "ready-for-pickup",
+  "in-transit",
+  "out-for-delivery",
+  "delivered",
+];
 
 const finalOrderStatuses: OrderStatus[] = ["delivered", "cancelled", "returned"];
 
@@ -227,3 +251,23 @@ export const getDeliveryOneSyncEligibility = (order?: Partial<Order> | null): De
 export const canPrepareDeliveryOneSync = (order?: Partial<Order> | null): boolean => (
   getDeliveryOneSyncEligibility(order).eligible
 );
+
+export const getDeliveryLifecycleStatus = (order?: Partial<Order> | null): DeliveryLifecycleStatus => {
+  if (!order) return "pending";
+  if (order.delivery?.lifecycleStatus) return order.delivery.lifecycleStatus;
+  if (order.status === "delivered") return "delivered";
+  if (order.status === "cancelled") return "cancelled";
+  if (order.status === "returned") return "rto-returned";
+  if (order.status === "out-for-delivery") return "out-for-delivery";
+  if (order.status === "shipped") return "in-transit";
+  if (order.delivery?.pickupId) return "ready-for-pickup";
+  if (order.delivery?.trackingNumber) return "ready-to-ship";
+  return "pending";
+};
+
+export const getDeliveryLifecycleProgressIndex = (status: DeliveryLifecycleStatus): number => {
+  if (status === "cancelled") return 0;
+  if (status === "ndr") return DELIVERY_PROGRESS_STEPS.indexOf("out-for-delivery");
+  if (status === "rto-in-transit" || status === "rto-returned" || status === "lost") return DELIVERY_PROGRESS_STEPS.indexOf("in-transit");
+  return Math.max(0, DELIVERY_PROGRESS_STEPS.indexOf(status));
+};
