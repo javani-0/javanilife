@@ -63,7 +63,7 @@ const emptyAddress: CheckoutAddress = {
 };
 
 const checkoutSteps = [
-  { label: "Delivery", description: "Recipient details" },
+  { label: "Details", description: "Recipient details" },
   { label: "Payment", description: "COD or Razorpay" },
   { label: "Review", description: "Order summary" },
 ];
@@ -123,10 +123,11 @@ const normalizeAddress = (address: CheckoutAddress): CheckoutAddress => {
   return normalized;
 };
 
-const validateAddress = (address: CheckoutAddress) => {
+const validateAddress = (address: CheckoutAddress, { requireShippingAddress = true } = {}) => {
   if (!address.fullName.trim()) return "Please enter the recipient name.";
   if (sanitizeDigits(address.phone).length < 10) return "Please enter a valid phone number.";
   if (!address.email?.trim()) return "Please enter an email address.";
+  if (!requireShippingAddress) return null;
   if (!address.line1.trim()) return "Please enter the delivery address.";
   if (!address.city.trim()) return "Please enter the city.";
   if (!address.state.trim()) return "Please enter the state.";
@@ -176,7 +177,7 @@ const Checkout = () => {
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
   const [accountWhatsAppDialogOpen, setAccountWhatsAppDialogOpen] = useState(false);
-  const [placedOrder, setPlacedOrder] = useState<{ id: string; orderNumber: string; totalInPaise: number; paymentLabel: string } | null>(null);
+  const [placedOrder, setPlacedOrder] = useState<{ id: string; orderNumber: string; totalInPaise: number; paymentLabel: string; hasShippableItems: boolean } | null>(null);
 
   const applySavedAddress = (savedAddress?: CheckoutAddress | null) => {
     if (!savedAddress) {
@@ -281,8 +282,9 @@ const Checkout = () => {
 
   useEffect(() => {
     let cancelled = false;
+    const shippableItems = items.filter((item) => item.itemType !== "course");
 
-    if (items.length === 0) {
+    if (shippableItems.length === 0) {
       setDeliveryProfiles({});
       setDeliveryLoading(false);
       return;
@@ -290,7 +292,7 @@ const Checkout = () => {
 
     setDeliveryLoading(true);
     Promise.all(
-      items.map(async (item) => {
+      shippableItems.map(async (item) => {
         try {
           const productSnapshot = await getDoc(doc(db, "products", item.productId));
           const productData = productSnapshot.exists() ? productSnapshot.data() : null;
@@ -317,6 +319,19 @@ const Checkout = () => {
     () => calculateCartTotals(items, deliveryEstimate.chargeInPaise),
     [deliveryEstimate.chargeInPaise, items]
   );
+  const hasCourseItems = useMemo(() => items.some((item) => item.itemType === "course"), [items]);
+  const hasShippableItems = useMemo(() => items.some((item) => item.itemType !== "course"), [items]);
+  const activeCheckoutSteps = useMemo(() => checkoutSteps.map((step) => (
+    step.label === "Details"
+      ? { ...step, description: hasShippableItems ? "Delivery details" : "Enrollment details" }
+      : step.label === "Payment" && hasCourseItems
+        ? { ...step, description: "Razorpay online" }
+        : step
+  )), [hasCourseItems, hasShippableItems]);
+
+  useEffect(() => {
+    if (items.length > 0 && hasCourseItems) setPaymentMethod("razorpay");
+  }, [hasCourseItems, items.length]);
 
   const updateAddress = (field: keyof CheckoutAddress) => (event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     if (selectedSavedAddressId !== "custom") setSelectedSavedAddressId("custom");
@@ -346,7 +361,7 @@ const Checkout = () => {
 
     const accountCallNumber = getAccountCallNumber(userProfile, accountWhatsAppNumber);
 
-    const validationError = validateAddress(address);
+    const validationError = validateAddress(address, { requireShippingAddress: hasShippableItems });
     if (validationError) {
       setFormError(validationError);
       return;
@@ -395,7 +410,7 @@ const Checkout = () => {
         delivery: {
           chargeInPaise: checkoutTotals.deliveryChargeInPaise,
           status: "placed",
-          provider: DEFAULT_DELIVERY_PROVIDER,
+          provider: hasShippableItems ? DEFAULT_DELIVERY_PROVIDER : "manual",
           syncStatus: "manual-ready",
           shipmentWeightInGrams: deliveryEstimate.weightInGrams,
           usesFallbackWeight: deliveryEstimate.usesFallbackWeight,
@@ -470,7 +485,7 @@ const Checkout = () => {
         console.error("Order was created but the cart could not be cleared", clearCartError);
       }
       clearBuyNowItem();
-      setPlacedOrder({ id: orderDocument.id, orderNumber, totalInPaise: checkoutTotals.totalInPaise, paymentLabel });
+      setPlacedOrder({ id: orderDocument.id, orderNumber, totalInPaise: checkoutTotals.totalInPaise, paymentLabel, hasShippableItems });
       toast({ title: paymentMethod === "razorpay" ? "Payment received" : "Order placed", description: `${orderNumber} has been created.` });
     } catch (error) {
       console.error("Unable to place order", error);
@@ -498,9 +513,11 @@ const Checkout = () => {
               <CheckCircle2 className="h-10 w-10" />
             </div>
             <p className="font-body text-sm font-semibold uppercase tracking-[0.2em] text-gold">Order confirmed</p>
-            <h1 className="mt-3 font-display text-3xl text-foreground sm:text-4xl">Thank you for your order</h1>
+            <h1 className="mt-3 font-display text-3xl text-foreground sm:text-4xl">{placedOrder.hasShippableItems ? "Thank you for your order" : "Course purchase confirmed"}</h1>
             <p className="mx-auto mt-4 max-w-xl font-body text-muted-foreground">
-              {placedOrder.paymentLabel === "Razorpay Online"
+              {!placedOrder.hasShippableItems
+                ? "Your online payment was verified through Razorpay. Admin can now review the course purchase and follow up with enrollment details."
+                : placedOrder.paymentLabel === "Razorpay Online"
                 ? "Your online payment was verified through Razorpay. Admin can now review it, confirm packing, and continue with Delivery One shipment handling."
                 : "Your COD order has been placed. Admin can now review it, confirm packing, and continue with Delivery One shipment handling."}
             </p>
@@ -519,8 +536,8 @@ const Checkout = () => {
               </div>
             </div>
             <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
-              <Link to="/products" className="inline-flex items-center justify-center rounded-sm bg-gold px-6 py-3 font-display text-sm font-semibold tracking-[0.08em] text-charcoal transition-colors hover:bg-gold-light">
-                Continue Shopping
+              <Link to={placedOrder.hasShippableItems ? "/products" : "/courses"} className="inline-flex items-center justify-center rounded-sm bg-gold px-6 py-3 font-display text-sm font-semibold tracking-[0.08em] text-charcoal transition-colors hover:bg-gold-light">
+                {placedOrder.hasShippableItems ? "Continue Shopping" : "Browse Courses"}
               </Link>
               <Link to="/" className="inline-flex items-center justify-center rounded-sm border border-gold/50 px-6 py-3 font-display text-sm font-semibold tracking-[0.08em] text-gold transition-colors hover:bg-gold hover:text-white">
                 Back Home
@@ -540,7 +557,7 @@ const Checkout = () => {
         backgroundImages={[heroTemple]}
         label="Checkout"
         heading="Complete Your Order"
-        subtext="Confirm delivery details, choose payment, and place your product order."
+        subtext="Confirm details, choose payment, and place your order."
         breadcrumb={[{ label: "Home", path: "/" }, { label: "Cart", path: "/cart" }, { label: "Checkout" }]}
         size="compact"
       />
@@ -559,7 +576,7 @@ const Checkout = () => {
             </div>
             <h2 className="font-display text-3xl text-foreground">Login required for checkout</h2>
             <p className="mx-auto mt-3 max-w-xl font-body text-muted-foreground">
-              You can browse and add products as a guest, but checkout needs an account so your cart, order, and delivery details stay connected.
+              You can browse and add products or courses as a guest, but checkout needs an account so your cart, order, and updates stay connected.
             </p>
             <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
               <Link to={`/login?redirect=${encodeURIComponent("/checkout")}`} className="inline-flex items-center justify-center rounded-sm bg-gold px-7 py-3 font-display text-sm font-semibold tracking-[0.08em] text-charcoal transition-colors hover:bg-gold-light">
@@ -574,7 +591,7 @@ const Checkout = () => {
           <section className="rounded-2xl border border-border/60 bg-card p-8 text-center shadow-card sm:p-12">
             <PackageCheck className="mx-auto mb-5 h-14 w-14 text-gold" />
             <h2 className="font-display text-3xl text-foreground">Your cart is empty</h2>
-            <p className="mx-auto mt-3 max-w-xl font-body text-muted-foreground">Add a product before checkout.</p>
+            <p className="mx-auto mt-3 max-w-xl font-body text-muted-foreground">Add a product or course before checkout.</p>
             <Link to="/products" className="mt-8 inline-flex items-center justify-center rounded-sm bg-gold px-7 py-3 font-display text-sm font-semibold tracking-[0.08em] text-charcoal transition-colors hover:bg-gold-light">
               Browse Products
             </Link>
@@ -582,7 +599,7 @@ const Checkout = () => {
         ) : (
           <form onSubmit={placeOrder} className="space-y-8">
             <ol className="grid gap-3 rounded-2xl border border-gold/20 bg-card p-4 shadow-card sm:grid-cols-3 sm:p-5">
-              {checkoutSteps.map((step, index) => (
+              {activeCheckoutSteps.map((step, index) => (
                 <li key={step.label} className="flex items-center gap-3">
                   <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gold font-body text-sm font-bold text-charcoal">
                     {index + 1}
@@ -603,12 +620,12 @@ const Checkout = () => {
                     <MapPin className="h-5 w-5" />
                   </div>
                   <div>
-                    <h2 className="font-display text-2xl text-foreground">Delivery Details</h2>
-                    <p className="font-body text-sm text-muted-foreground">Used for Delivery One shipment coordination.</p>
+                    <h2 className="font-display text-2xl text-foreground">{hasShippableItems ? "Delivery Details" : "Enrollment Details"}</h2>
+                    <p className="font-body text-sm text-muted-foreground">{hasShippableItems ? "Used for Delivery One shipment coordination." : "Used to attach this course purchase to your account and WhatsApp updates."}</p>
                   </div>
                 </div>
 
-                {savedAddresses.length > 0 && (
+                {hasShippableItems && savedAddresses.length > 0 && (
                   <div className="mb-5 space-y-3 rounded-xl border border-gold/20 bg-background/70 p-4">
                     <div>
                       <p className="font-body text-sm font-semibold text-foreground">Choose saved address</p>
@@ -659,33 +676,37 @@ const Checkout = () => {
                     Email
                     <input value={address.email || ""} onChange={updateAddress("email")} className="mt-2 h-11 w-full rounded-md border border-border bg-background px-3 font-body text-sm outline-none transition-colors focus:border-gold focus:ring-2 focus:ring-gold/20" placeholder="you@example.com" type="email" />
                   </label>
+                  {hasShippableItems && (
+                    <>
+                      <label className="font-body text-sm font-semibold text-foreground sm:col-span-2">
+                        Address line 1
+                        <input value={address.line1} onChange={updateAddress("line1")} className="mt-2 h-11 w-full rounded-md border border-border bg-background px-3 font-body text-sm outline-none transition-colors focus:border-gold focus:ring-2 focus:ring-gold/20" placeholder="House / flat / street" />
+                      </label>
+                      <label className="font-body text-sm font-semibold text-foreground sm:col-span-2">
+                        Address line 2
+                        <input value={address.line2 || ""} onChange={updateAddress("line2")} className="mt-2 h-11 w-full rounded-md border border-border bg-background px-3 font-body text-sm outline-none transition-colors focus:border-gold focus:ring-2 focus:ring-gold/20" placeholder="Area / locality" />
+                      </label>
+                      <label className="font-body text-sm font-semibold text-foreground">
+                        City
+                        <input value={address.city} onChange={updateAddress("city")} className="mt-2 h-11 w-full rounded-md border border-border bg-background px-3 font-body text-sm outline-none transition-colors focus:border-gold focus:ring-2 focus:ring-gold/20" placeholder="City" />
+                      </label>
+                      <label className="font-body text-sm font-semibold text-foreground">
+                        State
+                        <input value={address.state} onChange={updateAddress("state")} className="mt-2 h-11 w-full rounded-md border border-border bg-background px-3 font-body text-sm outline-none transition-colors focus:border-gold focus:ring-2 focus:ring-gold/20" placeholder="State" />
+                      </label>
+                      <label className="font-body text-sm font-semibold text-foreground">
+                        Pincode
+                        <input value={address.pincode} onChange={updateAddress("pincode")} className="mt-2 h-11 w-full rounded-md border border-border bg-background px-3 font-body text-sm outline-none transition-colors focus:border-gold focus:ring-2 focus:ring-gold/20" placeholder="6-digit pincode" inputMode="numeric" />
+                      </label>
+                      <label className="font-body text-sm font-semibold text-foreground">
+                        Landmark
+                        <input value={address.landmark || ""} onChange={updateAddress("landmark")} className="mt-2 h-11 w-full rounded-md border border-border bg-background px-3 font-body text-sm outline-none transition-colors focus:border-gold focus:ring-2 focus:ring-gold/20" placeholder="Optional" />
+                      </label>
+                    </>
+                  )}
                   <label className="font-body text-sm font-semibold text-foreground sm:col-span-2">
-                    Address line 1
-                    <input value={address.line1} onChange={updateAddress("line1")} className="mt-2 h-11 w-full rounded-md border border-border bg-background px-3 font-body text-sm outline-none transition-colors focus:border-gold focus:ring-2 focus:ring-gold/20" placeholder="House / flat / street" />
-                  </label>
-                  <label className="font-body text-sm font-semibold text-foreground sm:col-span-2">
-                    Address line 2
-                    <input value={address.line2 || ""} onChange={updateAddress("line2")} className="mt-2 h-11 w-full rounded-md border border-border bg-background px-3 font-body text-sm outline-none transition-colors focus:border-gold focus:ring-2 focus:ring-gold/20" placeholder="Area / locality" />
-                  </label>
-                  <label className="font-body text-sm font-semibold text-foreground">
-                    City
-                    <input value={address.city} onChange={updateAddress("city")} className="mt-2 h-11 w-full rounded-md border border-border bg-background px-3 font-body text-sm outline-none transition-colors focus:border-gold focus:ring-2 focus:ring-gold/20" placeholder="City" />
-                  </label>
-                  <label className="font-body text-sm font-semibold text-foreground">
-                    State
-                    <input value={address.state} onChange={updateAddress("state")} className="mt-2 h-11 w-full rounded-md border border-border bg-background px-3 font-body text-sm outline-none transition-colors focus:border-gold focus:ring-2 focus:ring-gold/20" placeholder="State" />
-                  </label>
-                  <label className="font-body text-sm font-semibold text-foreground">
-                    Pincode
-                    <input value={address.pincode} onChange={updateAddress("pincode")} className="mt-2 h-11 w-full rounded-md border border-border bg-background px-3 font-body text-sm outline-none transition-colors focus:border-gold focus:ring-2 focus:ring-gold/20" placeholder="6-digit pincode" inputMode="numeric" />
-                  </label>
-                  <label className="font-body text-sm font-semibold text-foreground">
-                    Landmark
-                    <input value={address.landmark || ""} onChange={updateAddress("landmark")} className="mt-2 h-11 w-full rounded-md border border-border bg-background px-3 font-body text-sm outline-none transition-colors focus:border-gold focus:ring-2 focus:ring-gold/20" placeholder="Optional" />
-                  </label>
-                  <label className="font-body text-sm font-semibold text-foreground sm:col-span-2">
-                    Delivery notes
-                    <textarea value={address.notes || ""} onChange={updateAddress("notes")} rows={3} className="mt-2 w-full rounded-md border border-border bg-background px-3 py-3 font-body text-sm outline-none transition-colors focus:border-gold focus:ring-2 focus:ring-gold/20" placeholder="Optional notes for delivery or admin follow-up" />
+                    {hasShippableItems ? "Delivery notes" : "Notes"}
+                    <textarea value={address.notes || ""} onChange={updateAddress("notes")} rows={3} className="mt-2 w-full rounded-md border border-border bg-background px-3 py-3 font-body text-sm outline-none transition-colors focus:border-gold focus:ring-2 focus:ring-gold/20" placeholder={hasShippableItems ? "Optional notes for delivery or admin follow-up" : "Optional notes for admin follow-up"} />
                   </label>
                 </div>
               </div>
@@ -697,15 +718,15 @@ const Checkout = () => {
                   </div>
                   <div>
                     <h2 className="font-display text-2xl text-foreground">Payment Method</h2>
-                    <p className="font-body text-sm text-muted-foreground">Choose COD or pay now securely through Razorpay.</p>
+                    <p className="font-body text-sm text-muted-foreground">{hasCourseItems ? "Course purchases use online payment so enrollment is confirmed immediately." : "Choose COD or pay now securely through Razorpay."}</p>
                   </div>
                 </div>
 
                 <div className="grid gap-3 sm:grid-cols-2">
-                  <label className={`cursor-pointer rounded-xl border p-4 transition-colors ${paymentMethod === "cod" ? "border-gold bg-gold/10" : "border-border bg-background/70 hover:border-gold/50"}`}>
-                    <input type="radio" name="paymentMethod" value="cod" checked={paymentMethod === "cod"} onChange={() => setPaymentMethod("cod")} className="sr-only" />
+                  <label className={`cursor-pointer rounded-xl border p-4 transition-colors ${paymentMethod === "cod" ? "border-gold bg-gold/10" : "border-border bg-background/70 hover:border-gold/50"} ${hasCourseItems ? "cursor-not-allowed opacity-50" : ""}`}>
+                    <input type="radio" name="paymentMethod" value="cod" checked={paymentMethod === "cod"} onChange={() => !hasCourseItems && setPaymentMethod("cod")} disabled={hasCourseItems} className="sr-only" />
                     <span className="font-body text-sm font-bold text-foreground">Cash on Delivery</span>
-                    <span className="mt-2 block font-body text-xs leading-relaxed text-muted-foreground">Place the order now and collect payment at delivery.</span>
+                    <span className="mt-2 block font-body text-xs leading-relaxed text-muted-foreground">{hasCourseItems ? "Available only for carts without courses." : "Place the order now and collect payment at delivery."}</span>
                   </label>
                   <label className={`cursor-pointer rounded-xl border p-4 transition-colors ${paymentMethod === "razorpay" ? "border-gold bg-gold/10" : "border-border bg-background/70 hover:border-gold/50"}`}>
                     <input type="radio" name="paymentMethod" value="razorpay" checked={paymentMethod === "razorpay"} onChange={() => setPaymentMethod("razorpay")} className="sr-only" />
@@ -740,7 +761,7 @@ const Checkout = () => {
                 </div>
                 <div className="flex items-center justify-between gap-4">
                   <span className="text-muted-foreground">Delivery</span>
-                  <span className="font-medium text-foreground">{deliveryLoading ? "Calculating..." : formatPaiseAsRupees(checkoutTotals.deliveryChargeInPaise)}</span>
+                  <span className="font-medium text-foreground">{!hasShippableItems ? "Not required" : deliveryLoading ? "Calculating..." : formatPaiseAsRupees(checkoutTotals.deliveryChargeInPaise)}</span>
                 </div>
                 <div className="flex items-center justify-between gap-4 text-base">
                   <span className="font-semibold text-foreground">Total</span>
@@ -755,12 +776,12 @@ const Checkout = () => {
                 Order messages are sent to the WhatsApp number saved in Account Details, not this delivery phone field.
               </div>
 
-              <div className="mt-4 rounded-xl border border-gold/20 bg-gold/10 p-3 font-body text-xs leading-relaxed text-foreground">
+              {hasShippableItems && <div className="mt-4 rounded-xl border border-gold/20 bg-gold/10 p-3 font-body text-xs leading-relaxed text-foreground">
                 <div className="mb-1 flex items-center gap-2 font-semibold">
                   <Truck className="h-4 w-4 text-gold" /> Delivery estimate
                 </div>
                 Charges are calculated from product weight. {deliveryEstimate.usesFallbackWeight ? "Some products are using the default 500 g fallback until admin saves exact shipment weight." : "All items have shipment weight snapshots for Delivery One."}
-              </div>
+              </div>}
 
               {paymentMethod === "razorpay" && (
                 <div className="mt-4 rounded-xl border border-gold/20 bg-gold/10 p-3 font-body text-xs leading-relaxed text-foreground">

@@ -13,17 +13,16 @@ import { useWishlist } from "@/hooks/useWishlist";
 import { useToast } from "@/hooks/use-toast";
 import {
   getProductDisplayPrice,
+  getActiveCategories,
   isProductActive,
   isProductPurchasable,
   normalizeProduct,
   normalizeProductStockStatus,
-  PRODUCT_CATEGORIES,
-  PRODUCT_CATEGORY_LABELS,
   type Product,
-  type ProductCategory,
   type ProductCategoryFilter,
   type ProductStockStatus,
 } from "@/lib/ecommerce";
+import { useProductCategories } from "@/hooks/useManagedCategories";
 import {
   AlertCircle,
   CheckCircle2,
@@ -53,11 +52,6 @@ interface StockMeta {
   Icon: LucideIcon;
 }
 
-const filters: { label: string; value: ProductCategoryFilter }[] = [
-  { label: "All Products", value: "all" },
-  ...PRODUCT_CATEGORIES.map((category) => ({ label: PRODUCT_CATEGORY_LABELS[category], value: category })),
-];
-
 const sortOptions: { label: string; value: SortMode }[] = [
   { label: "Featured", value: "featured" },
   { label: "Price: Low to High", value: "price-asc" },
@@ -65,7 +59,7 @@ const sortOptions: { label: string; value: SortMode }[] = [
   { label: "Name", value: "name" },
 ];
 
-const categoryBadgeColors: Record<ProductCategory, string> = {
+const categoryBadgeColors: Record<string, string> = {
   clothing: "bg-primary text-primary-foreground",
   "thermic-toys": "bg-gold text-gold-foreground",
   aaharya: "bg-charcoal text-charcoal-foreground",
@@ -243,7 +237,7 @@ const ProductCard = ({
           />
           <div className="absolute inset-x-0 top-0 flex items-start justify-between gap-2 p-2.5 sm:p-3">
             <span className={`rounded-full px-2.5 py-1 font-body text-[0.68rem] font-semibold shadow-sm sm:text-xs ${categoryBadgeColors[product.category] || "bg-muted text-muted-foreground"}`}>
-              {product.categoryLabel || PRODUCT_CATEGORY_LABELS[product.category]}
+              {product.categoryLabel || product.category}
             </span>
             <div className="flex items-center gap-1.5">
               <button type="button" onClick={handleWishlist} className={`flex h-8 w-8 items-center justify-center rounded-full bg-black/45 text-white transition-colors hover:bg-black/65 ${wishlisted ? "text-gold" : ""}`} aria-label={wishlisted ? `Remove ${product.name} from wishlist` : `Add ${product.name} to wishlist`}>
@@ -312,6 +306,11 @@ const Products = () => {
   const [error, setError] = useState<string | null>(null);
   const { isWishlisted, toggleWishlist } = useWishlist();
   const { ref: headerRef, isVisible: headerVisible } = useScrollAnimation();
+  const { categories: productCategories } = useProductCategories();
+  const filters = useMemo<{ label: string; value: ProductCategoryFilter }[]>(() => [
+    { label: "All Products", value: "all" },
+    ...getActiveCategories(productCategories).map((category) => ({ label: category.label, value: category.id })),
+  ], [productCategories]);
 
   useEffect(() => {
     const unsub = onSnapshot(

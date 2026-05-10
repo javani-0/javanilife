@@ -10,6 +10,7 @@ import {
   orderStatusLabels,
   type OrderSnapshot,
 } from "../_lib/order-delivery.js";
+import { runOrderAutomation } from "./notify.js";
 
 interface ApproveCancelBody {
   orderId?: string;
@@ -202,6 +203,15 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     if (providerResult?.trackingNumber) payload["delivery.trackingNumber"] = providerResult.trackingNumber;
 
     await orderSnapshot.ref.update(payload);
+    const automation = await runOrderAutomation({
+      orderId,
+      event: "order-status-updated",
+      status: "cancelled",
+      recordedBy: decoded.uid,
+    }).catch((error) => {
+      console.error("Unable to send cancellation automation", error);
+      return null;
+    });
 
     sendJson(response, 200, {
       ok: true,
@@ -211,6 +221,7 @@ export default async function handler(request: ApiRequest, response: ApiResponse
       providerStatus: providerResult?.providerStatus,
       pickupCancellationStatus: pickupCancellation.status,
       pickupCancellationMessage: pickupCancellation.message,
+      notificationStatus: automation?.warnings?.length ? "attention" : automation ? "sent" : "failed",
       message: pickupCancellation.message || (waybill ? "Order cancelled and Delhivery cancellation was requested." : "Order cancelled. No Delhivery waybill was present."),
     });
   } catch (error) {

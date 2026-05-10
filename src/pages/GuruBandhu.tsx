@@ -8,6 +8,7 @@ import GoldDivider from "@/components/GoldDivider";
 import PrimaryButton from "@/components/PrimaryButton";
 import GoldOutlineButton from "@/components/GoldOutlineButton";
 import SEO from "@/components/SEO";
+import PartnersSection from "@/components/PartnersSection";
 import { GraduationCap, Monitor, BookOpen, IndianRupee, Sparkles, Trophy, Theater, Heart, Briefcase, MessageCircle } from "lucide-react";
 import { useScrollAnimation } from "@/hooks/useScrollAnimation";
 import { useContactInfo } from "@/hooks/useContactInfo";
@@ -393,6 +394,7 @@ const GuruBandhu = () => (
       <ProgramPillarsSection />
       <GurusBusinessSection />
       <FinancialSection />
+      <PartnersSection />
       <CTASection />
     </main>
     <Footer />

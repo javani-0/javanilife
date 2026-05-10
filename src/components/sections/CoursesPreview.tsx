@@ -1,20 +1,21 @@
 import { useState, useEffect } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { collection, getDocs } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import SectionLabel from "../SectionLabel";
 import PrimaryButton from "../PrimaryButton";
 import { useScrollAnimation } from "@/hooks/useScrollAnimation";
-
-interface Course {
-  id: string;
-  image: string;
-  title: string;
-  description: string;
-  badge: string;
-  badgeColor: string;
-  extra?: string;
-}
+import { useCourseCategories } from "@/hooks/useManagedCategories";
+import { useCart } from "@/contexts/cart-context";
+import { useToast } from "@/hooks/use-toast";
+import {
+  createCartItemFromCourse,
+  getCourseDisplayPrice,
+  isCoursePurchasable,
+  normalizeCourse,
+  type Course,
+} from "@/lib/ecommerce";
+import { ShoppingBag } from "lucide-react";
 
 const badgeStyles: Record<string, string> = {
   red: "bg-primary text-primary-foreground",
@@ -25,15 +26,28 @@ const badgeStyles: Record<string, string> = {
 const CoursesPreview = () => {
   const [courses, setCourses] = useState<Course[]>([]);
   const [loading, setLoading] = useState(true);
+  const { categories: courseCategories } = useCourseCategories();
+  const { addItem, setBuyNowItem } = useCart();
+  const { toast } = useToast();
+  const navigate = useNavigate();
   const { ref: headerRef, isVisible: headerVisible } = useScrollAnimation();
+
+  const buyCourse = async (course: Course) => {
+    if (!isCoursePurchasable(course)) return;
+    const cartItem = createCartItemFromCourse(course);
+    setBuyNowItem(cartItem);
+    await addItem(cartItem);
+    toast({ title: "Course ready for checkout", description: course.title });
+    navigate("/checkout");
+  };
 
   useEffect(() => {
     const fetchCourses = async () => {
       try {
         // Fetch all courses, then prioritize featured ones
         const snap = await getDocs(collection(db, "courses"));
-        const allCourses = snap.docs.map((d) => ({ id: d.id, ...d.data() } as any));
-        const featured = allCourses.filter((c: any) => c.featured === true);
+        const allCourses = snap.docs.map((d) => normalizeCourse(d.id, d.data(), courseCategories));
+        const featured = allCourses.filter((c) => c.featured === true);
         // Show featured courses if any, otherwise fall back to first 3
         setCourses((featured.length > 0 ? featured : allCourses).slice(0, 3));
       } catch (err) {
@@ -43,7 +57,7 @@ const CoursesPreview = () => {
       }
     };
     fetchCourses();
-  }, []);
+  }, [courseCategories]);
 
   return (
     <section className="py-16 sm:py-20 md:py-32" style={{ background: "hsl(var(--bg-section))" }}>
@@ -86,7 +100,13 @@ const CoursesPreview = () => {
                   {c.extra && <p className="font-body text-xs text-muted-foreground mb-2">{c.extra}</p>}
                   <h3 className="font-display font-semibold text-[1.2rem] sm:text-[1.4rem] text-foreground mb-2 transition-colors duration-300 group-hover:text-gold">{c.title}</h3>
                   <p className="font-body text-[0.85rem] sm:text-[0.9rem] text-muted-foreground mb-4 leading-relaxed">{c.description}</p>
-                  <Link to="/contact"><PrimaryButton compact className="text-[0.85rem]">Know More + Enquire</PrimaryButton></Link>
+                  <p className="mb-4 font-display text-[1.1rem] font-bold text-primary">{getCourseDisplayPrice(c)}</p>
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <button type="button" onClick={() => buyCourse(c)} disabled={!isCoursePurchasable(c)} className="inline-flex items-center justify-center gap-2 rounded-sm bg-gradient-primary px-4 py-2 font-body text-[0.85rem] font-semibold text-primary-foreground transition-all hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:brightness-100">
+                      <ShoppingBag className="h-4 w-4" /> {isCoursePurchasable(c) ? "Buy Now" : "Fee Soon"}
+                    </button>
+                    <Link to={`/courses/${c.id}`}><PrimaryButton compact className="text-[0.85rem] w-full">Details</PrimaryButton></Link>
+                  </div>
                 </div>
               </div>
             </div>

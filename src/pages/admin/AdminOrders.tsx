@@ -482,15 +482,6 @@ const AdminOrders = () => {
     try {
       const idToken = await user.getIdToken();
       const result = await approveOrderCancellation(idToken, selectedOrder.id, cancellationAdminNote.trim());
-      void sendOrderAutomation(idToken, { orderId: selectedOrder.id, event: "order-status-updated", status: "cancelled" })
-        .then((automationResult) => {
-          if (automationResult.warnings?.length) {
-            console.warn("Cancellation was approved but some status automations need attention", automationResult.warnings);
-          }
-        })
-        .catch((notificationError) => {
-          console.error("Cancellation was approved but status automations could not be sent", notificationError);
-        });
       toast({
         title: result.pickupCancellationStatus === "manual-required"
           ? "Cancellation approved, pickup endpoint needed"

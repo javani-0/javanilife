@@ -1,8 +1,9 @@
 import { useState, useRef, useEffect } from "react";
 import { Link } from "react-router-dom";
-import { collection, onSnapshot } from "firebase/firestore";
+import { doc, onSnapshot } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useContactInfo } from "@/hooks/useContactInfo";
+import { defaultGradingSettings, normalizeGradingSettings } from "@/lib/gradingSettings";
 
 import Footer from "@/components/Footer";
 import PageHero from "@/components/PageHero";
@@ -219,13 +220,33 @@ const processNotes = [
   "Exam demonstration of students will be recorded for in-depth evaluation purposes.",
 ];
 
+const renderHighlightedText = (text: string, highlight: string) => {
+  if (!highlight || !text.includes(highlight)) return text;
+  const [before, after] = text.split(highlight);
+  return <>{before}<span className="text-gold font-semibold">{highlight}</span>{after}</>;
+};
+
 const JGPSection = () => {
+  const [settings, setSettings] = useState(defaultGradingSettings);
   const { ref: headerRef, isVisible: headerVisible } = useScrollAnimation();
   const { ref: tableRef, isVisible: tableVisible } = useScrollAnimation();
   const { ref: notesRef, isVisible: notesVisible } = useScrollAnimation();
   const { ref: jdpHeaderRef, isVisible: jdpHeaderVisible } = useScrollAnimation();
   const { ref: jdpTableRef, isVisible: jdpTableVisible } = useScrollAnimation();
   const { ref: jdpNotesRef, isVisible: jdpNotesVisible } = useScrollAnimation();
+
+  useEffect(() => {
+    const unsubscribe = onSnapshot(
+      doc(db, "siteSettings", "gradingFees"),
+      (snapshot) => setSettings(normalizeGradingSettings(snapshot.exists() ? snapshot.data() : undefined)),
+      (error) => {
+        console.error("Unable to load grading fee settings", error);
+        setSettings(defaultGradingSettings);
+      },
+    );
+
+    return unsubscribe;
+  }, []);
 
   return (
     <section className="py-8 sm:py-12 md:py-16 bg-background">
@@ -234,14 +255,14 @@ const JGPSection = () => {
         {/* Collaboration Banner */}
         <div ref={headerRef} className={`text-center mb-10 ${headerVisible ? "animate-fade-up" : "opacity-0"}`}>
           <div className="inline-flex items-center gap-3 bg-gold/10 border border-gold/30 rounded-full px-5 py-2 mb-6">
-            <span className="text-gold text-xs sm:text-sm font-accent font-semibold tracking-widest uppercase">IAF &amp; ISO Approved</span>
+            <span className="text-gold text-xs sm:text-sm font-accent font-semibold tracking-widest uppercase">{settings.approvalLabel}</span>
           </div>
           <p className="font-body text-[0.85rem] sm:text-[0.95rem] text-muted-foreground mb-4 max-w-2xl mx-auto">
-            In Collaboration with an authentic <span className="text-gold font-semibold">IAF, ISO Approved</span> Certificate Providing Center
+            {renderHighlightedText(settings.collaborationText, settings.collaborationHighlight)}
           </p>
-          <SectionLabel text="JAVANI GRADE PROGRAM (JGP)" className="mb-3" />
+          <SectionLabel text={settings.jgpSectionLabel} className="mb-3" />
           <h2 className="font-display font-semibold text-[1.8rem] sm:text-[2rem] md:text-[2.8rem] text-foreground leading-tight">
-            Eligibility &amp; Examination Fees
+            {settings.jgpHeading}
           </h2>
         </div>
 
@@ -256,14 +277,14 @@ const JGPSection = () => {
               </tr>
             </thead>
             <tbody>
-              {jgpGrades.map((row, i) => (
+              {settings.jgpRows.map((row, i) => (
                 <tr
-                  key={row.grade}
+                  key={row.level}
                   className={`border-b border-gold/10 transition-colors duration-200 hover:bg-gold/5 ${i % 2 === 0 ? "bg-card" : "bg-background"}`}
                 >
                   <td className="py-3 px-4 sm:px-6">
                     <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-gold/10 text-gold font-accent font-bold text-xs sm:text-sm">
-                      {row.grade}
+                      {row.level}
                     </span>
                   </td>
                   <td className="py-3 px-4 sm:px-6 font-body text-foreground text-[0.85rem] sm:text-[0.95rem]">{row.eligibility}</td>
@@ -282,7 +303,7 @@ const JGPSection = () => {
             Process Information
           </h3>
           <ul className="space-y-3">
-            {processNotes.map((note, i) => (
+            {settings.jgpNotes.map((note, i) => (
               <li key={i} className="flex items-start gap-3">
                 <span className="w-5 h-5 rounded-full bg-gold/10 text-gold text-xs flex items-center justify-center flex-shrink-0 mt-0.5 font-accent font-bold">{i + 1}</span>
                 <span className="font-body font-light text-[0.85rem] sm:text-[0.95rem] text-foreground leading-relaxed">{note}</span>
@@ -293,9 +314,9 @@ const JGPSection = () => {
 
         {/* ── JDP Section ── */}
         <div ref={jdpHeaderRef} className={`text-center mt-16 mb-10 ${jdpHeaderVisible ? "animate-fade-up" : "opacity-0"}`}>
-          <SectionLabel text="JAVANI DIPLOMA PROGRAM (JDP)" className="mb-3" />
+          <SectionLabel text={settings.jdpSectionLabel} className="mb-3" />
           <h2 className="font-display font-semibold text-[1.8rem] sm:text-[2rem] md:text-[2.8rem] text-foreground leading-tight">
-            Eligibility &amp; Fee Structure
+            {settings.jdpHeading}
           </h2>
         </div>
 
@@ -310,7 +331,7 @@ const JGPSection = () => {
               </tr>
             </thead>
             <tbody>
-              {jdpSemesters.map((row, i) => (
+              {settings.jdpRows.map((row, i) => (
                 <tr key={row.level} className={`border-b border-gold/10 transition-colors duration-200 hover:bg-gold/5 ${i % 2 === 0 ? "bg-card" : "bg-background"}`}>
                   <td className="py-3 px-4 sm:px-6 font-body font-semibold text-foreground text-[0.85rem] sm:text-[0.95rem]">{row.level}</td>
                   <td className="py-3 px-4 sm:px-6 font-body text-foreground text-[0.85rem] sm:text-[0.95rem]">{row.eligibility}</td>
@@ -329,7 +350,7 @@ const JGPSection = () => {
             Process Information
           </h3>
           <ul className="space-y-3">
-            {jdpProcessNotes.map((note, i) => (
+            {settings.jdpNotes.map((note, i) => (
               <li key={i} className="flex items-start gap-3">
                 <span className="w-5 h-5 rounded-full bg-gold/10 text-gold text-xs flex items-center justify-center flex-shrink-0 mt-0.5 font-accent font-bold">{i + 1}</span>
                 <span className="font-body font-light text-[0.85rem] sm:text-[0.95rem] text-foreground leading-relaxed">{note}</span>
@@ -440,189 +461,6 @@ const ExamProcessSection = () => {
   );
 };
 
-/* ───── Partners Section ───── */
-interface Partner {
-  id: string;
-  name: string;
-  logoUrl: string;
-  order: number;
-}
-
-const PartnersSection = () => {
-  const { ref: headerRef, isVisible: headerVisible } = useScrollAnimation();
-  const [partners, setPartners] = useState<Partner[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    const unsub = onSnapshot(
-      collection(db, "partners"),
-      (snap) => {
-        const data = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Partner));
-        setPartners(data.sort((a, b) => (a.order || 0) - (b.order || 0)));
-        setLoading(false);
-      },
-      (err) => {
-        console.error("[Partners Error]", err);
-        setLoading(false);
-      }
-    );
-    return unsub;
-  }, []);
-  
-  // Split partners evenly into two rows, each up to 8
-  const shouldAnimate = partners.length >= 2;
-  const halfPoint = Math.ceil(partners.length / 2);
-  const firstRowPartners = partners.slice(0, Math.min(halfPoint, 8));
-  const secondRowPartners = partners.slice(Math.min(halfPoint, 8));
-  const showSecondRow = secondRowPartners.length > 0;
-  const shouldAnimateSecondRow = secondRowPartners.length >= 2;
-  
-  // Duplicate arrays for seamless infinite scroll
-  const firstRow = shouldAnimate ? [...firstRowPartners, ...firstRowPartners, ...firstRowPartners] : partners;
-  const secondRow = shouldAnimateSecondRow ? [...secondRowPartners, ...secondRowPartners, ...secondRowPartners] : secondRowPartners;
-
-  return (
-    <section className="py-12 sm:py-16 md:py-20 bg-background overflow-hidden">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6">
-        <div ref={headerRef} className={`${headerVisible ? "animate-fade-up" : "opacity-0"}`}>
-          <div className="flex items-center justify-center gap-4 sm:gap-6 mb-10 sm:mb-14">
-            <div className="h-[2px] w-12 sm:w-20 bg-gradient-to-r from-transparent to-gold"></div>
-            <span className="font-accent text-[0.85rem] sm:text-[0.95rem] tracking-[0.25em] uppercase text-gold">OUR PARTNERS</span>
-            <div className="h-[2px] w-12 sm:w-20 bg-gradient-to-l from-transparent to-gold"></div>
-          </div>
-        </div>
-
-        {loading ? (
-          <div className="text-center py-12">
-            <p className="font-body text-muted-foreground">Loading partners...</p>
-          </div>
-        ) : partners.length === 0 ? (
-          <div className="text-center py-12">
-            <p className="font-body text-muted-foreground">No partners to display</p>
-          </div>
-        ) : !shouldAnimate ? (
-          /* Static centered grid when only 1 partner */
-          <div className="flex flex-wrap items-center justify-center gap-6 sm:gap-8">
-            {partners.map((partner) => (
-              <div
-                key={partner.id}
-                className="inline-flex items-center justify-center bg-card border border-gold/10 rounded-lg px-8 py-6 min-w-[200px] shadow-sm hover:shadow-md hover:border-gold/30 transition-all duration-300"
-              >
-                <img src={partner.logoUrl} alt={partner.name} className="h-12 w-auto object-contain" />
-              </div>
-            ))}
-          </div>
-        ) : (
-          <>
-            {/* Mobile: Static grid, top to bottom */}
-            <div className="block md:hidden">
-              <div className="grid grid-cols-2 gap-3">
-                {partners.map((partner) => (
-                  <div
-                    key={partner.id}
-                    className="flex items-center justify-center bg-card border border-gold/10 rounded-lg px-3 py-4 shadow-sm hover:shadow-md hover:border-gold/30 transition-all duration-300"
-                  >
-                    <img src={partner.logoUrl} alt={partner.name} className="h-8 w-auto object-contain" />
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Desktop: Animated infinite scroll */}
-            <div className="hidden md:block">
-              {/* First Row scrolling right */}
-              <div className="relative mb-8 overflow-hidden">
-                <div className="flex gap-6 md:gap-8 animate-scroll-right whitespace-nowrap">
-                  {firstRow.map((partner, i) => (
-                    <div
-                      key={i}
-                      className="inline-flex items-center justify-center bg-card border border-gold/10 rounded-lg px-6 py-5 md:px-8 md:py-6 min-w-[180px] md:min-w-[200px] shadow-sm hover:shadow-md hover:border-gold/30 transition-all duration-300"
-                    >
-                      <img src={partner.logoUrl} alt={partner.name} className="h-11 md:h-12 w-auto object-contain" />
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Second Row scrolling left */}
-              {showSecondRow && (
-                shouldAnimateSecondRow ? (
-                  <div className="relative overflow-hidden">
-                    <div className="flex gap-6 md:gap-8 animate-scroll-left whitespace-nowrap">
-                      {secondRow.map((partner, i) => (
-                        <div
-                          key={i}
-                          className="inline-flex items-center justify-center bg-card border border-gold/10 rounded-lg px-6 py-5 md:px-8 md:py-6 min-w-[180px] md:min-w-[200px] shadow-sm hover:shadow-md hover:border-gold/30 transition-all duration-300"
-                        >
-                          <img src={partner.logoUrl} alt={partner.name} className="h-11 md:h-12 w-auto object-contain" />
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ) : (
-                  <div className="flex flex-wrap items-center justify-center gap-6 sm:gap-8">
-                    {secondRowPartners.map((partner) => (
-                      <div
-                        key={partner.id}
-                        className="inline-flex items-center justify-center bg-card border border-gold/10 rounded-lg px-8 py-6 min-w-[200px] shadow-sm hover:shadow-md hover:border-gold/30 transition-all duration-300"
-                      >
-                        <img src={partner.logoUrl} alt={partner.name} className="h-12 w-auto object-contain" />
-                      </div>
-                    ))}
-                  </div>
-                )
-              )}
-            </div>
-          </>
-        )}
-      </div>
-
-      <style>{`
-        @keyframes scroll-right {
-          0% {
-            transform: translateX(-33.333%);
-          }
-          100% {
-            transform: translateX(0%);
-          }
-        }
-
-        @keyframes scroll-left {
-          0% {
-            transform: translateX(0%);
-          }
-          100% {
-            transform: translateX(-33.333%);
-          }
-        }
-
-        .animate-scroll-right {
-          animation: scroll-right 12s linear infinite;
-        }
-
-        .animate-scroll-left {
-          animation: scroll-left 12s linear infinite;
-        }
-
-        @media (min-width: 1024px) {
-          .animate-scroll-right {
-            animation: scroll-right 18s linear infinite;
-          }
-
-          .animate-scroll-left {
-            animation: scroll-left 18s linear infinite;
-          }
-        }
-
-        .animate-scroll-right:hover,
-        .animate-scroll-left:hover {
-          animation-play-state: paused;
-        }
-      `}</style>
-    </section>
-  );
-};
-
 /* ───── FAQ Accordion ───── */
 const faqs = [
   { q: "At what age can a student appear for their first graded examination?", a: "Students can appear for Grade 1 from age 6 onwards, provided they have completed our Pre-Grade Foundation program and faculty assessment confirms readiness." },
@@ -687,7 +525,6 @@ const Grading = () => (
       <CertificationSection />
       <JGPSection />
       <ExamProcessSection />
-      <PartnersSection />
       <FAQSection />
     </main>
     <Footer />

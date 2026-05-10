@@ -1,23 +1,105 @@
-export const PRODUCT_CATEGORIES = [
-  "clothing",
-  "thermic-toys",
-  "aaharya",
-  "accessories",
-  "books-stationaries",
-  "sattvic-refreshments",
-] as const;
+export interface ManagedCategoryOption {
+  id: string;
+  label: string;
+  active?: boolean;
+  order?: number;
+}
 
-export type ProductCategory = (typeof PRODUCT_CATEGORIES)[number];
+export interface CourseCategoryOption extends ManagedCategoryOption {
+  badge: string;
+  badgeColor: "red" | "gold" | "charcoal";
+  detail: string;
+  sectionLabel: string;
+  description: string;
+}
+
+export const DEFAULT_PRODUCT_CATEGORY_OPTIONS: ManagedCategoryOption[] = [
+  { id: "clothing", label: "Clothing", active: true, order: 0 },
+  { id: "thermic-toys", label: "Thermic Toys", active: true, order: 1 },
+  { id: "aaharya", label: "Aaharya Collections", active: true, order: 2 },
+  { id: "accessories", label: "Practice Accessories", active: true, order: 3 },
+  { id: "books-stationaries", label: "Books & Stationaries", active: true, order: 4 },
+  { id: "sattvic-refreshments", label: "Sattvic Refreshments", active: true, order: 5 },
+];
+
+export const DEFAULT_COURSE_CATEGORY_OPTIONS: CourseCategoryOption[] = [
+  {
+    id: "grades",
+    label: "Grades",
+    badge: "Grades Course",
+    badgeColor: "red",
+    detail: "Recognized Certification",
+    sectionLabel: "STRUCTURED LEARNING",
+    description: "Complete a structured grade-based journey and earn recognized certification through progressive levels.",
+    active: true,
+    order: 0,
+  },
+  {
+    id: "diploma",
+    label: "Diploma",
+    badge: "Diploma Course",
+    badgeColor: "gold",
+    detail: "University-Linked Certificate",
+    sectionLabel: "ADVANCED MASTERY",
+    description: "Deepen your mastery with advanced, university-linked diploma programs.",
+    active: true,
+    order: 1,
+  },
+  {
+    id: "pre-grade",
+    label: "Pre-Grade",
+    badge: "Pre-Grade",
+    badgeColor: "charcoal",
+    detail: "Beginner Friendly",
+    sectionLabel: "EXPLORE & DISCOVER",
+    description: "Perfect for curious beginners, young children, or those exploring arts without formal examination pressure.",
+    active: true,
+    order: 2,
+  },
+  {
+    id: "masterclass-workshops",
+    label: "Masterclass & Workshops",
+    badge: "Masterclass & Workshop",
+    badgeColor: "gold",
+    detail: "Intensive Sessions",
+    sectionLabel: "INTENSIVE TRAINING",
+    description: "Deep dive into specific techniques and practices with intensive masterclasses and focused workshops.",
+    active: true,
+    order: 3,
+  },
+  {
+    id: "yoga",
+    label: "Yoga",
+    badge: "Yoga Course",
+    badgeColor: "charcoal",
+    detail: "Certificate on Completion",
+    sectionLabel: "MIND & BODY",
+    description: "Ancient practices for holistic wellness, combining physical postures, breathing techniques, and meditation.",
+    active: true,
+    order: 4,
+  },
+  {
+    id: "konnakol",
+    label: "Konnakol",
+    badge: "Konnakol Course",
+    badgeColor: "red",
+    detail: "Grade-based Levels",
+    sectionLabel: "RHYTHMIC ARTS",
+    description: "Master the art of South Indian vocal percussion through systematic practice and rhythmic recitation.",
+    active: true,
+    order: 5,
+  },
+];
+
+export const PRODUCT_CATEGORIES = DEFAULT_PRODUCT_CATEGORY_OPTIONS.map((category) => category.id);
+export type ProductCategory = string;
 export type ProductCategoryFilter = "all" | ProductCategory;
 
-export const PRODUCT_CATEGORY_LABELS: Record<ProductCategory, string> = {
-  clothing: "Clothing",
-  "thermic-toys": "Thermic Toys",
-  aaharya: "Aaharya Collections",
-  accessories: "Practice Accessories",
-  "books-stationaries": "Books & Stationaries",
-  "sattvic-refreshments": "Sattvic Refreshments",
-};
+export const PRODUCT_CATEGORY_LABELS: Record<ProductCategory, string> = Object.fromEntries(
+  DEFAULT_PRODUCT_CATEGORY_OPTIONS.map((category) => [category.id, category.label]),
+);
+
+export type CartItemType = "product" | "course";
 
 export type ProductStockStatus = "available" | "out-of-stock" | "coming-soon";
 export type PaymentMethod = "cod" | "razorpay";
@@ -72,6 +154,8 @@ export interface Product {
 
 export interface CartItem {
   productId: string;
+  sourceId?: string;
+  itemType?: CartItemType;
   name: string;
   category: ProductCategory;
   categoryLabel: string;
@@ -180,6 +264,8 @@ export interface OrderCancellationInfo {
 
 export interface OrderItem {
   productId: string;
+  sourceId?: string;
+  itemType?: CartItemType;
   name: string;
   category: ProductCategory;
   categoryLabel: string;

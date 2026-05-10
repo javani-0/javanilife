@@ -1,6 +1,10 @@
 import { readJsonBody, requirePost, sendError, sendJson, type ApiRequest, type ApiResponse } from "../_lib/http.js";
 import { extractDeliveryOneWebhookUpdate } from "../_lib/delivery-one.js";
 import { createTrackingUpdatePayload, findOrderByDeliveryOneUpdate, getString, type OrderSnapshot } from "../_lib/order-delivery.js";
+import { runOrderAutomation, type OrderStatus } from "../orders/notify.js";
+
+const notificationStatuses = new Set(["delivered", "cancelled"]);
+const shouldNotifyStatus = (status?: string): status is OrderStatus => Boolean(status && notificationStatuses.has(status));
 
 const getHeader = (request: ApiRequest, name: string) => {
   const direct = request.headers[name] || request.headers[name.toLowerCase()];
@@ -52,7 +56,19 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     }
 
     const order = orderDocument.data() as OrderSnapshot;
+    const nextStatus = update.orderStatus;
     await orderDocument.ref.update(createTrackingUpdatePayload({ order, update, createdBy: "delivery-one-webhook" }));
+    const automation = shouldNotifyStatus(nextStatus) && order.status !== nextStatus
+      ? await runOrderAutomation({
+        orderId: orderDocument.id,
+        event: "order-status-updated",
+        status: nextStatus,
+        recordedBy: "delivery-one-webhook",
+      }).catch((error) => {
+        console.error("Unable to send Delivery One webhook automation", error);
+        return null;
+      })
+      : null;
 
     sendJson(response, 200, {
       ok: true,
@@ -61,6 +77,7 @@ export default async function handler(request: ApiRequest, response: ApiResponse
       trackingNumber: update.trackingNumber,
       providerStatus: update.providerStatus,
       orderStatus: update.orderStatus,
+      notificationStatus: automation?.warnings?.length ? "attention" : automation ? "sent" : shouldNotifyStatus(nextStatus) ? "unchanged" : "not-required",
     });
   } catch (error) {
     console.error("Unable to process Delivery One webhook", error);

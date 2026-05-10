@@ -1,25 +1,24 @@
 import { useState, useEffect } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useParams, Link, useNavigate } from "react-router-dom";
 import { doc, getDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useContactInfo } from "@/hooks/useContactInfo";
+import { useCourseCategories } from "@/hooks/useManagedCategories";
+import { useCart } from "@/contexts/cart-context";
+import { useToast } from "@/hooks/use-toast";
 import Footer from "@/components/Footer";
 import SEO from "@/components/SEO";
 import ShareButton from "@/components/ShareButton";
 import PrimaryButton from "@/components/PrimaryButton";
-import { MessageCircle, ArrowLeft, Clock, Award, Users, CheckCircle } from "lucide-react";
-
-interface Course {
-  id: string;
-  image: string;
-  title: string;
-  badge: string;
-  badgeColor: string;
-  description: string;
-  category: string;
-  extra?: string;
-  status: string;
-}
+import { MessageCircle, ArrowLeft, Award, ShoppingBag } from "lucide-react";
+import {
+  createCartItemFromCourse,
+  getCourseCategory,
+  getCourseDisplayPrice,
+  isCoursePurchasable,
+  normalizeCourse,
+  type Course,
+} from "@/lib/ecommerce";
 
 const badgeStyles: Record<string, string> = {
   red: "bg-primary text-primary-foreground",
@@ -27,31 +26,26 @@ const badgeStyles: Record<string, string> = {
   charcoal: "bg-charcoal text-charcoal-foreground",
 };
 
-const categoryMeta: Record<string, { icon: React.ReactNode; detail: string }> = {
-  grades: { icon: <Award className="w-4 h-4" />, detail: "Recognized Certification" },
-  diploma: { icon: <Award className="w-4 h-4" />, detail: "University-Linked Certificate" },
-  "pre-grade": { icon: <Users className="w-4 h-4" />, detail: "Beginner Friendly" },
-  "masterclass-workshops": { icon: <Clock className="w-4 h-4" />, detail: "Intensive Sessions" },
-  yoga: { icon: <CheckCircle className="w-4 h-4" />, detail: "Certificate on Completion" },
-  konnakol: { icon: <Award className="w-4 h-4" />, detail: "Grade-based Levels" },
-};
-
 const CourseDetail = () => {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const [course, setCourse] = useState<Course | null>(null);
   const [loading, setLoading] = useState(true);
   const [imgLoaded, setImgLoaded] = useState(false);
   const { whatsappNumber } = useContactInfo();
+  const { categories: courseCategories } = useCourseCategories();
+  const { addItem, setBuyNowItem } = useCart();
+  const { toast } = useToast();
 
   useEffect(() => {
     if (!id) return;
     getDoc(doc(db, "courses", id))
       .then((snap) => {
-        if (snap.exists()) setCourse({ id: snap.id, ...snap.data() } as Course);
+        if (snap.exists()) setCourse(normalizeCourse(snap.id, snap.data(), courseCategories));
         setLoading(false);
       })
       .catch(() => setLoading(false));
-  }, [id]);
+  }, [courseCategories, id]);
 
   if (loading) {
     return (
@@ -77,7 +71,16 @@ const CourseDetail = () => {
     `Please share more details.`
   );
 
-  const meta = categoryMeta[course.category];
+  const meta = getCourseCategory(courseCategories, course.category);
+  const purchasable = isCoursePurchasable(course);
+  const buyCourse = async () => {
+    if (!purchasable) return;
+    const cartItem = createCartItemFromCourse(course);
+    setBuyNowItem(cartItem);
+    await addItem(cartItem);
+    toast({ title: "Course ready for checkout", description: course.title });
+    navigate("/checkout");
+  };
 
   return (
     <>
@@ -148,12 +151,25 @@ const CourseDetail = () => {
               {/* Meta chip */}
               {meta && (
                 <div className="flex items-center gap-2 text-gold font-body text-sm">
-                  {meta.icon}
+                  <Award className="w-4 h-4" />
                   <span>{meta.detail}</span>
                 </div>
               )}
 
+              <div className="rounded-xl border border-gold/20 bg-gold/10 p-4">
+                <p className="font-body text-xs font-semibold uppercase tracking-[0.18em] text-gold">Course Fee</p>
+                <p className="mt-1 font-display text-2xl font-bold text-primary">{getCourseDisplayPrice(course)}</p>
+              </div>
+
               <div className="border-t border-border/50 pt-5 flex flex-col gap-3">
+                <button
+                  type="button"
+                  onClick={buyCourse}
+                  disabled={!purchasable}
+                  className="flex items-center justify-center gap-2 w-full py-3.5 rounded-sm bg-gradient-primary text-primary-foreground font-body font-semibold text-base hover:brightness-110 transition-all shadow-sm disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:brightness-100"
+                >
+                  <ShoppingBag className="w-5 h-5" /> {purchasable ? "Buy Course Now" : "Fee Will Be Updated Soon"}
+                </button>
                 {/* Enquire CTA */}
                 <a
                   href={`https://wa.me/${whatsappNumber}?text=${whatsappMsg}`}

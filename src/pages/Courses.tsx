@@ -1,5 +1,5 @@
-import { useState, useEffect, useMemo } from "react";
-import { collection, onSnapshot, query, where } from "firebase/firestore";
+import { useState, useEffect, useMemo, type KeyboardEvent, type MouseEvent } from "react";
+import { collection, onSnapshot, query } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useContactInfo } from "@/hooks/useContactInfo";
 
@@ -10,35 +10,24 @@ import PrimaryButton from "@/components/PrimaryButton";
 import SEO from "@/components/SEO";
 import { Link, useNavigate } from "react-router-dom";
 import { useScrollAnimation } from "@/hooks/useScrollAnimation";
-import { MessageCircle, ArrowLeft } from "lucide-react";
+import { MessageCircle, ArrowLeft, ShoppingBag } from "lucide-react";
 import ShareButton from "@/components/ShareButton";
+import { useCart } from "@/contexts/cart-context";
+import { useToast } from "@/hooks/use-toast";
+import { useCourseCategories } from "@/hooks/useManagedCategories";
+import {
+  createCartItemFromCourse,
+  getActiveCategories,
+  getCourseDisplayPrice,
+  isCoursePurchasable,
+  normalizeCourse,
+  type Course,
+} from "@/lib/ecommerce";
 import heroDancer1 from "@/assets/hero-dancer-1.jpg";
 import heroDancer2 from "@/assets/hero-dancer-2.jpg";
 import heroDancer3 from "@/assets/hero-dancer-3.jpg";
 
-type CourseCategory = "all" | "grades" | "diploma" | "pre-grade" | "masterclass-workshops" | "yoga" | "konnakol";
-
-interface Course {
-  id: string;
-  image: string;
-  title: string;
-  badge: string;
-  badgeColor: string;
-  description: string;
-  category: string;
-  extra?: string;
-  status: string;
-}
-
-const filters: { label: string; value: CourseCategory }[] = [
-  { label: "All Courses", value: "all" },
-  { label: "Grades", value: "grades" },
-  { label: "Diploma", value: "diploma" },
-  { label: "Pre-Grade", value: "pre-grade" },
-  { label: "Masterclass & Workshops", value: "masterclass-workshops" },
-  { label: "Yoga", value: "yoga" },
-  { label: "Konnakol", value: "konnakol" },
-];
+type CourseCategory = "all" | string;
 
 const badgeStyles: Record<string, string> = {
   red: "bg-primary text-primary-foreground",
@@ -63,13 +52,37 @@ const ExtCourseCard = ({ course, delay = 0 }: { course: Course; delay?: number }
   const [imgLoaded, setImgLoaded] = useState(false);
   const { ref, isVisible } = useScrollAnimation();
   const { whatsappNumber } = useContactInfo();
+  const { addItem, setBuyNowItem } = useCart();
+  const { toast } = useToast();
+  const navigate = useNavigate();
+  const purchasable = isCoursePurchasable(course);
   const whatsappMsg = encodeURIComponent(
     `Hi, I'm interested in the *${course.title}* course (${course.badge}) at Javani Spiritual Hub.\n\n${course.description}${course.extra ? `\n${course.extra}` : ""}\n\nPlease share more details.`
   );
 
+  const openDetail = () => navigate(`/courses/${course.id}`);
+  const handleCardKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      openDetail();
+    }
+  };
+
+  const buyCourse = async (event: MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!purchasable) return;
+
+    const cartItem = createCartItemFromCourse(course);
+    setBuyNowItem(cartItem);
+    await addItem(cartItem);
+    toast({ title: "Course ready for checkout", description: course.title });
+    navigate("/checkout");
+  };
+
   return (
     <div ref={ref} className={`${isVisible ? "animate-fade-up" : "opacity-0"}`} style={{ animationDelay: isVisible ? `${delay}s` : undefined }}>
-      <Link to={`/courses/${course.id}`} className="block">
+      <div role="link" tabIndex={0} onClick={openDetail} onKeyDown={handleCardKeyDown} className="block cursor-pointer rounded-lg focus:outline-none focus:ring-2 focus:ring-gold focus:ring-offset-2 focus:ring-offset-background">
         <div className="bg-card shadow-card rounded-lg overflow-hidden transition-all duration-300 hover:-translate-y-1.5 hover:shadow-hero group flex flex-col h-full">
         <div className="aspect-square sm:aspect-[3/2] relative overflow-hidden">
           {!imgLoaded && <div className="absolute inset-0 skeleton-shimmer" />}
@@ -92,10 +105,11 @@ const ExtCourseCard = ({ course, delay = 0 }: { course: Course; delay?: number }
         <div className="p-2.5 sm:p-6 flex flex-col flex-1">
           <span className={`inline-block px-2 py-0.5 text-[0.6rem] sm:text-xs font-body font-medium rounded-full mb-2 self-start ${badgeStyles[course.badgeColor] || badgeStyles.red}`}>{course.badge}</span>
           <h3 className="font-display font-semibold text-[0.75rem] sm:text-[1.4rem] text-foreground mb-2 sm:mb-4 transition-colors duration-300 group-hover:text-gold truncate">{course.title}</h3>
+          <p className="mb-2 font-display text-[0.9rem] sm:text-[1.25rem] font-bold text-primary">{getCourseDisplayPrice(course)}</p>
           <div className="flex flex-col sm:flex-row gap-1.5 sm:gap-3 flex-wrap mt-auto">
-            <Link to="/contact" className="flex-1 min-w-[80px] sm:min-w-[120px]" onClick={(e) => e.stopPropagation()}>
-              <PrimaryButton compact className="text-[0.65rem] sm:text-[0.85rem] w-full py-1.5 sm:py-2">Enquire</PrimaryButton>
-            </Link>
+            <button type="button" onClick={buyCourse} disabled={!purchasable} className="flex flex-1 min-w-[80px] sm:min-w-[120px] items-center justify-center gap-1.5 rounded-sm bg-gradient-primary px-2 sm:px-4 py-1.5 sm:py-2 font-body text-[0.65rem] sm:text-[0.8rem] font-semibold text-primary-foreground transition-all hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:brightness-100">
+              <ShoppingBag className="w-3 h-3 sm:w-4 sm:h-4" /> {purchasable ? "Buy Now" : "Fee Soon"}
+            </button>
             <a
               href={`https://wa.me/${whatsappNumber}?text=${whatsappMsg}`}
               target="_blank"
@@ -108,7 +122,7 @@ const ExtCourseCard = ({ course, delay = 0 }: { course: Course; delay?: number }
           </div>
         </div>
       </div>
-      </Link>
+      </div>
     </div>
   );
 };
@@ -206,32 +220,30 @@ const Courses = () => {
   const [activeFilter, setActiveFilter] = useState<CourseCategory>("all");
   const [courses, setCourses] = useState<Course[]>([]);
   const [loading, setLoading] = useState(true);
+  const { categories: courseCategories } = useCourseCategories();
+  const activeCourseCategories = useMemo(() => getActiveCategories(courseCategories), [courseCategories]);
+  const filters = useMemo(() => [
+    { label: "All Courses", value: "all" },
+    ...activeCourseCategories.map((category) => ({ label: category.label, value: category.id })),
+  ], [activeCourseCategories]);
 
   useEffect(() => {
     const q = query(collection(db, "courses"));
     const unsub = onSnapshot(q, (snap) => {
-      if (!snap.empty) {
-        setCourses(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Course)));
-      }
+      setCourses(snap.docs.map((d) => normalizeCourse(d.id, d.data(), courseCategories)));
       setLoading(false);
     }, () => { setLoading(false); });
     return unsub;
-  }, []);
+  }, [courseCategories]);
 
-  const gradesCourses = useMemo(() => courses.filter((c) => c.category === "grades"), [courses]);
-  const diplomaCourses = useMemo(() => courses.filter((c) => c.category === "diploma"), [courses]);
-  const preGradeCourses = useMemo(() => courses.filter((c) => c.category === "pre-grade"), [courses]);
-  const masterclassCourses = useMemo(() => courses.filter((c) => c.category === "masterclass-workshops"), [courses]);
-  const yogaCourses = useMemo(() => courses.filter((c) => c.category === "yoga"), [courses]);
-  const konnakolCourses = useMemo(() => courses.filter((c) => c.category === "konnakol"), [courses]);
-
-  const filteredGrades = useMemo(() => activeFilter === "all" || activeFilter === "grades" ? gradesCourses : [], [activeFilter, gradesCourses]);
-  const filteredDiploma = useMemo(() => activeFilter === "all" || activeFilter === "diploma" ? diplomaCourses : [], [activeFilter, diplomaCourses]);
-  const filteredPreGrade = useMemo(() => activeFilter === "all" || activeFilter === "pre-grade" ? preGradeCourses : [], [activeFilter, preGradeCourses]);
-  const filteredMasterclass = useMemo(() => activeFilter === "all" || activeFilter === "masterclass-workshops" ? masterclassCourses : [], [activeFilter, masterclassCourses]);
-  const filteredYoga = useMemo(() => activeFilter === "all" || activeFilter === "yoga" ? yogaCourses : [], [activeFilter, yogaCourses]);
-  const filteredKonnakol = useMemo(() => activeFilter === "all" || activeFilter === "konnakol" ? konnakolCourses : [], [activeFilter, konnakolCourses]);
-  const hasAny = filteredGrades.length + filteredDiploma.length + filteredPreGrade.length + filteredMasterclass.length + filteredYoga.length + filteredKonnakol.length > 0;
+  const courseSections = useMemo(() => activeCourseCategories
+    .map((category, index) => ({
+      category,
+      bgClass: index % 2 === 0 ? "bg-background" : "",
+      courses: courses.filter((course) => course.category === category.id && course.status !== "inactive"),
+    }))
+    .filter((section) => (activeFilter === "all" || activeFilter === section.category.id) && section.courses.length > 0), [activeCourseCategories, activeFilter, courses]);
+  const hasAny = courseSections.length > 0;
 
   useEffect(() => {
     document.body.classList.add("hide-nav-mobile");
@@ -273,60 +285,16 @@ const Courses = () => {
           </div>
         ) : (
           <>
-            {filteredGrades.length > 0 && (
+            {courseSections.map((section) => (
               <CourseSection
-                category="STRUCTURED LEARNING"
-                title="Grades Courses"
-                description="Complete a structured grade-based journey and earn recognized certification through progressive levels."
-                courses={filteredGrades}
-                bgClass="bg-background"
+                key={section.category.id}
+                category={section.category.sectionLabel}
+                title={`${section.category.label} Courses`}
+                description={section.category.description}
+                courses={section.courses}
+                bgClass={section.bgClass}
               />
-            )}
-            {filteredDiploma.length > 0 && (
-              <CourseSection
-                category="ADVANCED MASTERY"
-                title="Diploma Courses"
-                description="Deepen your mastery with advanced, university-linked diploma programs."
-                courses={filteredDiploma}
-                bgClass=""
-              />
-            )}
-            {filteredPreGrade.length > 0 && (
-              <CourseSection
-                category="EXPLORE & DISCOVER"
-                title="Pre-Grade Courses"
-                description="Perfect for curious beginners, young children, or those exploring arts without formal examination pressure."
-                courses={filteredPreGrade}
-                bgClass="bg-background"
-              />
-            )}
-            {filteredMasterclass.length > 0 && (
-              <CourseSection
-                category="INTENSIVE TRAINING"
-                title="Masterclass & Workshops"
-                description="Deep dive into specific techniques and practices with intensive masterclasses and focused workshops."
-                courses={filteredMasterclass}
-                bgClass=""
-              />
-            )}
-            {filteredYoga.length > 0 && (
-              <CourseSection
-                category="MIND & BODY"
-                title="Yoga Courses"
-                description="Ancient practices for holistic wellness, combining physical postures, breathing techniques, and meditation."
-                courses={filteredYoga}
-                bgClass="bg-background"
-              />
-            )}
-            {filteredKonnakol.length > 0 && (
-              <CourseSection
-                category="RHYTHMIC ARTS"
-                title="Konnakol Courses"
-                description="Master the art of South Indian vocal percussion through systematic practice and rhythmic recitation."
-                courses={filteredKonnakol}
-                bgClass=""
-              />
-            )}
+            ))}
           </>
         )}
 

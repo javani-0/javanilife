@@ -2,9 +2,9 @@ import { getFirebaseAdminAuth, getFirebaseAdminDb, getFirebaseAdminMessaging, Fi
 import { getBearerToken, readJsonBody, requirePost, sendError, sendJson, type ApiRequest, type ApiResponse } from "../_lib/http.js";
 import { getWhatsAppConfigStatus, getWhatsAppEnvValue, sendWhatsAppTemplate, sanitizeWhatsAppNumber } from "../_lib/whatsapp.js";
 
-type OrderAutomationEvent = "order-placed" | "order-status-updated" | "payment-status-updated";
-type OrderStatus = "placed" | "confirmed" | "packed" | "shipped" | "out-for-delivery" | "delivered" | "cancelled" | "returned";
-type PaymentStatus = "pending" | "paid" | "failed" | "refunded" | "cod-pending" | "cod-collected";
+export type OrderAutomationEvent = "order-placed" | "order-status-updated" | "payment-status-updated";
+export type OrderStatus = "placed" | "confirmed" | "packed" | "shipped" | "out-for-delivery" | "delivered" | "cancelled" | "returned";
+export type PaymentStatus = "pending" | "paid" | "failed" | "refunded" | "cod-pending" | "cod-collected";
 
 interface NotifyOrderBody {
   orderId?: string;
@@ -18,7 +18,7 @@ interface OrderItemSnapshot {
   quantity?: number;
 }
 
-interface OrderSnapshot {
+export interface OrderSnapshot {
   customerId?: string;
   customerName?: string;
   customerPhone?: string;
@@ -43,6 +43,11 @@ const customerStatusTemplates: Partial<Record<OrderStatus, string>> = {
   cancelled: "order_cancelled",
 };
 
+const adminStatusTemplates: Partial<Record<OrderStatus, string>> = {
+  delivered: "admin_order_delivered",
+  cancelled: "admin_order_cancelled",
+};
+
 const statusLabels: Record<OrderStatus, string> = {
   placed: "Placed",
   confirmed: "Confirmed",
@@ -62,6 +67,16 @@ const paymentStatusLabels: Record<PaymentStatus, string> = {
   "cod-pending": "COD Pending",
   "cod-collected": "COD Collected",
 };
+
+const statusTemplateKey = (status: string) => status.replace(/-/g, "_").toUpperCase();
+const customerStatusTemplate = (status: OrderStatus) => getWhatsAppEnvValue(
+  `WHATSAPP_ORDER_STATUS_${statusTemplateKey(status)}_CUSTOMER_TEMPLATE`,
+  getWhatsAppEnvValue(`VITE_WHATSAPP_ORDER_STATUS_${statusTemplateKey(status)}_CUSTOMER_TEMPLATE`, customerStatusTemplates[status] || ""),
+);
+const adminStatusTemplate = (status: OrderStatus) => getWhatsAppEnvValue(
+  `WHATSAPP_ORDER_STATUS_${statusTemplateKey(status)}_ADMIN_TEMPLATE`,
+  getWhatsAppEnvValue(`VITE_WHATSAPP_ORDER_STATUS_${statusTemplateKey(status)}_ADMIN_TEMPLATE`, adminStatusTemplates[status] || ""),
+);
 
 const getString = (value: unknown, fallback = "") => typeof value === "string" ? value : fallback;
 const getRecord = (value: unknown): Record<string, unknown> => (
@@ -293,9 +308,10 @@ const sendStatusMessages = async (orderId: string, order: OrderSnapshot, status?
   const summary = itemsSummary(order.items);
   const [customerPhone, adminPhone] = await Promise.all([
     safeResolve("Unable to resolve customer WhatsApp number", () => getCustomerWhatsAppNumber(order), ""),
-    status === "delivered" ? safeResolve("Unable to resolve admin WhatsApp number", getAdminWhatsAppNumber, "") : Promise.resolve(""),
+    adminStatusTemplate(status) ? safeResolve("Unable to resolve admin WhatsApp number", getAdminWhatsAppNumber, "") : Promise.resolve(""),
   ]);
-  const templateName = customerStatusTemplates[status];
+  const templateName = customerStatusTemplate(status);
+  const adminTemplateName = adminStatusTemplate(status);
 
   const [customerWhatsApp, adminWhatsApp, customerPush, adminPush] = await Promise.allSettled([
     customerPhone && templateName
@@ -307,15 +323,15 @@ const sendStatusMessages = async (orderId: string, order: OrderSnapshot, status?
         urlSuffix: orderId,
       })
       : Promise.resolve({ status: "skipped", errorMessage: "No WhatsApp template for this status." }),
-    adminPhone && status === "delivered"
+    adminPhone && adminTemplateName
       ? sendWhatsAppTemplate({
         to: adminPhone,
-        templateName: "admin_order_delivered",
+        templateName: adminTemplateName,
         languageCode: templateLanguage(),
         params: [orderRef, customerName, summary],
         urlSuffix: orderId,
       })
-      : Promise.resolve({ status: "skipped", errorMessage: "Admin WhatsApp only sent for delivered status." }),
+      : Promise.resolve({ status: "skipped", errorMessage: "No admin WhatsApp template for this status." }),
     (async () => order.customerId
       ? sendWebPush({
         tokens: await collectUserTokens(order.customerId),
@@ -325,15 +341,15 @@ const sendStatusMessages = async (orderId: string, order: OrderSnapshot, status?
         data: { orderId, type: "order-status-updated", status, audience: "customer" },
       })
       : { status: "skipped", reason: "missing_customer" })(),
-    (async () => status === "delivered"
+    (async () => adminTemplateName
       ? sendWebPush({
         tokens: await collectAdminTokens(),
-        title: "Order Delivered",
-        body: `${orderRef} from ${customerName} has been delivered.`,
+        title: `Order ${statusLabel}`,
+        body: `${orderRef} from ${customerName} is now ${statusLabel}.`,
         link: "/admin/orders",
         data: { orderId, type: "order-status-updated", status, audience: "admin" },
       })
-      : { status: "skipped", reason: "not_delivered" })(),
+      : { status: "skipped", reason: "no_admin_template" })(),
   ]);
 
   return {
@@ -342,6 +358,58 @@ const sendStatusMessages = async (orderId: string, order: OrderSnapshot, status?
     customerPush: summarizeSettledResult(customerPush),
     adminPush: summarizeSettledResult(adminPush),
   };
+};
+
+export const runOrderAutomation = async ({
+  orderId,
+  event,
+  status,
+  paymentStatus,
+  recordedBy,
+}: {
+  orderId: string;
+  event: OrderAutomationEvent;
+  status?: OrderStatus;
+  paymentStatus?: PaymentStatus;
+  recordedBy?: string;
+}) => {
+  const db = getFirebaseAdminDb();
+  const orderSnapshot = await db.doc(`orders/${orderId}`).get();
+  if (!orderSnapshot.exists) throw new Error("Order was not found.");
+
+  const order = orderSnapshot.data() as OrderSnapshot;
+  const result = event === "order-placed"
+    ? await sendOrderPlacedMessages(orderId, order)
+    : event === "order-status-updated"
+      ? await sendStatusMessages(orderId, order, status)
+      : await sendPaymentMessages(orderId, order, paymentStatus);
+
+  const warnings = collectAutomationWarnings(result);
+  const notificationStatus = warnings.length > 0 ? "attention" : "sent";
+  const whatsappConfig = getWhatsAppConfigStatus();
+
+  if (warnings.length > 0) {
+    console.warn("[notify] order automation warnings", { orderId, event, warnings, whatsappConfig });
+  }
+
+  await orderSnapshot.ref.update({
+    [`notifications.${notificationEventField(event)}`]: sanitizeForFirestore({
+      event,
+      status: notificationStatus,
+      warnings,
+      whatsappConfig,
+      result,
+      recordedBy,
+      recordedAt: new Date().toISOString(),
+    }),
+    "notifications.lastAutomationEvent": event,
+    "notifications.lastAutomationStatus": notificationStatus,
+    "notifications.lastAutomationWarnings": warnings,
+    "notifications.lastAutomationAt": FieldValue.serverTimestamp(),
+    updatedAt: FieldValue.serverTimestamp(),
+  });
+
+  return { ok: true, event, orderId, result, warnings, whatsappConfig };
 };
 
 const sendPaymentMessages = async (orderId: string, order: OrderSnapshot, paymentStatus?: PaymentStatus) => {
@@ -418,37 +486,9 @@ export default async function handler(request: ApiRequest, response: ApiResponse
       return;
     }
 
-    const result = event === "order-placed"
-      ? await sendOrderPlacedMessages(orderId, order)
-      : event === "order-status-updated"
-        ? await sendStatusMessages(orderId, order, body.status)
-        : await sendPaymentMessages(orderId, order, body.paymentStatus);
+    const automation = await runOrderAutomation({ orderId, event, status: body.status, paymentStatus: body.paymentStatus, recordedBy: decoded.uid });
 
-    const warnings = collectAutomationWarnings(result);
-    const notificationStatus = warnings.length > 0 ? "attention" : "sent";
-    const whatsappConfig = getWhatsAppConfigStatus();
-
-    if (warnings.length > 0) {
-      console.warn("[notify] order automation warnings", { orderId, event, warnings, whatsappConfig });
-    }
-
-    await orderSnapshot.ref.update({
-      [`notifications.${notificationEventField(event)}`]: sanitizeForFirestore({
-        event,
-        status: notificationStatus,
-        warnings,
-        whatsappConfig,
-        result,
-        recordedAt: new Date().toISOString(),
-      }),
-      "notifications.lastAutomationEvent": event,
-      "notifications.lastAutomationStatus": notificationStatus,
-      "notifications.lastAutomationWarnings": warnings,
-      "notifications.lastAutomationAt": FieldValue.serverTimestamp(),
-      updatedAt: FieldValue.serverTimestamp(),
-    });
-
-    sendJson(response, 200, { ok: true, event, orderId, result, warnings, whatsappConfig });
+    sendJson(response, 200, automation);
   } catch (error) {
     console.error("Unable to send order automations", error);
     sendError(response, 500, error instanceof Error ? error.message : "Unable to send order automations.");

@@ -28,9 +28,11 @@ const normalizeStoredCartItem = (value: unknown, fallbackProductId?: string): Ca
   if (!isRecord(value)) return null;
 
   const productId = typeof value.productId === "string" ? value.productId : fallbackProductId;
+  const sourceId = typeof value.sourceId === "string" ? value.sourceId : productId;
+  const itemType = value.itemType === "course" ? "course" : "product";
   const name = typeof value.name === "string" ? value.name : null;
   const rawCategory = value.category;
-  const category: ProductCategory = isProductCategory(rawCategory) ? rawCategory : "clothing";
+  const category: ProductCategory = isProductCategory(rawCategory) ? rawCategory : itemType === "course" ? "course" : "clothing";
   const quantity = typeof value.quantity === "number" ? value.quantity : 1;
   const amountInPaise = typeof value.amountInPaise === "number" ? value.amountInPaise : 0;
 
@@ -38,9 +40,11 @@ const normalizeStoredCartItem = (value: unknown, fallbackProductId?: string): Ca
 
   return {
     productId,
+    sourceId,
+    itemType,
     name,
     category,
-    categoryLabel: typeof value.categoryLabel === "string" ? value.categoryLabel : PRODUCT_CATEGORY_LABELS[category],
+    categoryLabel: typeof value.categoryLabel === "string" ? value.categoryLabel : PRODUCT_CATEGORY_LABELS[category] || category,
     image: typeof value.image === "string" ? value.image : undefined,
     quantity: clampCartQuantity(quantity, typeof value.maxQuantity === "number" ? value.maxQuantity : undefined),
     amountInPaise: Math.max(0, Math.round(amountInPaise)),
@@ -131,6 +135,8 @@ const getUserCartCollection = (userId: string) => collection(db, "users", userId
 const cartItemToFirestore = (item: CartItem): Record<string, unknown> => {
   const data: Record<string, unknown> = {
     productId: item.productId,
+    sourceId: item.sourceId || item.productId,
+    itemType: item.itemType || "product",
     name: item.name,
     category: item.category,
     categoryLabel: item.categoryLabel,

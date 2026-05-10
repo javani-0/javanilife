@@ -1,9 +1,10 @@
 import { useState, useEffect } from "react";
 import { doc, getDoc, setDoc, collection, onSnapshot, addDoc, updateDoc, deleteDoc, query, orderBy } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { Plus, Pencil, Trash2, X, Image, BarChart3, MessageSquare, Layers, Phone, Globe, Bell } from "lucide-react";
+import { Plus, Pencil, Trash2, X, Image, BarChart3, MessageSquare, Layers, Phone, Globe, Bell, Award } from "lucide-react";
 import { contactInfoDefaults, type ContactInfo } from "@/hooks/useContactInfo";
 import { useToast } from "@/hooks/use-toast";
+import { defaultGradingSettings, normalizeGradingSettings, type FeeRow, type GradingSettings } from "@/lib/gradingSettings";
 
 // ── Types ──
 interface StatItem { number: string; label: string }
@@ -56,6 +57,7 @@ const AdminSiteSettings = () => {
   const [aboutFounderImage, setAboutFounderImage] = useState("");
   // ── Contact Info ──
   const [contactInfo, setContactInfo] = useState<ContactInfo>(contactInfoDefaults);
+  const [gradingSettings, setGradingSettings] = useState<GradingSettings>(defaultGradingSettings);
 
   // ── Fetch all data ──
   useEffect(() => {
@@ -103,6 +105,10 @@ const AdminSiteSettings = () => {
           facebookUrl: data.facebookUrl || contactInfoDefaults.facebookUrl,
         });
       }
+    });
+    // Grades & Diploma fees
+    getDoc(doc(db, "siteSettings", "gradingFees")).then((snap) => {
+      setGradingSettings(normalizeGradingSettings(snap.exists() ? snap.data() : undefined));
     });
     return unsub;
   }, []);
@@ -199,6 +205,35 @@ const AdminSiteSettings = () => {
     toast({ title: "Contact info updated" });
   };
 
+  const updateGradingField = <K extends keyof GradingSettings>(field: K, value: GradingSettings[K]) => {
+    setGradingSettings((current) => ({ ...current, [field]: value }));
+  };
+  const updateFeeRow = (field: "jgpRows" | "jdpRows", index: number, key: keyof FeeRow, value: string) => {
+    setGradingSettings((current) => ({
+      ...current,
+      [field]: current[field].map((row, rowIndex) => rowIndex === index ? { ...row, [key]: value } : row),
+    }));
+  };
+  const addFeeRow = (field: "jgpRows" | "jdpRows") => {
+    setGradingSettings((current) => ({
+      ...current,
+      [field]: [...current[field], { level: "", eligibility: "", fee: "" }],
+    }));
+  };
+  const removeFeeRow = (field: "jgpRows" | "jdpRows", index: number) => {
+    setGradingSettings((current) => ({
+      ...current,
+      [field]: current[field].filter((_, rowIndex) => rowIndex !== index),
+    }));
+  };
+  const updateNotes = (field: "jgpNotes" | "jdpNotes", value: string) => {
+    updateGradingField(field, value.split("\n").map((item) => item.trim()).filter(Boolean));
+  };
+  const saveGradingSettings = async () => {
+    await setDoc(doc(db, "siteSettings", "gradingFees"), gradingSettings);
+    toast({ title: "Grades & Diploma fees updated" });
+  };
+
   return (
     <div className="space-y-8">
       <h2 className="font-display font-semibold text-[1.5rem] text-foreground">Site Settings</h2>
@@ -265,6 +300,89 @@ const AdminSiteSettings = () => {
           </div>
         </div>
         <button onClick={saveContactInfo} className="px-4 py-2 rounded-md bg-gold text-gold-foreground font-body text-[0.85rem] font-medium hover:brightness-110">Save Social Links</button>
+      </Section>
+
+      <Section title="Grades & Diploma Fees" icon={Award}>
+        <p className="font-body text-[0.8rem] text-muted-foreground">Edit the IAF/ISO approval text and fee tables shown on the Grades & Diploma page.</p>
+
+        <div className="grid gap-3 md:grid-cols-3">
+          <div>
+            <label className="font-body text-[0.85rem] text-muted-foreground block mb-1">Approval Badge</label>
+            <input value={gradingSettings.approvalLabel} onChange={(e) => updateGradingField("approvalLabel", e.target.value)} className="w-full px-3 py-2 rounded-md border border-border font-body text-[0.85rem] outline-none focus:border-gold" />
+          </div>
+          <div className="md:col-span-2">
+            <label className="font-body text-[0.85rem] text-muted-foreground block mb-1">Collaboration Text</label>
+            <input value={gradingSettings.collaborationText} onChange={(e) => updateGradingField("collaborationText", e.target.value)} className="w-full px-3 py-2 rounded-md border border-border font-body text-[0.85rem] outline-none focus:border-gold" />
+          </div>
+          <div>
+            <label className="font-body text-[0.85rem] text-muted-foreground block mb-1">Highlighted Text</label>
+            <input value={gradingSettings.collaborationHighlight} onChange={(e) => updateGradingField("collaborationHighlight", e.target.value)} className="w-full px-3 py-2 rounded-md border border-border font-body text-[0.85rem] outline-none focus:border-gold" />
+          </div>
+        </div>
+
+        <div className="space-y-4 rounded-lg border border-border/70 p-4">
+          <div className="grid gap-3 md:grid-cols-2">
+            <div>
+              <label className="font-body text-[0.85rem] text-muted-foreground block mb-1">JGP Section Label</label>
+              <input value={gradingSettings.jgpSectionLabel} onChange={(e) => updateGradingField("jgpSectionLabel", e.target.value)} className="w-full px-3 py-2 rounded-md border border-border font-body text-[0.85rem] outline-none focus:border-gold" />
+            </div>
+            <div>
+              <label className="font-body text-[0.85rem] text-muted-foreground block mb-1">JGP Heading</label>
+              <input value={gradingSettings.jgpHeading} onChange={(e) => updateGradingField("jgpHeading", e.target.value)} className="w-full px-3 py-2 rounded-md border border-border font-body text-[0.85rem] outline-none focus:border-gold" />
+            </div>
+          </div>
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <h4 className="font-display font-semibold text-foreground">JGP Fee Rows</h4>
+              <button onClick={() => addFeeRow("jgpRows")} className="flex items-center gap-1 px-3 py-1.5 rounded-md bg-gradient-primary text-primary-foreground font-body text-[0.8rem]"><Plus className="w-4 h-4" /> Add Row</button>
+            </div>
+            {gradingSettings.jgpRows.map((row, index) => (
+              <div key={index} className="grid gap-2 md:grid-cols-[0.7fr_1.3fr_1fr_auto] items-center">
+                <input value={row.level} onChange={(e) => updateFeeRow("jgpRows", index, "level", e.target.value)} placeholder="Grade" className="px-3 py-2 rounded-md border border-border font-body text-[0.85rem] outline-none focus:border-gold" />
+                <input value={row.eligibility} onChange={(e) => updateFeeRow("jgpRows", index, "eligibility", e.target.value)} placeholder="Eligibility" className="px-3 py-2 rounded-md border border-border font-body text-[0.85rem] outline-none focus:border-gold" />
+                <input value={row.fee} onChange={(e) => updateFeeRow("jgpRows", index, "fee", e.target.value)} placeholder="Fee" className="px-3 py-2 rounded-md border border-border font-body text-[0.85rem] outline-none focus:border-gold" />
+                <button onClick={() => removeFeeRow("jgpRows", index)} className="p-2 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive"><Trash2 className="w-4 h-4" /></button>
+              </div>
+            ))}
+          </div>
+          <div>
+            <label className="font-body text-[0.85rem] text-muted-foreground block mb-1">JGP Notes (one per line)</label>
+            <textarea value={gradingSettings.jgpNotes.join("\n")} onChange={(e) => updateNotes("jgpNotes", e.target.value)} rows={5} className="w-full px-3 py-2 rounded-md border border-border font-body text-[0.85rem] outline-none focus:border-gold" />
+          </div>
+        </div>
+
+        <div className="space-y-4 rounded-lg border border-border/70 p-4">
+          <div className="grid gap-3 md:grid-cols-2">
+            <div>
+              <label className="font-body text-[0.85rem] text-muted-foreground block mb-1">JDP Section Label</label>
+              <input value={gradingSettings.jdpSectionLabel} onChange={(e) => updateGradingField("jdpSectionLabel", e.target.value)} className="w-full px-3 py-2 rounded-md border border-border font-body text-[0.85rem] outline-none focus:border-gold" />
+            </div>
+            <div>
+              <label className="font-body text-[0.85rem] text-muted-foreground block mb-1">JDP Heading</label>
+              <input value={gradingSettings.jdpHeading} onChange={(e) => updateGradingField("jdpHeading", e.target.value)} className="w-full px-3 py-2 rounded-md border border-border font-body text-[0.85rem] outline-none focus:border-gold" />
+            </div>
+          </div>
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <h4 className="font-display font-semibold text-foreground">JDP Fee Rows</h4>
+              <button onClick={() => addFeeRow("jdpRows")} className="flex items-center gap-1 px-3 py-1.5 rounded-md bg-gradient-primary text-primary-foreground font-body text-[0.8rem]"><Plus className="w-4 h-4" /> Add Row</button>
+            </div>
+            {gradingSettings.jdpRows.map((row, index) => (
+              <div key={index} className="grid gap-2 md:grid-cols-[0.7fr_1.3fr_1fr_auto] items-center">
+                <input value={row.level} onChange={(e) => updateFeeRow("jdpRows", index, "level", e.target.value)} placeholder="Program Level" className="px-3 py-2 rounded-md border border-border font-body text-[0.85rem] outline-none focus:border-gold" />
+                <input value={row.eligibility} onChange={(e) => updateFeeRow("jdpRows", index, "eligibility", e.target.value)} placeholder="Eligibility" className="px-3 py-2 rounded-md border border-border font-body text-[0.85rem] outline-none focus:border-gold" />
+                <input value={row.fee} onChange={(e) => updateFeeRow("jdpRows", index, "fee", e.target.value)} placeholder="Fee" className="px-3 py-2 rounded-md border border-border font-body text-[0.85rem] outline-none focus:border-gold" />
+                <button onClick={() => removeFeeRow("jdpRows", index)} className="p-2 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive"><Trash2 className="w-4 h-4" /></button>
+              </div>
+            ))}
+          </div>
+          <div>
+            <label className="font-body text-[0.85rem] text-muted-foreground block mb-1">JDP Notes (one per line)</label>
+            <textarea value={gradingSettings.jdpNotes.join("\n")} onChange={(e) => updateNotes("jdpNotes", e.target.value)} rows={5} className="w-full px-3 py-2 rounded-md border border-border font-body text-[0.85rem] outline-none focus:border-gold" />
+          </div>
+        </div>
+
+        <button onClick={saveGradingSettings} className="px-4 py-2 rounded-md bg-gold text-gold-foreground font-body text-[0.85rem] font-medium hover:brightness-110">Save Grades & Diploma Fees</button>
       </Section>
 
       {/* Hero Images */}

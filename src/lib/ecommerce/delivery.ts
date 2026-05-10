@@ -53,6 +53,8 @@ export interface DeliveryOneShipmentPayload {
   };
   items: Array<{
     productId: string;
+    sourceId?: string;
+    itemType?: string;
     name: string;
     quantity: number;
     shipmentWeightInGrams: number;
@@ -123,6 +125,8 @@ export const getProfileWeightInGrams = (profile?: ProductDeliveryProfile) => {
 };
 
 export const getBillableWeight = (item: CartItem, profiles: DeliveryProfileMap): number => {
+  if (item.itemType === "course") return 0;
+
   const profile = normalizeDeliveryProfile(profiles[item.productId]);
   if (profile?.freeDeliveryEligible) return 0;
 
@@ -143,6 +147,10 @@ export const calculateDeliveryEstimate = (
 
   const weightInGrams = items.reduce((total, item) => {
     const profile = normalizeDeliveryProfile(profiles[item.productId]);
+    if (item.itemType === "course") {
+      freeDeliveryItemCount += item.quantity;
+      return total;
+    }
     if (profile.freeDeliveryEligible) {
       freeDeliveryItemCount += item.quantity;
       return total;
@@ -220,6 +228,8 @@ export const createDeliveryOneShipmentPayload = ({
   },
   items: items.map((item) => ({
     productId: item.productId,
+    sourceId: item.sourceId,
+    itemType: item.itemType,
     name: item.name,
     quantity: item.quantity,
     shipmentWeightInGrams: item.shipmentWeightInGrams || 0,

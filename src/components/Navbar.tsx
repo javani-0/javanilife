@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { Heart, MapPin, Menu, PackageCheck, X, User, LogOut, ShoppingBag } from "lucide-react";
+import { ChevronDown, Heart, MapPin, Menu, PackageCheck, X, User, LogOut, ShoppingBag } from "lucide-react";
 import PrimaryButton from "./PrimaryButton";
 import { useAuth } from "@/contexts/AuthContext";
 import { useCart } from "@/contexts/cart-context";
@@ -11,13 +11,16 @@ import logoWhiteMobile from "@/assets/logo-white-mobile.png";
 
 const navLinks = [
   { label: "Home", path: "/" },
-  { label: "About", path: "/about" },
   { label: "Courses", path: "/courses" },
-  { label: "Grades & Diploma", path: "/grading" },
-  { label: "Gallery", path: "/gallery" },
   { label: "Products", path: "/products" },
-  { label: "Guru Bandhu", path: "/guru-bandhu" },
   { label: "Contact", path: "/contact" },
+];
+
+const spiritualHubLinks = [
+  { label: "About", path: "/about" },
+  { label: "Gallery", path: "/gallery" },
+  { label: "Grades & Diploma", path: "/grading" },
+  { label: "Guru Bandhu", path: "/guru-bandhu" },
 ];
 
 const accountLinks = [
@@ -37,6 +40,7 @@ const Navbar = () => {
   const [scrolled, setScrolled] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [closing, setClosing] = useState(false);
+  const [mobileSpiritualHubOpen, setMobileSpiritualHubOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
@@ -53,6 +57,7 @@ const Navbar = () => {
   useEffect(() => {
     setMobileOpen(false);
     setClosing(false);
+    setMobileSpiritualHubOpen(false);
     setUserMenuOpen(false);
   }, [location]);
 
@@ -66,6 +71,7 @@ const Navbar = () => {
     setTimeout(() => {
       setMobileOpen(false);
       setClosing(false);
+      setMobileSpiritualHubOpen(false);
     }, 300);
   }, []);
 
@@ -82,6 +88,7 @@ const Navbar = () => {
   const textColor = isSolid ? "text-foreground" : "text-white/90";
   const activeColor = isSolid ? "text-gold border-b-2 border-gold" : "text-gold-light border-b-2 border-gold-light";
   const hoverColor = isSolid ? "hover:text-gold" : "hover:text-gold-light";
+  const isSpiritualHubActive = spiritualHubLinks.some((link) => location.pathname === link.path);
 
   const showMobile = mobileOpen || closing;
 
@@ -104,17 +111,53 @@ const Navbar = () => {
           {/* Desktop links */}
           <div className="hidden lg:flex items-center gap-6 xl:gap-8">
             {navLinks.map((link) => (
-              <Link
-                key={link.path}
-                to={link.path}
-                className={`font-body font-medium text-[0.85rem] xl:text-[0.9rem] relative pb-1 transition-colors duration-300 ${
-                  location.pathname === link.path
-                    ? activeColor
-                    : `${textColor} ${hoverColor}`
-                }`}
-              >
-                {link.label}
-              </Link>
+              link.path === "/courses" ? (
+                <div key="spiritual-hub-and-courses" className="flex items-center gap-6 xl:gap-8">
+                  <div className="relative group">
+                    <button
+                      type="button"
+                      className={`font-body font-medium text-[0.85rem] xl:text-[0.9rem] relative pb-1 transition-colors duration-300 flex items-center gap-1 ${
+                        isSpiritualHubActive ? activeColor : `${textColor} ${hoverColor}`
+                      }`}
+                    >
+                      Spiritual Hub <ChevronDown className="w-3.5 h-3.5 transition-transform group-hover:rotate-180" />
+                    </button>
+                    <div className="absolute left-1/2 top-full mt-3 w-56 -translate-x-1/2 rounded-lg border border-border/50 bg-card shadow-hero opacity-0 invisible translate-y-2 transition-all duration-200 group-hover:opacity-100 group-hover:visible group-hover:translate-y-0 group-focus-within:opacity-100 group-focus-within:visible group-focus-within:translate-y-0 overflow-hidden">
+                      {spiritualHubLinks.map((hubLink) => (
+                        <Link
+                          key={hubLink.path}
+                          to={hubLink.path}
+                          className={`block px-4 py-3 font-body text-[0.85rem] transition-colors ${location.pathname === hubLink.path ? "bg-gold/10 text-gold" : "text-foreground hover:bg-gold/10 hover:text-gold"}`}
+                        >
+                          {hubLink.label}
+                        </Link>
+                      ))}
+                    </div>
+                  </div>
+                  <Link
+                    to={link.path}
+                    className={`font-body font-medium text-[0.85rem] xl:text-[0.9rem] relative pb-1 transition-colors duration-300 ${
+                      location.pathname === link.path
+                        ? activeColor
+                        : `${textColor} ${hoverColor}`
+                    }`}
+                  >
+                    {link.label}
+                  </Link>
+                </div>
+              ) : (
+                <Link
+                  key={link.path}
+                  to={link.path}
+                  className={`font-body font-medium text-[0.85rem] xl:text-[0.9rem] relative pb-1 transition-colors duration-300 ${
+                    location.pathname === link.path
+                      ? activeColor
+                      : `${textColor} ${hoverColor}`
+                  }`}
+                >
+                  {link.label}
+                </Link>
+              )
             ))}
           </div>
 
@@ -258,32 +301,73 @@ const Navbar = () => {
             {navLinks.map((link, i) => {
               const isActive = location.pathname === link.path;
               return (
-                <Link
-                  key={link.path}
-                  to={link.path}
-                  className="group flex items-center gap-3 py-3 px-4 rounded-lg transition-all duration-300"
-                  style={{
-                    opacity: 0,
-                    animation: closing
-                      ? "none"
-                      : `menuItemSlideIn 0.5s ease-out ${0.15 + i * 0.06}s forwards`,
-                  }}
-                >
-                  {/* Active diamond indicator */}
-                  <span className={`transition-all duration-300 ${isActive ? "opacity-100 scale-100" : "opacity-0 scale-0"}`}>
-                    <GoldDiamond size={7} />
-                  </span>
-                  <span
-                    className={`font-display text-[1.5rem] sm:text-[1.7rem] tracking-wide transition-all duration-300 ${
-                      isActive
-                        ? "text-gold font-semibold"
-                        : "text-white/80 group-hover:text-gold group-hover:translate-x-1"
-                    }`}
-                    style={{ letterSpacing: "0.04em" }}
+                <div key={link.path} className="flex flex-col items-center">
+                  {link.path === "/courses" && (
+                    <div
+                      className="mb-3 w-full max-w-md"
+                      style={{
+                        opacity: 0,
+                        animation: closing
+                          ? "none"
+                          : `menuItemSlideIn 0.5s ease-out ${0.15 + i * 0.06}s forwards`,
+                      }}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => setMobileSpiritualHubOpen((currentValue) => !currentValue)}
+                        className={`mx-auto flex w-full items-center justify-center gap-3 rounded-xl border px-4 py-3 font-display text-[1.35rem] sm:text-[1.55rem] tracking-wide transition-all duration-300 ${isSpiritualHubActive || mobileSpiritualHubOpen ? "border-gold/50 bg-gold/10 text-gold" : "border-white/10 text-white/80 hover:border-gold/40 hover:text-gold"}`}
+                        aria-expanded={mobileSpiritualHubOpen}
+                        aria-controls="mobile-spiritual-hub-links"
+                        style={{ letterSpacing: "0.04em" }}
+                      >
+                        Spiritual Hub
+                        <ChevronDown className={`h-5 w-5 transition-transform duration-300 ${mobileSpiritualHubOpen ? "rotate-180" : ""}`} />
+                      </button>
+                      <div
+                        id="mobile-spiritual-hub-links"
+                        className={`grid overflow-hidden transition-all duration-300 ${mobileSpiritualHubOpen ? "mt-3 grid-rows-[1fr] opacity-100" : "mt-0 grid-rows-[0fr] opacity-0"}`}
+                      >
+                        <div className="min-h-0 overflow-hidden">
+                          <div className="grid grid-cols-2 gap-2 px-1 pt-1">
+                            {spiritualHubLinks.map((hubLink) => (
+                              <Link
+                                key={hubLink.path}
+                                to={hubLink.path}
+                                className={`rounded-md border px-3 py-2 text-center font-body text-[0.82rem] transition-colors ${location.pathname === hubLink.path ? "border-gold/60 text-gold bg-gold/10" : "border-white/15 text-white/70 hover:border-gold/50 hover:text-gold"}`}
+                              >
+                                {hubLink.label}
+                              </Link>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  <Link
+                    to={link.path}
+                    className="group flex items-center gap-3 py-3 px-4 rounded-lg transition-all duration-300"
+                    style={{
+                      opacity: 0,
+                      animation: closing
+                        ? "none"
+                        : `menuItemSlideIn 0.5s ease-out ${0.18 + i * 0.06}s forwards`,
+                    }}
                   >
-                    {link.label}
-                  </span>
-                </Link>
+                    <span className={`transition-all duration-300 ${isActive ? "opacity-100 scale-100" : "opacity-0 scale-0"}`}>
+                      <GoldDiamond size={7} />
+                    </span>
+                    <span
+                      className={`font-display text-[1.5rem] sm:text-[1.7rem] tracking-wide transition-all duration-300 ${
+                        isActive
+                          ? "text-gold font-semibold"
+                          : "text-white/80 group-hover:text-gold group-hover:translate-x-1"
+                      }`}
+                      style={{ letterSpacing: "0.04em" }}
+                    >
+                      {link.label}
+                    </span>
+                  </Link>
+                </div>
               );
             })}
 

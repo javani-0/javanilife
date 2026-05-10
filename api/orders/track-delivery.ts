@@ -2,10 +2,14 @@ import { getFirebaseAdminAuth, getFirebaseAdminDb } from "../_lib/firebase-admin
 import { getBearerToken, readJsonBody, requirePost, sendError, sendJson, type ApiRequest, type ApiResponse } from "../_lib/http.js";
 import { trackDeliveryOneShipment } from "../_lib/delivery-one.js";
 import { createTrackingUpdatePayload, getString, type OrderSnapshot } from "../_lib/order-delivery.js";
+import { runOrderAutomation, type OrderStatus } from "./notify.js";
 
 interface TrackDeliveryBody {
   orderId?: string;
 }
+
+const notificationStatuses = new Set(["delivered", "cancelled"]);
+const shouldNotifyStatus = (status?: string): status is OrderStatus => Boolean(status && notificationStatuses.has(status));
 
 export default async function handler(request: ApiRequest, response: ApiResponse) {
   if (!requirePost(request, response)) return;
@@ -49,7 +53,19 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     }
 
     const update = await trackDeliveryOneShipment(waybill, order.orderNumber || orderId);
+    const nextStatus = update.orderStatus;
     await orderSnapshot.ref.update(createTrackingUpdatePayload({ order, update, createdBy: decoded.uid }));
+    const automation = shouldNotifyStatus(nextStatus) && order.status !== nextStatus
+      ? await runOrderAutomation({
+        orderId,
+        event: "order-status-updated",
+        status: nextStatus,
+        recordedBy: decoded.uid,
+      }).catch((error) => {
+        console.error("Unable to send tracking refresh automation", error);
+        return null;
+      })
+      : null;
 
     sendJson(response, 200, {
       ok: true,
@@ -59,6 +75,7 @@ export default async function handler(request: ApiRequest, response: ApiResponse
       providerStatusType: update.providerStatusType,
       orderStatus: update.orderStatus,
       lifecycleStatus: update.lifecycleStatus,
+      notificationStatus: automation?.warnings?.length ? "attention" : automation ? "sent" : shouldNotifyStatus(nextStatus) ? "unchanged" : "not-required",
       message: "Delivery One tracking refreshed.",
     });
   } catch (error) {

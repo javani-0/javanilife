@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { addDoc, collection, deleteDoc, doc, onSnapshot, serverTimestamp, updateDoc } from "firebase/firestore";
+import { addDoc, collection, deleteDoc, doc, onSnapshot, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { CLOUDINARY_CLOUD_NAME, CLOUDINARY_UPLOAD_PRESET } from "@/lib/cloudinary";
+import CategoryManager from "@/components/admin/CategoryManager";
 import {
   AlertTriangle,
   BadgeIndianRupee,
@@ -35,18 +36,22 @@ import {
 } from "@/components/ui/alert-dialog";
 import {
   formatPaiseAsRupees,
+  getActiveCategories,
+  getCategoryLabel,
   getProductAmountInPaise,
   getProductDisplayPrice,
   normalizeDeliveryProfile,
   normalizeProduct,
   normalizeProductStockStatus,
   parsePriceToPaise,
-  PRODUCT_CATEGORIES,
+  PRODUCT_CATEGORIES_SETTINGS_ID,
   PRODUCT_CATEGORY_LABELS,
+  type ManagedCategoryOption,
   type Product,
   type ProductCategory,
   type ProductStockStatus,
 } from "@/lib/ecommerce";
+import { useProductCategories } from "@/hooks/useManagedCategories";
 
 interface ProductFormState {
   name: string;
@@ -90,6 +95,17 @@ const emptyForm: ProductFormState = {
   deliveryWidthInCm: "",
   deliveryHeightInCm: "",
   freeDeliveryEligible: false,
+};
+
+const createEmptyForm = (categories: ManagedCategoryOption[]): ProductFormState => {
+  const firstCategory = getActiveCategories(categories)[0] || categories[0];
+  if (!firstCategory) return emptyForm;
+
+  return {
+    ...emptyForm,
+    category: firstCategory.id,
+    categoryLabel: firstCategory.label,
+  };
 };
 
 const statusClasses: Record<ProductStockStatus, string> = {
@@ -181,6 +197,7 @@ const AdminProducts = () => {
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const imageRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
+  const { categories: productCategories } = useProductCategories();
 
   useEffect(() => {
     const unsubscribe = onSnapshot(collection(db, "products"), (snapshot) => {
@@ -209,11 +226,22 @@ const AdminProducts = () => {
     };
   }, [products]);
 
+  const activeProductCategories = useMemo(() => getActiveCategories(productCategories), [productCategories]);
+  const productCategoryUsage = useMemo(() => products.reduce<Record<string, number>>((usage, product) => {
+    usage[product.category] = (usage[product.category] || 0) + 1;
+    return usage;
+  }, {}), [products]);
+  const categoryOptionsForForm = useMemo(() => {
+    if (activeProductCategories.some((category) => category.id === form.category)) return activeProductCategories;
+    const currentCategory = productCategories.find((category) => category.id === form.category);
+    return currentCategory ? [...activeProductCategories, currentCategory] : activeProductCategories;
+  }, [activeProductCategories, form.category, productCategories]);
+
   const pricePreviewInPaise = parsePriceToPaise(form.priceRupees);
   const pricePreview = pricePreviewInPaise ? formatPaiseAsRupees(pricePreviewInPaise, { includeSuffix: true }) : "Enter price";
 
   const openAdd = () => {
-    setForm(emptyForm);
+    setForm(createEmptyForm(productCategories));
     setEditing(null);
     setShowModal(true);
   };
@@ -225,7 +253,7 @@ const AdminProducts = () => {
       name: product.name,
       sku: product.sku || "",
       category: product.category,
-      categoryLabel: product.categoryLabel || PRODUCT_CATEGORY_LABELS[product.category],
+      categoryLabel: product.categoryLabel || getCategoryLabel(productCategories, product.category, product.category),
       shortDescription: product.shortDescription || "",
       description: product.description || "",
       priceRupees: getPriceInputFromProduct(product),
@@ -249,7 +277,14 @@ const AdminProducts = () => {
   const closeModal = () => {
     setShowModal(false);
     setEditing(null);
-    setForm(emptyForm);
+    setForm(createEmptyForm(productCategories));
+  };
+
+  const saveProductCategories = async (categories: ManagedCategoryOption[]) => {
+    await setDoc(doc(db, "siteSettings", PRODUCT_CATEGORIES_SETTINGS_ID), {
+      items: categories,
+      updatedAt: serverTimestamp(),
+    }, { merge: true });
   };
 
   const uploadImage = async (file: File) => {
@@ -315,7 +350,7 @@ const AdminProducts = () => {
       name: form.name.trim(),
       sku: form.sku.trim(),
       category: form.category,
-      categoryLabel: PRODUCT_CATEGORY_LABELS[form.category],
+      categoryLabel: getCategoryLabel(productCategories, form.category, form.categoryLabel || form.category),
       shortDescription: form.shortDescription.trim(),
       description: form.description.trim(),
       price: displayPrice,
@@ -395,6 +430,15 @@ const AdminProducts = () => {
           </div>
         ))}
       </div>
+
+      <CategoryManager
+        title="Product Categories"
+        description="Add, rename, hide, or delete product categories. Deleting is blocked while products still use that category."
+        categories={productCategories}
+        usageCounts={productCategoryUsage}
+        mode="product"
+        onSave={saveProductCategories}
+      />
 
       {viewMode === "grid" ? (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
@@ -502,11 +546,11 @@ const AdminProducts = () => {
                   value={form.category}
                   onChange={(event) => {
                     const category = event.target.value as ProductCategory;
-                    setForm({ ...form, category, categoryLabel: PRODUCT_CATEGORY_LABELS[category] });
+                    setForm({ ...form, category, categoryLabel: getCategoryLabel(productCategories, category, category) });
                   }}
                   className={inputClass}
                 >
-                  {PRODUCT_CATEGORIES.map((category) => <option key={category} value={category}>{PRODUCT_CATEGORY_LABELS[category]}</option>)}
+                  {categoryOptionsForForm.map((category) => <option key={category.id} value={category.id}>{category.label}</option>)}
                 </select>
               </div>
 

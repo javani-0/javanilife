@@ -15,6 +15,8 @@ export const createCartItemFromProduct = (product: Product, quantity = 1): CartI
 
   return {
     productId: product.id,
+    sourceId: product.id,
+    itemType: "product",
     name: product.name,
     category: product.category,
     categoryLabel: getProductCategoryLabel(product),

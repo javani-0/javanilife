@@ -33,6 +33,8 @@ export const createOrderItemFromCartItem = (cartItem: CartItem, deliveryProfile?
 
   return {
     productId: cartItem.productId,
+    sourceId: cartItem.sourceId || cartItem.productId,
+    itemType: cartItem.itemType || "product",
     name: cartItem.name,
     category: cartItem.category,
     categoryLabel: cartItem.categoryLabel,

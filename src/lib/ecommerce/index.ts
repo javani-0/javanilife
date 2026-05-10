@@ -1,5 +1,7 @@
 export * from "./adminOrders";
 export * from "./cart";
+export * from "./categories";
+export * from "./courses";
 export * from "./customers";
 export * from "./delivery";
 export * from "./deliveryClient";

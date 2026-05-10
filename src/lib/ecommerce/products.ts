@@ -2,7 +2,7 @@ import { formatPaiseAsRupees, parsePriceToPaise } from "./pricing";
 import { PRODUCT_CATEGORIES, PRODUCT_CATEGORY_LABELS, type Product, type ProductCategory, type ProductStockStatus } from "./types";
 
 export const isProductCategory = (value: unknown): value is ProductCategory => (
-  typeof value === "string" && PRODUCT_CATEGORIES.includes(value as ProductCategory)
+  typeof value === "string" && value.trim().length > 0
 );
 
 export const getProductCategoryLabel = (product: Pick<Product, "category" | "categoryLabel">): string => {
@@ -64,7 +64,7 @@ export const normalizeProduct = (id: string, data: Partial<Product> & { category
     id,
     name: data.name || "Untitled Product",
     category,
-    categoryLabel: data.categoryLabel || PRODUCT_CATEGORY_LABELS[category],
+    categoryLabel: data.categoryLabel || PRODUCT_CATEGORY_LABELS[category] || category,
     shortDescription: data.shortDescription || getFallbackShortDescription(data.description),
     description: data.description || "",
     price: data.price,
