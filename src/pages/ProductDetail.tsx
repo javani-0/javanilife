@@ -274,6 +274,7 @@ const ProductDetail = () => {
       <SEO
         title={`${product.name} | Javani Spiritual Hub`}
         description={product.description}
+        ogImage={currentImage}
       />
 
       <ImageViewer

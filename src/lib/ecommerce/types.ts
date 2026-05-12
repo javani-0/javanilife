@@ -124,6 +124,9 @@ export type DeliveryPickupCancellationStatus = "manual-required" | "cancelled" |
 
 export interface DeliveryPricingSettings {
   baseChargeInPaise?: number;
+  freeDeliveryEnabled?: boolean;
+  freeDeliveryMinSubtotalInPaise?: number;
+  freeDeliveryMessage?: string;
 }
 
 export interface Product {
@@ -145,6 +148,7 @@ export interface Product {
   active?: boolean;
   featured?: boolean;
   whatsappEnquiry?: boolean;
+  allowedPaymentMethods?: PaymentMethod[];
   rating?: number;
   reviewCount?: number;
   delivery?: ProductDeliveryProfile;
@@ -164,6 +168,7 @@ export interface CartItem {
   amountInPaise: number;
   displayPrice: string;
   stockStatus: ProductStockStatus;
+  allowedPaymentMethods?: PaymentMethod[];
   maxQuantity?: number;
   addedAt?: unknown;
   updatedAt?: unknown;
@@ -273,6 +278,7 @@ export interface OrderItem {
   quantity: number;
   amountInPaise: number;
   lineTotalInPaise: number;
+  allowedPaymentMethods?: PaymentMethod[];
   delivery?: ProductDeliveryProfile;
   shipmentWeightInGrams?: number;
 }
@@ -303,6 +309,15 @@ export interface Order {
   subtotalInPaise: number;
   deliveryChargeInPaise: number;
   discountInPaise: number;
+  coupon?: {
+    id: string;
+    code: string;
+    title: string;
+    type: string;
+    discountInPaise: number;
+    deliveryDiscountInPaise?: number;
+    freeDelivery?: boolean;
+  };
   totalInPaise: number;
   timeline: OrderTimelineEvent[];
   customerNotes?: string;

@@ -354,7 +354,14 @@ const getShipmentWeight = (order: DeliveryOneOrderSnapshot) => {
   const orderWeight = getNumber(order.delivery?.shipmentWeightInGrams);
   if (orderWeight > 0) return orderWeight;
 
-  const itemWeight = (order.items || []).reduce((total, item) => total + getNumber(item.shipmentWeightInGrams), 0);
+  const itemWeight = (order.items || []).reduce((total, item) => {
+    const snapshotWeight = getNumber(item.shipmentWeightInGrams);
+    if (snapshotWeight > 0) return total + snapshotWeight;
+
+    const deliveryWeight = getNumber(getRecord(item.delivery).weightInGrams);
+    const quantity = Math.max(1, getNumber(item.quantity, 1));
+    return total + deliveryWeight * quantity;
+  }, 0);
   return itemWeight > 0 ? itemWeight : 500;
 };
 

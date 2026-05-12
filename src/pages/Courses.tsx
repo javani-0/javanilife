@@ -10,13 +10,14 @@ import PrimaryButton from "@/components/PrimaryButton";
 import SEO from "@/components/SEO";
 import { Link, useNavigate } from "react-router-dom";
 import { useScrollAnimation } from "@/hooks/useScrollAnimation";
-import { MessageCircle, ArrowLeft, ShoppingBag } from "lucide-react";
+import { MessageCircle, ArrowLeft, Search, ShoppingBag, SlidersHorizontal } from "lucide-react";
 import ShareButton from "@/components/ShareButton";
 import { useCart } from "@/contexts/cart-context";
 import { useToast } from "@/hooks/use-toast";
 import { useCourseCategories } from "@/hooks/useManagedCategories";
 import {
   createCartItemFromCourse,
+  getCourseAmountInPaise,
   getActiveCategories,
   getCourseDisplayPrice,
   isCoursePurchasable,
@@ -28,12 +29,22 @@ import heroDancer2 from "@/assets/hero-dancer-2.jpg";
 import heroDancer3 from "@/assets/hero-dancer-3.jpg";
 
 type CourseCategory = "all" | string;
+type CourseSortMode = "featured" | "price-asc" | "price-desc" | "name";
+
+const sortOptions: { label: string; value: CourseSortMode }[] = [
+  { label: "Featured", value: "featured" },
+  { label: "Fee: Low to High", value: "price-asc" },
+  { label: "Fee: High to Low", value: "price-desc" },
+  { label: "Name", value: "name" },
+];
 
 const badgeStyles: Record<string, string> = {
   red: "bg-primary text-primary-foreground",
   gold: "bg-gold text-gold-foreground",
   charcoal: "bg-charcoal text-charcoal-foreground",
 };
+
+const fieldControlClass = "h-10 sm:h-12 w-full rounded-md border border-gold/20 bg-card px-4 font-body text-sm text-foreground shadow-sm outline-none transition-colors placeholder:text-muted-foreground focus:border-gold focus:ring-2 focus:ring-gold/20";
 
 const SkeletonCard = () => (
   <div className="bg-card shadow-card rounded-lg overflow-hidden">
@@ -82,32 +93,36 @@ const ExtCourseCard = ({ course, delay = 0 }: { course: Course; delay?: number }
 
   return (
     <div ref={ref} className={`${isVisible ? "animate-fade-up" : "opacity-0"}`} style={{ animationDelay: isVisible ? `${delay}s` : undefined }}>
-      <div role="link" tabIndex={0} onClick={openDetail} onKeyDown={handleCardKeyDown} className="block cursor-pointer rounded-lg focus:outline-none focus:ring-2 focus:ring-gold focus:ring-offset-2 focus:ring-offset-background">
-        <div className="bg-card shadow-card rounded-lg overflow-hidden transition-all duration-300 hover:-translate-y-1.5 hover:shadow-hero group flex flex-col h-full">
-        <div className="aspect-square sm:aspect-[3/2] relative overflow-hidden">
+      <div role="link" tabIndex={0} onClick={openDetail} onKeyDown={handleCardKeyDown} className="group flex h-full cursor-pointer flex-col overflow-hidden rounded-lg border border-gold/15 bg-card shadow-[0_10px_28px_rgba(51,35,20,0.07)] transition-all duration-300 hover:-translate-y-1 hover:border-gold/40 hover:shadow-[0_14px_38px_rgba(51,35,20,0.12)] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold focus-visible:ring-offset-2 lg:rounded-[1.1rem] lg:shadow-[0_18px_48px_rgba(51,35,20,0.08)]">
+        <div className="relative aspect-square overflow-hidden bg-muted">
           {!imgLoaded && <div className="absolute inset-0 skeleton-shimmer" />}
-          <img src={course.image} alt={course.title} loading="lazy" onLoad={() => setImgLoaded(true)} className={`w-full h-full object-cover transition-all duration-500 group-hover:scale-[1.06] ${imgLoaded ? "opacity-100" : "opacity-0"}`} />
+          <img src={course.image} alt={course.title} loading="lazy" onLoad={() => setImgLoaded(true)} className={`h-full w-full object-cover transition-all duration-500 group-hover:scale-[1.035] ${imgLoaded ? "opacity-100" : "opacity-0"}`} />
           {course.status === "inactive" && (
             <div className="absolute top-3 right-3 bg-red-500 text-white px-3 py-1 text-xs font-body font-semibold rounded-full shadow-lg">
               Not Available
             </div>
           )}
-          {/* Share button overlay */}
-          <div className="absolute top-2 right-2">
+          <div className="absolute inset-x-0 top-0 flex items-start justify-between gap-2 p-2.5 sm:p-3">
+            <span className={`rounded-full px-2.5 py-1 font-body text-[0.68rem] font-semibold shadow-sm sm:text-xs ${badgeStyles[course.badgeColor] || badgeStyles.red}`}>{course.categoryLabel || course.badge}</span>
             <ShareButton
               title={course.title}
-              text={`Check out *${course.title}* (${course.badge}) at Javani Spiritual Hub`}
+              text={`Check out *${course.title}* (${course.badge}) at Javani Spiritual Hub — *${getCourseDisplayPrice(course)}*`}
               url={`/courses/${course.id}`}
-              className="bg-black/40 hover:bg-black/60 text-white hover:text-white rounded-full"
+              imageUrl={course.image}
+              className="h-8 w-8 rounded-full bg-black/45 text-white hover:bg-black/65 hover:text-white"
             />
           </div>
         </div>
-        <div className="p-2.5 sm:p-6 flex flex-col flex-1">
-          <span className={`inline-block px-2 py-0.5 text-[0.6rem] sm:text-xs font-body font-medium rounded-full mb-2 self-start ${badgeStyles[course.badgeColor] || badgeStyles.red}`}>{course.badge}</span>
-          <h3 className="font-display font-semibold text-[0.75rem] sm:text-[1.4rem] text-foreground mb-2 sm:mb-4 transition-colors duration-300 group-hover:text-gold truncate">{course.title}</h3>
-          <p className="mb-2 font-display text-[0.9rem] sm:text-[1.25rem] font-bold text-primary">{getCourseDisplayPrice(course)}</p>
-          <div className="flex flex-col sm:flex-row gap-1.5 sm:gap-3 flex-wrap mt-auto">
-            <button type="button" onClick={buyCourse} disabled={!purchasable} className="flex flex-1 min-w-[80px] sm:min-w-[120px] items-center justify-center gap-1.5 rounded-sm bg-gradient-primary px-2 sm:px-4 py-1.5 sm:py-2 font-body text-[0.65rem] sm:text-[0.8rem] font-semibold text-primary-foreground transition-all hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:brightness-100">
+        <div className="flex flex-1 flex-col p-3.5 sm:p-4.5 lg:p-5">
+          <h3 className="text-left font-display text-[0.98rem] font-semibold leading-snug text-foreground transition-colors group-hover:text-primary sm:text-[1.08rem] lg:text-[1.22rem]"><span className="line-clamp-2">{course.title}</span></h3>
+          <p className="mt-2 line-clamp-2 min-h-[2.6rem] text-left font-body text-xs leading-relaxed text-muted-foreground sm:text-[0.82rem]">{course.description || "Structured classical arts learning with Javani Spiritual Hub."}</p>
+          {course.extra && <p className="mt-2 line-clamp-1 rounded-md bg-muted/60 px-2.5 py-1.5 font-body text-[0.72rem] font-semibold text-muted-foreground">{course.extra}</p>}
+          <div className="mt-3 flex items-center justify-between gap-2">
+            <p className="font-display text-[1.05rem] font-bold text-primary sm:text-[1.28rem]">{getCourseDisplayPrice(course)}</p>
+            <span className={`rounded-full px-2 py-1 font-body text-[0.65rem] font-semibold ${badgeStyles[course.badgeColor] || badgeStyles.red}`}>{course.badge}</span>
+          </div>
+          <div className="mt-auto grid gap-2 pt-4 sm:grid-cols-2">
+            <button type="button" onClick={buyCourse} disabled={!purchasable} className="flex min-h-10 items-center justify-center gap-1.5 rounded-sm bg-gradient-primary px-3 py-2 font-body text-[0.75rem] font-semibold text-primary-foreground transition-all hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:brightness-100 sm:text-[0.82rem]">
               <ShoppingBag className="w-3 h-3 sm:w-4 sm:h-4" /> {purchasable ? "Buy Now" : "Fee Soon"}
             </button>
             <a
@@ -115,13 +130,12 @@ const ExtCourseCard = ({ course, delay = 0 }: { course: Course; delay?: number }
               target="_blank"
               rel="noopener noreferrer"
               onClick={(e) => e.stopPropagation()}
-              className="flex items-center justify-center gap-1 sm:gap-1.5 px-2 sm:px-4 py-1.5 sm:py-2 rounded-sm bg-[#25D366] text-white font-body font-medium text-[0.65rem] sm:text-[0.8rem] hover:bg-[#128C7E] transition-colors"
+              className="flex min-h-10 items-center justify-center gap-1.5 rounded-sm bg-[#25D366] px-3 py-2 font-body text-[0.75rem] font-semibold text-white transition-colors hover:bg-[#128C7E] sm:text-[0.82rem]"
             >
-              <MessageCircle className="w-3 h-3 sm:w-4 sm:h-4" /> <span className="hidden sm:inline">WhatsApp</span><span className="sm:hidden">WA</span>
+              <MessageCircle className="w-3 h-3 sm:w-4 sm:h-4" /> WhatsApp
             </a>
           </div>
         </div>
-      </div>
       </div>
     </div>
   );
@@ -143,7 +157,7 @@ const CourseSection = ({ category, title, description, courses, bgClass }: {
           <h2 className="font-display font-semibold text-[1.8rem] sm:text-[2rem] md:text-[2.8rem] text-primary mb-3">{title}</h2>
           <p className="font-body font-light text-[0.95rem] sm:text-[1rem] text-muted-foreground mb-10 sm:mb-12 max-w-2xl">{description}</p>
         </div>
-        <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-8">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 sm:gap-6">
           {courses.map((c, i) => <ExtCourseCard key={c.id} course={c} delay={i * 0.12} />)}
         </div>
       </div>
@@ -218,6 +232,8 @@ const ComparisonTable = () => {
 const Courses = () => {
   const navigate = useNavigate();
   const [activeFilter, setActiveFilter] = useState<CourseCategory>("all");
+  const [searchTerm, setSearchTerm] = useState("");
+  const [sortMode, setSortMode] = useState<CourseSortMode>("featured");
   const [courses, setCourses] = useState<Course[]>([]);
   const [loading, setLoading] = useState(true);
   const { categories: courseCategories } = useCourseCategories();
@@ -236,13 +252,31 @@ const Courses = () => {
     return unsub;
   }, [courseCategories]);
 
+  const visibleCourses = useMemo(() => {
+    const normalizedSearch = searchTerm.trim().toLowerCase();
+    return courses
+      .filter((course) => course.status !== "inactive")
+      .filter((course) => {
+        if (!normalizedSearch) return true;
+        return [course.title, course.description, course.badge, course.categoryLabel, course.extra]
+          .filter(Boolean)
+          .some((value) => value?.toLowerCase().includes(normalizedSearch));
+      })
+      .sort((firstCourse, secondCourse) => {
+        if (sortMode === "price-asc") return getCourseAmountInPaise(firstCourse) - getCourseAmountInPaise(secondCourse);
+        if (sortMode === "price-desc") return getCourseAmountInPaise(secondCourse) - getCourseAmountInPaise(firstCourse);
+        if (sortMode === "name") return firstCourse.title.localeCompare(secondCourse.title);
+        return Number(secondCourse.featured === true) - Number(firstCourse.featured === true) || firstCourse.title.localeCompare(secondCourse.title);
+      });
+  }, [courses, searchTerm, sortMode]);
+
   const courseSections = useMemo(() => activeCourseCategories
     .map((category, index) => ({
       category,
       bgClass: index % 2 === 0 ? "bg-background" : "",
-      courses: courses.filter((course) => course.category === category.id && course.status !== "inactive"),
+      courses: visibleCourses.filter((course) => course.category === category.id),
     }))
-    .filter((section) => (activeFilter === "all" || activeFilter === section.category.id) && section.courses.length > 0), [activeCourseCategories, activeFilter, courses]);
+    .filter((section) => (activeFilter === "all" || activeFilter === section.category.id) && section.courses.length > 0), [activeCourseCategories, activeFilter, visibleCourses]);
   const hasAny = courseSections.length > 0;
 
   useEffect(() => {
@@ -263,20 +297,39 @@ const Courses = () => {
         </button>
         <PageHero backgroundImages={[heroDancer1, heroDancer2, heroDancer3]} label="OUR COURSES" heading="Our Sacred Courses" subtext="Classical arts for every soul — from first steps to national certification." />
 
-        <div className="sticky top-0 sm:top-[80px] z-[500] bg-card shadow-sm py-3 sm:py-4">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 flex flex-wrap justify-center gap-2">
-            {filters.map((f) => (
-              <button key={f.value} onClick={() => setActiveFilter(f.value)} className={`px-4 sm:px-5 py-2 rounded-full font-body font-medium text-[0.8rem] sm:text-[0.875rem] transition-all duration-300 ${activeFilter === f.value ? "bg-gradient-primary text-primary-foreground" : "border border-ivory-dark text-muted-foreground hover:bg-ivory-dark"}`}>
-                {f.label}
-              </button>
-            ))}
+        <div className="sticky top-0 z-[500] border-b border-gold/10 bg-background/95 py-3 shadow-sm backdrop-blur sm:top-[80px] sm:py-4">
+          <div className="mx-auto flex max-w-7xl flex-col gap-3 px-4 sm:px-6 lg:flex-row lg:items-center lg:justify-between">
+            <div className="grid gap-3 sm:grid-cols-[1fr_220px] lg:w-[560px]">
+              <label className="relative block">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <input
+                  value={searchTerm}
+                  onChange={(event) => setSearchTerm(event.target.value)}
+                  className={`${fieldControlClass} pl-10`}
+                  placeholder="Search courses"
+                />
+              </label>
+              <label className="relative block">
+                <SlidersHorizontal className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <select value={sortMode} onChange={(event) => setSortMode(event.target.value as CourseSortMode)} className={`${fieldControlClass} pl-10`}>
+                  {sortOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                </select>
+              </label>
+            </div>
+            <div className="flex gap-2 overflow-x-auto pb-1 lg:max-w-[560px] lg:flex-wrap lg:justify-end lg:overflow-visible lg:pb-0">
+              {filters.map((filter) => (
+                <button key={filter.value} type="button" onClick={() => setActiveFilter(filter.value)} className={`shrink-0 rounded-full px-4 py-2 font-body text-[0.78rem] font-semibold transition-all duration-300 sm:text-[0.85rem] ${activeFilter === filter.value ? "bg-gradient-primary text-primary-foreground shadow-sm" : "border border-gold/20 bg-card text-muted-foreground hover:border-gold/50 hover:text-foreground"}`}>
+                  {filter.label}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
 
         {loading ? (
           <section className="py-16 sm:py-20 md:py-32 bg-background">
-            <div className="max-w-7xl mx-auto px-4 sm:px-6">
-              {/* Loading - show nothing to avoid confusion */}
+            <div className="mx-auto grid max-w-7xl grid-cols-1 gap-4 px-4 sm:grid-cols-2 sm:px-6 lg:grid-cols-3">
+              {[0, 1, 2].map((item) => <SkeletonCard key={item} />)}
             </div>
           </section>
         ) : !hasAny && !loading ? (

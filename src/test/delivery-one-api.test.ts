@@ -82,6 +82,23 @@ describe("Delhivery Delivery One API mapping", () => {
     });
   });
 
+  it("falls back to item delivery weight when older order snapshots have no shipmentWeightInGrams", () => {
+    const payload = createDeliveryOneShipmentPayload("order-doc-legacy", {
+      ...order,
+      delivery: { chargeInPaise: 10500 },
+      items: [
+        { productId: "product-1", name: "Practice Saree", quantity: 2, delivery: { weightInGrams: 640, lengthInCm: 22, widthInCm: 16, heightInCm: 5 } },
+      ],
+    });
+
+    expect(payload.shipments[0]).toMatchObject({
+      weight: "1280",
+      shipment_length: "22",
+      shipment_width: "16",
+      shipment_height: "5",
+    });
+  });
+
   it("creates the Delhivery shipment request with Token auth and URL encoded data", () => {
     const payload = createDeliveryOneShipmentPayload("order-doc-1", order);
     const request = createDeliveryOneCreateShipmentRequest(payload);

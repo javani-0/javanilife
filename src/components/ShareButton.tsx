@@ -21,7 +21,7 @@ const ShareButton = ({ title, text, url, imageUrl, className = "" }: ShareButton
       try {
         const shareData: ShareData = { 
           title, 
-          text: `${text}\n\n${fullUrl}`, 
+          text,
           url: fullUrl 
         };
 
@@ -35,7 +35,8 @@ const ShareButton = ({ title, text, url, imageUrl, className = "" }: ShareButton
             // Check if files can be shared
             if (navigator.canShare({ files: [file] })) {
               shareData.files = [file];
-              delete shareData.url; // Remove URL when sharing file
+              shareData.text = `${text}\n\n${fullUrl}`;
+              delete shareData.url;
             }
           } catch (err) {
             console.log("Image sharing not supported, sharing URL only");

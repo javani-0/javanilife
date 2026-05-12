@@ -2,9 +2,11 @@ import { Link } from "react-router-dom";
 import { Minus, Plus, ShoppingBag, Trash2 } from "lucide-react";
 import { Sheet, SheetClose, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { useCart } from "@/contexts/cart-context";
+import { useAuth } from "@/contexts/AuthContext";
 import { calculateLineTotal, formatPaiseAsRupees } from "@/lib/ecommerce";
 
 const CartDrawer = () => {
+  const { user } = useAuth();
   const {
     items,
     cart,
@@ -104,7 +106,7 @@ const CartDrawer = () => {
             </SheetClose>
           )}
           <p className="font-body text-xs text-muted-foreground text-center">
-            Login is required before placing the order.
+            {user ? "You are signed in and ready for checkout." : "Login is required before placing the order."}
           </p>
         </div>
       </SheetContent>

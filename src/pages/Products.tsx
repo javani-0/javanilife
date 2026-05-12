@@ -271,11 +271,11 @@ const ProductCard = ({
           <div className="mt-3 flex items-center justify-between gap-3 rounded-md border border-border/70 bg-background/70 px-3 py-2 lg:mt-4 lg:px-4 lg:py-3">
             <span className="font-body text-xs font-medium text-muted-foreground">Quantity</span>
             <div className="flex items-center overflow-hidden rounded-md border border-border bg-card">
-              <button type="button" onClick={decreaseQuantity} disabled={qty <= 1 || !purchasable} className="flex h-8 w-8 sm:h-9 sm:w-9 items-center justify-center text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40">
+              <button type="button" onClick={decreaseQuantity} disabled={qty <= 1 || !purchasable} aria-label={`Decrease ${product.name} quantity`} className="flex h-8 w-8 sm:h-9 sm:w-9 items-center justify-center text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold disabled:cursor-not-allowed disabled:opacity-40">
                 <Minus className="h-3.5 w-3.5" />
               </button>
               <span className="w-9 sm:w-10 text-center font-body text-sm font-semibold tabular-nums text-foreground">{qty}</span>
-              <button type="button" onClick={increaseQuantity} disabled={!purchasable || !canIncrease} className="flex h-8 w-8 sm:h-9 sm:w-9 items-center justify-center text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40">
+              <button type="button" onClick={increaseQuantity} disabled={!purchasable || !canIncrease} aria-label={`Increase ${product.name} quantity`} className="flex h-8 w-8 sm:h-9 sm:w-9 items-center justify-center text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold disabled:cursor-not-allowed disabled:opacity-40">
                 <Plus className="h-3.5 w-3.5" />
               </button>
             </div>

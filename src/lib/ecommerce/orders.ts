@@ -42,6 +42,7 @@ export const createOrderItemFromCartItem = (cartItem: CartItem, deliveryProfile?
     quantity: cartItem.quantity,
     amountInPaise: cartItem.amountInPaise,
     lineTotalInPaise: calculateLineTotal(cartItem.amountInPaise, cartItem.quantity),
+    allowedPaymentMethods: cartItem.allowedPaymentMethods,
     delivery: normalizedDeliveryProfile,
     shipmentWeightInGrams: getBillableWeight(cartItem, { [cartItem.productId]: normalizedDeliveryProfile }),
   };

@@ -107,6 +107,11 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    match /coupons/{code} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
     // Faculty collection — public read, authenticated write
     match /faculty/{id} {
       allow read: if true;

@@ -87,6 +87,7 @@ const CourseDetail = () => {
       <SEO
         title={`${course.title} | Javani Spiritual Hub`}
         description={course.description}
+        ogImage={course.image}
       />
       <main className="min-h-screen bg-background pt-[80px]">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 py-10 sm:py-16">
@@ -133,6 +134,7 @@ const CourseDetail = () => {
                   title={course.title}
                   text={`Check out *${course.title}* (${course.badge}) at Javani Spiritual Hub`}
                   url={`/courses/${course.id}`}
+                  imageUrl={course.image}
                 />
               </div>
 

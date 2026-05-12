@@ -13,6 +13,7 @@ import {
   isProductPurchasable,
   mergeCartItems,
   normalizeProductStockStatus,
+  normalizeAllowedPaymentMethods,
   PRODUCT_CATEGORY_LABELS,
   removeCartItem,
   setCartItemQuantity,
@@ -50,6 +51,7 @@ const normalizeStoredCartItem = (value: unknown, fallbackProductId?: string): Ca
     amountInPaise: Math.max(0, Math.round(amountInPaise)),
     displayPrice: typeof value.displayPrice === "string" ? value.displayPrice : "₹0",
     stockStatus: normalizeProductStockStatus(typeof value.stockStatus === "string" ? value.stockStatus : undefined),
+    allowedPaymentMethods: itemType === "course" ? ["razorpay"] : normalizeAllowedPaymentMethods(Array.isArray(value.allowedPaymentMethods) ? value.allowedPaymentMethods : undefined),
     maxQuantity: typeof value.maxQuantity === "number" ? value.maxQuantity : undefined,
     addedAt: value.addedAt,
     updatedAt: value.updatedAt,
@@ -148,6 +150,7 @@ const cartItemToFirestore = (item: CartItem): Record<string, unknown> => {
   };
 
   if (item.image) data.image = item.image;
+  if (item.allowedPaymentMethods) data.allowedPaymentMethods = item.allowedPaymentMethods;
   if (typeof item.maxQuantity === "number") data.maxQuantity = item.maxQuantity;
   data.addedAt = item.addedAt || serverTimestamp();
 

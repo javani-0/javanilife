@@ -1,4 +1,5 @@
 import { formatPaiseAsRupees, parsePriceToPaise } from "./pricing";
+import { normalizeAllowedPaymentMethods } from "./paymentEligibility";
 import { PRODUCT_CATEGORIES, PRODUCT_CATEGORY_LABELS, type Product, type ProductCategory, type ProductStockStatus } from "./types";
 
 export const isProductCategory = (value: unknown): value is ProductCategory => (
@@ -79,6 +80,7 @@ export const normalizeProduct = (id: string, data: Partial<Product> & { category
     active: data.active !== false,
     featured: data.featured === true,
     whatsappEnquiry: data.whatsappEnquiry,
+    allowedPaymentMethods: normalizeAllowedPaymentMethods(data.allowedPaymentMethods),
     rating: data.rating,
     reviewCount: data.reviewCount,
     delivery: data.delivery,

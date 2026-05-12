@@ -113,6 +113,25 @@ describe("e-commerce delivery foundation", () => {
     });
   });
 
+  it("waives only the customer delivery charge when the cart meets the global free delivery threshold", () => {
+    const item = createCartItemFromProduct(product, 1);
+
+    expect(calculateDeliveryEstimate([item], {}, {
+      baseChargeInPaise: 9500,
+      freeDeliveryEnabled: true,
+      freeDeliveryMinSubtotalInPaise: 100000,
+      freeDeliveryMessage: "Free delivery unlocked",
+    }, { subtotalInPaise: 120000 })).toEqual({
+      chargeInPaise: 0,
+      originalChargeInPaise: 9500,
+      freeDeliveryReason: "Free delivery unlocked",
+      weightInGrams: 500,
+      usesFallbackWeight: true,
+      freeDeliveryItemCount: 0,
+      billableItemCount: 1,
+    });
+  });
+
   it("normalizes product delivery profiles for admin and checkout use", () => {
     expect(normalizeDeliveryProfile({
       weightInGrams: 850,

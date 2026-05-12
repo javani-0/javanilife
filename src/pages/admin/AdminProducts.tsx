@@ -7,8 +7,10 @@ import CategoryManager from "@/components/admin/CategoryManager";
 import {
   AlertTriangle,
   BadgeIndianRupee,
+  Banknote,
   Boxes,
   CheckCircle2,
+  CreditCard,
   Eye,
   EyeOff,
   ImagePlus,
@@ -41,6 +43,7 @@ import {
   getProductAmountInPaise,
   getProductDisplayPrice,
   normalizeDeliveryProfile,
+  normalizeAllowedPaymentMethods,
   normalizeProduct,
   normalizeProductStockStatus,
   parsePriceToPaise,
@@ -73,6 +76,8 @@ interface ProductFormState {
   deliveryWidthInCm: string;
   deliveryHeightInCm: string;
   freeDeliveryEligible: boolean;
+  allowCod: boolean;
+  allowOnline: boolean;
 }
 
 const emptyForm: ProductFormState = {
@@ -95,6 +100,8 @@ const emptyForm: ProductFormState = {
   deliveryWidthInCm: "",
   deliveryHeightInCm: "",
   freeDeliveryEligible: false,
+  allowCod: true,
+  allowOnline: true,
 };
 
 const createEmptyForm = (categories: ManagedCategoryOption[]): ProductFormState => {
@@ -169,6 +176,14 @@ const getInventoryClass = (product: Product) => {
   return statusClasses.available;
 };
 
+const getPaymentLabel = (product: Product) => {
+  const methods = normalizeAllowedPaymentMethods(product.allowedPaymentMethods);
+  if (methods.includes("cod") && methods.includes("razorpay")) return "COD + Online";
+  if (methods.includes("cod")) return "COD only";
+  if (methods.includes("razorpay")) return "Online only";
+  return "Not configured";
+};
+
 const validateProductForm = (form: ProductFormState) => {
   const amountInPaise = parsePriceToPaise(form.priceRupees);
   const stockQuantity = Number(form.stockQuantity);
@@ -178,6 +193,7 @@ const validateProductForm = (form: ProductFormState) => {
   if (!amountInPaise || amountInPaise <= 0) return "Enter a valid numeric price greater than 0.";
   if (!Number.isInteger(stockQuantity) || stockQuantity < 0) return "Stock quantity must be a whole number starting from 0.";
   if (form.stockStatus === "available" && stockQuantity <= 0) return "Available products need stock quantity greater than 0.";
+  if (!form.allowCod && !form.allowOnline) return "Select at least one payment method for this product.";
   if (parseOptionalPositiveInteger(form.deliveryWeightInGrams) === null) return "Shipment weight must be a positive whole number in grams.";
   if (parseOptionalPositiveInteger(form.deliveryLengthInCm) === null) return "Shipment length must be a positive whole number in cm.";
   if (parseOptionalPositiveInteger(form.deliveryWidthInCm) === null) return "Shipment width must be a positive whole number in cm.";
@@ -248,6 +264,7 @@ const AdminProducts = () => {
 
   const openEdit = (product: Product) => {
     const images = product.images?.length ? product.images : product.image ? [product.image] : [];
+    const allowedPaymentMethods = normalizeAllowedPaymentMethods(product.allowedPaymentMethods);
 
     setForm({
       name: product.name,
@@ -269,6 +286,8 @@ const AdminProducts = () => {
       deliveryWidthInCm: getPositiveIntegerInput(product.delivery?.widthInCm),
       deliveryHeightInCm: getPositiveIntegerInput(product.delivery?.heightInCm),
       freeDeliveryEligible: product.delivery?.freeDeliveryEligible === true,
+      allowCod: allowedPaymentMethods.includes("cod"),
+      allowOnline: allowedPaymentMethods.includes("razorpay"),
     });
     setEditing(product.id);
     setShowModal(true);
@@ -363,6 +382,7 @@ const AdminProducts = () => {
       active: form.active,
       featured: form.featured,
       whatsappEnquiry: form.whatsappEnquiry,
+      allowedPaymentMethods: [form.allowCod ? "cod" : null, form.allowOnline ? "razorpay" : null].filter(Boolean),
       delivery,
       updatedAt: serverTimestamp(),
     };
@@ -463,6 +483,9 @@ const AdminProducts = () => {
                     <span className="font-body text-[0.75rem] text-muted-foreground">{product.categoryLabel}</span>
                     <span className={`rounded-full border px-2 py-1 font-body text-[0.7rem] font-semibold ${getInventoryClass(product)}`}>{getInventoryLabel(product)}</span>
                   </div>
+                  <p className="mb-2 inline-flex items-center gap-1.5 rounded-full border border-border bg-background px-2.5 py-1 font-body text-[0.72rem] font-semibold text-muted-foreground">
+                    <CreditCard className="h-3.5 w-3.5 text-gold" /> {getPaymentLabel(product)}
+                  </p>
                   <h4 className="mb-1 font-display text-[1.05rem] font-semibold text-foreground">{product.name}</h4>
                   <p className="mb-3 font-body text-[0.8rem] text-muted-foreground line-clamp-1">{product.shortDescription || product.description || "No product caption yet."}</p>
                   <div className="flex items-end justify-between gap-3">
@@ -487,7 +510,7 @@ const AdminProducts = () => {
             <table className="w-full text-left">
               <thead>
                 <tr className="bg-muted/50">
-                  {["Product", "Category", "Price", "Inventory", "Visibility", "Actions"].map((heading) => (
+                  {["Product", "Category", "Price", "Inventory", "Payments", "Visibility", "Actions"].map((heading) => (
                     <th key={heading} className="px-4 py-3 font-body text-[0.75rem] font-medium uppercase tracking-wider text-muted-foreground">{heading}</th>
                   ))}
                 </tr>
@@ -502,6 +525,7 @@ const AdminProducts = () => {
                     <td className="px-4 py-3 font-body text-[0.8rem] text-muted-foreground">{product.categoryLabel}</td>
                     <td className="px-4 py-3 font-display text-[1rem] font-bold text-primary">{getProductDisplayPrice(product)}</td>
                     <td className="px-4 py-3"><span className={`rounded-full border px-2 py-1 font-body text-[0.75rem] ${getInventoryClass(product)}`}>{getInventoryLabel(product)}</span></td>
+                    <td className="px-4 py-3 font-body text-[0.8rem] text-muted-foreground">{getPaymentLabel(product)}</td>
                     <td className="px-4 py-3 font-body text-[0.8rem] text-muted-foreground">{product.active === false ? "Hidden" : "Public"}{product.featured ? " / Featured" : ""}</td>
                     <td className="px-4 py-3">
                       <div className="flex gap-1">
@@ -591,6 +615,26 @@ const AdminProducts = () => {
                   <input type="checkbox" checked={form.featured} onChange={(event) => setForm({ ...form, featured: event.target.checked })} />
                 </label>
                 <p className="mt-1 font-body text-[0.72rem] text-muted-foreground">Featured products appear first in public product sorting.</p>
+              </div>
+
+              <div className="sm:col-span-2 rounded-xl border border-gold/20 bg-background/70 p-4">
+                <div className="mb-3 flex items-center gap-2">
+                  <CreditCard className="h-4 w-4 text-gold" />
+                  <div>
+                    <p className="font-body text-sm font-semibold text-foreground">Payment Availability</p>
+                    <p className="font-body text-[0.72rem] text-muted-foreground">Choose which checkout payment methods are allowed for this product.</p>
+                  </div>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="flex cursor-pointer items-center justify-between gap-3 rounded-lg border border-border bg-card px-3 py-2.5 font-body text-sm font-semibold text-foreground">
+                    <span className="flex items-center gap-2"><Banknote className="h-4 w-4 text-gold" /> Cash on delivery</span>
+                    <input type="checkbox" checked={form.allowCod} onChange={(event) => setForm({ ...form, allowCod: event.target.checked })} />
+                  </label>
+                  <label className="flex cursor-pointer items-center justify-between gap-3 rounded-lg border border-border bg-card px-3 py-2.5 font-body text-sm font-semibold text-foreground">
+                    <span className="flex items-center gap-2"><CreditCard className="h-4 w-4 text-gold" /> Online payment</span>
+                    <input type="checkbox" checked={form.allowOnline} onChange={(event) => setForm({ ...form, allowOnline: event.target.checked })} />
+                  </label>
+                </div>
               </div>
 
               <div className="sm:col-span-2 rounded-xl border border-gold/20 bg-background/70 p-4">

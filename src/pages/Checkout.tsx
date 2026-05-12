@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { addDoc, collection, doc, getDoc, getDocs, onSnapshot, serverTimestamp } from "firebase/firestore";
-import { ArrowLeft, CheckCircle2, CreditCard, LockKeyhole, MapPin, MessageCircle, PackageCheck, ShieldCheck, Truck } from "lucide-react";
+import { ArrowLeft, CheckCircle2, CreditCard, LockKeyhole, MapPin, MessageCircle, PackageCheck, ShieldCheck, TicketPercent, Truck, X } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -17,18 +17,24 @@ import PageHero from "@/components/PageHero";
 import SEO from "@/components/SEO";
 import { useAuth } from "@/contexts/AuthContext";
 import { useCart } from "@/contexts/cart-context";
+import { useCoupons } from "@/hooks/useCoupons";
 import { useToast } from "@/hooks/use-toast";
 import { db } from "@/lib/firebase";
 import {
   calculateCartTotals,
+  calculateCouponDiscount,
   calculateDeliveryEstimate,
   createRazorpayOrder,
   createRazorpayPrefill,
   createOrderItemFromCartItem,
   DEFAULT_DELIVERY_PROVIDER,
   DELIVERY_SETTINGS_DOCUMENT_ID,
+  evaluateCouponEligibility,
+  formatCouponBenefit,
   formatPaiseAsRupees,
+  getAllowedPaymentMethodsForCart,
   normalizeCustomerAddress,
+  normalizeCouponCode,
   normalizeDeliveryProfile,
   normalizeDeliveryPricingSettings,
   openRazorpayCheckout,
@@ -165,6 +171,7 @@ const Checkout = () => {
   const navigate = useNavigate();
   const { user, userProfile, loading: authLoading } = useAuth();
   const { items, loading: cartLoading, clearCart, clearBuyNowItem } = useCart();
+  const { checkoutCoupons, loading: couponsLoading } = useCoupons();
   const { toast } = useToast();
   const [address, setAddress] = useState<CheckoutAddress>(emptyAddress);
   const [savedAddresses, setSavedAddresses] = useState<CheckoutAddress[]>([]);
@@ -172,6 +179,8 @@ const Checkout = () => {
   const [deliveryPricing, setDeliveryPricing] = useState<Required<DeliveryPricingSettings>>(normalizeDeliveryPricingSettings());
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("cod");
   const [deliveryProfiles, setDeliveryProfiles] = useState<DeliveryProfileMap>({});
+  const [couponInput, setCouponInput] = useState("");
+  const [appliedCouponCode, setAppliedCouponCode] = useState("");
   const [deliveryLoading, setDeliveryLoading] = useState(false);
   const [savedAddressHydrated, setSavedAddressHydrated] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -314,13 +323,44 @@ const Checkout = () => {
     };
   }, [items]);
 
-  const deliveryEstimate = useMemo(() => calculateDeliveryEstimate(items, deliveryProfiles, deliveryPricing), [deliveryPricing, deliveryProfiles, items]);
-  const checkoutTotals = useMemo(
-    () => calculateCartTotals(items, deliveryEstimate.chargeInPaise),
-    [deliveryEstimate.chargeInPaise, items]
+  const cartSubtotalInPaise = useMemo(() => calculateCartTotals(items).subtotalInPaise, [items]);
+  const deliveryEstimate = useMemo(
+    () => calculateDeliveryEstimate(items, deliveryProfiles, deliveryPricing, { subtotalInPaise: cartSubtotalInPaise }),
+    [cartSubtotalInPaise, deliveryPricing, deliveryProfiles, items],
   );
+  const couponContext = useMemo(() => ({
+    items,
+    subtotalInPaise: cartSubtotalInPaise,
+    deliveryChargeInPaise: deliveryEstimate.chargeInPaise,
+  }), [cartSubtotalInPaise, deliveryEstimate.chargeInPaise, items]);
+  const selectedCoupon = useMemo(
+    () => checkoutCoupons.find((coupon) => coupon.code === appliedCouponCode),
+    [appliedCouponCode, checkoutCoupons],
+  );
+  const selectedCouponEligibility = useMemo(
+    () => selectedCoupon ? evaluateCouponEligibility(selectedCoupon, couponContext) : null,
+    [couponContext, selectedCoupon],
+  );
+  const appliedCoupon = useMemo(
+    () => selectedCoupon && selectedCouponEligibility?.eligible ? calculateCouponDiscount(selectedCoupon, couponContext) : null,
+    [couponContext, selectedCoupon, selectedCouponEligibility?.eligible],
+  );
+  const finalDeliveryChargeInPaise = Math.max(0, deliveryEstimate.chargeInPaise - (appliedCoupon?.deliveryDiscountInPaise || 0));
+  const checkoutTotals = useMemo(
+    () => calculateCartTotals(items, finalDeliveryChargeInPaise, appliedCoupon?.discountInPaise || 0),
+    [appliedCoupon?.discountInPaise, finalDeliveryChargeInPaise, items]
+  );
+  const couponOptions = useMemo(() => checkoutCoupons.map((coupon) => ({
+    coupon,
+    eligibility: evaluateCouponEligibility(coupon, couponContext),
+    discount: calculateCouponDiscount(coupon, couponContext),
+  })), [checkoutCoupons, couponContext]);
+  const paymentEligibility = useMemo(() => getAllowedPaymentMethodsForCart(items), [items]);
+  const allowedPaymentMethodsKey = paymentEligibility.allowedMethods.join("|");
   const hasCourseItems = useMemo(() => items.some((item) => item.itemType === "course"), [items]);
   const hasShippableItems = useMemo(() => items.some((item) => item.itemType !== "course"), [items]);
+  const codAvailable = paymentEligibility.allowedMethods.includes("cod");
+  const onlineAvailable = paymentEligibility.allowedMethods.includes("razorpay");
   const activeCheckoutSteps = useMemo(() => checkoutSteps.map((step) => (
     step.label === "Details"
       ? { ...step, description: hasShippableItems ? "Delivery details" : "Enrollment details" }
@@ -330,8 +370,38 @@ const Checkout = () => {
   )), [hasCourseItems, hasShippableItems]);
 
   useEffect(() => {
-    if (items.length > 0 && hasCourseItems) setPaymentMethod("razorpay");
-  }, [hasCourseItems, items.length]);
+    if (appliedCouponCode && (!selectedCoupon || selectedCouponEligibility?.eligible === false)) {
+      setAppliedCouponCode("");
+    }
+  }, [appliedCouponCode, selectedCoupon, selectedCouponEligibility?.eligible]);
+
+  useEffect(() => {
+    if (items.length === 0) return;
+    if (!paymentEligibility.allowedMethods.includes(paymentMethod)) {
+      setPaymentMethod(paymentEligibility.allowedMethods[0] || "razorpay");
+    }
+  }, [allowedPaymentMethodsKey, items.length, paymentEligibility.allowedMethods, paymentMethod]);
+
+  const applyCoupon = (code: string) => {
+    const normalizedCode = normalizeCouponCode(code);
+    if (!normalizedCode) return;
+
+    const coupon = checkoutCoupons.find((item) => item.code === normalizedCode);
+    if (!coupon) {
+      toast({ title: "Coupon not available", description: "This coupon is inactive, hidden, or does not exist.", variant: "destructive" });
+      return;
+    }
+
+    const eligibility = evaluateCouponEligibility(coupon, couponContext);
+    if (!eligibility.eligible) {
+      toast({ title: "Coupon not eligible", description: eligibility.reason || "This coupon cannot be used for this cart.", variant: "destructive" });
+      return;
+    }
+
+    setAppliedCouponCode(coupon.code);
+    setCouponInput("");
+    toast({ title: "Coupon applied", description: `${coupon.code} has been applied to your order.` });
+  };
 
   const updateAddress = (field: keyof CheckoutAddress) => (event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     if (selectedSavedAddressId !== "custom") setSelectedSavedAddressId("custom");
@@ -349,6 +419,11 @@ const Checkout = () => {
 
     if (items.length === 0) {
       setFormError("Your cart is empty. Add a product before checkout.");
+      return;
+    }
+
+    if (paymentEligibility.blockingReason || !paymentEligibility.allowedMethods.includes(paymentMethod)) {
+      setFormError(paymentEligibility.blockingReason || "Please choose an available payment method for this cart.");
       return;
     }
 
@@ -409,6 +484,9 @@ const Checkout = () => {
           },
         delivery: {
           chargeInPaise: checkoutTotals.deliveryChargeInPaise,
+          originalChargeInPaise: deliveryEstimate.originalChargeInPaise,
+          freeDeliveryReason: deliveryEstimate.freeDeliveryReason,
+          couponDeliveryDiscountInPaise: appliedCoupon?.deliveryDiscountInPaise || 0,
           status: "placed",
           provider: hasShippableItems ? DEFAULT_DELIVERY_PROVIDER : "manual",
           syncStatus: "manual-ready",
@@ -419,6 +497,15 @@ const Checkout = () => {
         subtotalInPaise: checkoutTotals.subtotalInPaise,
         deliveryChargeInPaise: checkoutTotals.deliveryChargeInPaise,
         discountInPaise: checkoutTotals.discountInPaise,
+        coupon: appliedCoupon ? {
+          id: appliedCoupon.id,
+          code: appliedCoupon.code,
+          title: appliedCoupon.title,
+          type: appliedCoupon.type,
+          discountInPaise: appliedCoupon.discountInPaise,
+          deliveryDiscountInPaise: appliedCoupon.deliveryDiscountInPaise,
+          freeDelivery: appliedCoupon.freeDelivery,
+        } : undefined,
         totalInPaise: checkoutTotals.totalInPaise,
         timeline: [
           {
@@ -718,22 +805,23 @@ const Checkout = () => {
                   </div>
                   <div>
                     <h2 className="font-display text-2xl text-foreground">Payment Method</h2>
-                    <p className="font-body text-sm text-muted-foreground">{hasCourseItems ? "Course purchases use online payment so enrollment is confirmed immediately." : "Choose COD or pay now securely through Razorpay."}</p>
+                    <p className="font-body text-sm text-muted-foreground">Choose from the payment methods available for every item in this cart.</p>
                   </div>
                 </div>
 
                 <div className="grid gap-3 sm:grid-cols-2">
-                  <label className={`cursor-pointer rounded-xl border p-4 transition-colors ${paymentMethod === "cod" ? "border-gold bg-gold/10" : "border-border bg-background/70 hover:border-gold/50"} ${hasCourseItems ? "cursor-not-allowed opacity-50" : ""}`}>
-                    <input type="radio" name="paymentMethod" value="cod" checked={paymentMethod === "cod"} onChange={() => !hasCourseItems && setPaymentMethod("cod")} disabled={hasCourseItems} className="sr-only" />
+                  <label className={`cursor-pointer rounded-xl border p-4 transition-colors ${paymentMethod === "cod" ? "border-gold bg-gold/10" : "border-border bg-background/70 hover:border-gold/50"} ${!codAvailable ? "cursor-not-allowed opacity-50" : ""}`}>
+                    <input type="radio" name="paymentMethod" value="cod" checked={paymentMethod === "cod"} onChange={() => codAvailable && setPaymentMethod("cod")} disabled={!codAvailable} className="sr-only" />
                     <span className="font-body text-sm font-bold text-foreground">Cash on Delivery</span>
-                    <span className="mt-2 block font-body text-xs leading-relaxed text-muted-foreground">{hasCourseItems ? "Available only for carts without courses." : "Place the order now and collect payment at delivery."}</span>
+                    <span className="mt-2 block font-body text-xs leading-relaxed text-muted-foreground">{codAvailable ? "Place the order now and collect payment at delivery." : paymentEligibility.codUnavailableReason || "COD is unavailable for this cart."}</span>
                   </label>
-                  <label className={`cursor-pointer rounded-xl border p-4 transition-colors ${paymentMethod === "razorpay" ? "border-gold bg-gold/10" : "border-border bg-background/70 hover:border-gold/50"}`}>
-                    <input type="radio" name="paymentMethod" value="razorpay" checked={paymentMethod === "razorpay"} onChange={() => setPaymentMethod("razorpay")} className="sr-only" />
+                  <label className={`cursor-pointer rounded-xl border p-4 transition-colors ${paymentMethod === "razorpay" ? "border-gold bg-gold/10" : "border-border bg-background/70 hover:border-gold/50"} ${!onlineAvailable ? "cursor-not-allowed opacity-50" : ""}`}>
+                    <input type="radio" name="paymentMethod" value="razorpay" checked={paymentMethod === "razorpay"} onChange={() => onlineAvailable && setPaymentMethod("razorpay")} disabled={!onlineAvailable} className="sr-only" />
                     <span className="font-body text-sm font-bold text-foreground">Razorpay Online</span>
-                    <span className="mt-2 block font-body text-xs leading-relaxed text-muted-foreground">Pay now using Razorpay test or live credentials configured on the server.</span>
+                    <span className="mt-2 block font-body text-xs leading-relaxed text-muted-foreground">{onlineAvailable ? "Pay now using Razorpay test or live credentials configured on the server." : paymentEligibility.onlineUnavailableReason || "Online payment is unavailable for this cart."}</span>
                   </label>
                 </div>
+                {paymentEligibility.blockingReason && <p className="mt-3 rounded-xl border border-destructive/25 bg-destructive/10 p-3 font-body text-sm text-destructive">{paymentEligibility.blockingReason}</p>}
               </div>
             </section>
 
@@ -754,15 +842,89 @@ const Checkout = () => {
                 ))}
               </div>
 
+              <div className="mt-6 rounded-xl border border-gold/20 bg-gold/10 p-4">
+                <div className="mb-3 flex items-center gap-2">
+                  <TicketPercent className="h-4 w-4 text-gold" />
+                  <div>
+                    <h3 className="font-display text-lg text-foreground">Available Offers</h3>
+                    <p className="font-body text-xs text-muted-foreground">Apply an eligible coupon before payment.</p>
+                  </div>
+                </div>
+
+                <div className="flex gap-2">
+                  <input
+                    value={couponInput}
+                    onChange={(event) => setCouponInput(normalizeCouponCode(event.target.value))}
+                    className="min-w-0 flex-1 rounded-md border border-border bg-background px-3 py-2 font-body text-sm uppercase outline-none transition-colors focus:border-gold focus:ring-2 focus:ring-gold/20"
+                    placeholder="COUPON CODE"
+                  />
+                  <button type="button" onClick={() => applyCoupon(couponInput)} disabled={!couponInput.trim()} className="rounded-md bg-gold px-4 py-2 font-body text-sm font-semibold text-charcoal transition-colors hover:bg-gold-light disabled:cursor-not-allowed disabled:opacity-60">
+                    Apply
+                  </button>
+                </div>
+
+                {appliedCoupon && (
+                  <div className="mt-3 flex items-center justify-between gap-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 font-body text-sm text-emerald-800">
+                    <span><strong>{appliedCoupon.code}</strong> applied</span>
+                    <button type="button" onClick={() => setAppliedCouponCode("")} className="rounded p-1 text-emerald-700 hover:bg-emerald-100" aria-label="Remove applied coupon"><X className="h-4 w-4" /></button>
+                  </div>
+                )}
+
+                <div className="mt-3 space-y-2">
+                  {couponsLoading ? (
+                    <p className="font-body text-xs text-muted-foreground">Loading offers...</p>
+                  ) : couponOptions.length === 0 ? (
+                    <p className="font-body text-xs text-muted-foreground">No public offers are active right now.</p>
+                  ) : couponOptions.map(({ coupon, eligibility, discount }) => {
+                    const savings = discount.discountInPaise + discount.deliveryDiscountInPaise;
+                    return (
+                      <button
+                        key={coupon.code}
+                        type="button"
+                        onClick={() => applyCoupon(coupon.code)}
+                        disabled={!eligibility.eligible || appliedCouponCode === coupon.code}
+                        className={`w-full rounded-lg border p-3 text-left transition-colors ${appliedCouponCode === coupon.code ? "border-emerald-300 bg-emerald-50" : eligibility.eligible ? "border-gold/30 bg-card hover:border-gold" : "border-border bg-background/70 opacity-60"}`}
+                      >
+                        <span className="flex items-center justify-between gap-3">
+                          <span>
+                            <span className="block font-body text-sm font-bold text-foreground">{coupon.code} · {formatCouponBenefit(coupon)}</span>
+                            <span className="mt-1 block font-body text-xs text-muted-foreground">{eligibility.eligible ? coupon.description || (savings > 0 ? `Save ${formatPaiseAsRupees(savings)} on this order.` : "Apply this coupon to your cart.") : eligibility.reason}</span>
+                          </span>
+                          <span className="shrink-0 rounded-full bg-gold/10 px-2.5 py-1 font-body text-[0.68rem] font-bold text-gold">{appliedCouponCode === coupon.code ? "Applied" : eligibility.eligible ? "Apply" : "Locked"}</span>
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
               <div className="mt-6 space-y-3 border-t border-border pt-5 font-body text-sm">
                 <div className="flex items-center justify-between gap-4">
                   <span className="text-muted-foreground">Subtotal</span>
                   <span className="font-medium text-foreground">{formatPaiseAsRupees(checkoutTotals.subtotalInPaise)}</span>
                 </div>
-                <div className="flex items-center justify-between gap-4">
+                <div className="flex items-start justify-between gap-4">
                   <span className="text-muted-foreground">Delivery</span>
-                  <span className="font-medium text-foreground">{!hasShippableItems ? "Not required" : deliveryLoading ? "Calculating..." : formatPaiseAsRupees(checkoutTotals.deliveryChargeInPaise)}</span>
+                  <span className="text-right font-medium text-foreground">
+                    {!hasShippableItems ? "Not required" : deliveryLoading ? "Calculating..." : (
+                      <>
+                        <span className="block">
+                          {(deliveryEstimate.originalChargeInPaise || appliedCoupon?.deliveryDiscountInPaise) ? <span className="mr-2 text-muted-foreground line-through">{formatPaiseAsRupees(deliveryEstimate.originalChargeInPaise || deliveryEstimate.chargeInPaise)}</span> : null}
+                          <span>{formatPaiseAsRupees(checkoutTotals.deliveryChargeInPaise)}</span>
+                        </span>
+                        {(deliveryEstimate.freeDeliveryReason || appliedCoupon?.freeDelivery) && checkoutTotals.deliveryChargeInPaise === 0 ? (
+                          <span className="mt-1 block text-[0.72rem] font-semibold text-emerald-700">{deliveryEstimate.freeDeliveryReason || "Free delivery coupon applied"}</span>
+                        ) : null}
+                      </>
+                    )}
+                  </span>
                 </div>
+                {checkoutTotals.discountInPaise > 0 && (
+                  <div className="flex items-center justify-between gap-4 text-emerald-700">
+                    <span>Discount{appliedCoupon ? ` (${appliedCoupon.code})` : ""}</span>
+                    <span className="font-medium">-{formatPaiseAsRupees(checkoutTotals.discountInPaise)}</span>
+                  </div>
+                )}
                 <div className="flex items-center justify-between gap-4 text-base">
                   <span className="font-semibold text-foreground">Total</span>
                   <span className="font-semibold text-gold">{formatPaiseAsRupees(checkoutTotals.totalInPaise)}</span>
@@ -795,7 +957,7 @@ const Checkout = () => {
                 </div>
               )}
 
-              <button type="submit" disabled={submitting || deliveryLoading} className="mt-5 flex w-full items-center justify-center gap-2 rounded-sm bg-gradient-primary px-5 py-3 font-display text-sm font-semibold tracking-[0.08em] text-primary-foreground shadow-[0_10px_24px_rgba(139,26,26,0.2)] transition-all hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:brightness-100">
+              <button type="submit" disabled={submitting || deliveryLoading || paymentEligibility.allowedMethods.length === 0} className="mt-5 flex w-full items-center justify-center gap-2 rounded-sm bg-gradient-primary px-5 py-3 font-display text-sm font-semibold tracking-[0.08em] text-primary-foreground shadow-[0_10px_24px_rgba(139,26,26,0.2)] transition-all hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:brightness-100">
                 <ShieldCheck className="h-4 w-4" /> {submitting ? (paymentMethod === "razorpay" ? "Processing Payment..." : "Placing Order...") : paymentMethod === "razorpay" ? "Pay Now" : "Place COD Order"}
               </button>
               <p className="mt-3 text-center font-body text-xs text-muted-foreground">Your order will be saved for admin order management.</p>

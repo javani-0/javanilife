@@ -75,5 +75,6 @@ export const createCartItemFromCourse = (course: Course): CartItem => ({
   amountInPaise: getCourseAmountInPaise(course),
   displayPrice: getCourseDisplayPrice(course),
   stockStatus: "available",
+  allowedPaymentMethods: ["razorpay"],
   maxQuantity: 1,
 });

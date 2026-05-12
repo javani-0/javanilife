@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { doc, onSnapshot, serverTimestamp, setDoc } from "firebase/firestore";
-import { Calculator, PackageCheck, Ruler, ShieldCheck, Truck } from "lucide-react";
+import { Calculator, Gift, PackageCheck, Ruler, ShieldCheck, Truck } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { db } from "@/lib/firebase";
 import {
@@ -36,15 +36,22 @@ const AdminDeliverySettings = () => {
   const { toast } = useToast();
   const [deliveryPricing, setDeliveryPricing] = useState<Required<DeliveryPricingSettings>>(normalizeDeliveryPricingSettings());
   const [baseRateRupees, setBaseRateRupees] = useState(String(BASE_DELIVERY_CHARGE_IN_PAISE / 100));
+  const [freeDeliveryEnabled, setFreeDeliveryEnabled] = useState(false);
+  const [freeDeliveryMinRupees, setFreeDeliveryMinRupees] = useState("");
+  const [freeDeliveryMessage, setFreeDeliveryMessage] = useState("Free delivery unlocked");
   const [saving, setSaving] = useState(false);
   const [previewWeight, setPreviewWeight] = useState(String(DEFAULT_ITEM_WEIGHT_IN_GRAMS));
   const [previewQuantity, setPreviewQuantity] = useState("1");
+  const [previewSubtotalRupees, setPreviewSubtotalRupees] = useState("1200");
 
   useEffect(() => {
     const unsubscribe = onSnapshot(doc(db, "siteSettings", DELIVERY_SETTINGS_DOCUMENT_ID), (snapshot) => {
       const nextPricing = normalizeDeliveryPricingSettings(snapshot.exists() ? snapshot.data() as DeliveryPricingSettings : undefined);
       setDeliveryPricing(nextPricing);
       setBaseRateRupees(String(nextPricing.baseChargeInPaise / 100));
+      setFreeDeliveryEnabled(nextPricing.freeDeliveryEnabled);
+      setFreeDeliveryMinRupees(nextPricing.freeDeliveryMinSubtotalInPaise > 0 ? String(nextPricing.freeDeliveryMinSubtotalInPaise / 100) : "");
+      setFreeDeliveryMessage(nextPricing.freeDeliveryMessage);
     });
 
     return unsubscribe;
@@ -52,6 +59,10 @@ const AdminDeliverySettings = () => {
 
   const parsedBaseRateInPaise = parsePriceToPaise(baseRateRupees);
   const baseRateError = !parsedBaseRateInPaise || parsedBaseRateInPaise <= 0 ? "Enter a valid amount greater than 0." : "";
+  const parsedFreeDeliveryMinInPaise = parsePriceToPaise(freeDeliveryMinRupees);
+  const freeDeliveryError = freeDeliveryEnabled && (!parsedFreeDeliveryMinInPaise || parsedFreeDeliveryMinInPaise <= 0)
+    ? "Enter a minimum order amount greater than 0."
+    : "";
 
   const ruleCards = [
     {
@@ -85,11 +96,18 @@ const AdminDeliverySettings = () => {
       toast({ title: "Invalid base rate", description: "Enter a valid rupee amount for the first 500 g slab.", variant: "destructive" });
       return;
     }
+    if (freeDeliveryError) {
+      toast({ title: "Invalid free delivery rule", description: freeDeliveryError, variant: "destructive" });
+      return;
+    }
 
     setSaving(true);
     try {
       await setDoc(doc(db, "siteSettings", DELIVERY_SETTINGS_DOCUMENT_ID), {
         baseChargeInPaise: parsedBaseRateInPaise,
+        freeDeliveryEnabled,
+        freeDeliveryMinSubtotalInPaise: freeDeliveryEnabled ? parsedFreeDeliveryMinInPaise : 0,
+        freeDeliveryMessage: freeDeliveryMessage.trim() || "Free delivery unlocked",
         updatedAt: serverTimestamp(),
       }, { merge: true });
       toast({ title: "Delivery settings saved", description: `The first ${formatShipmentWeight(DELIVERY_SLAB_WEIGHT_IN_GRAMS)} slab now charges ${formatPaiseAsRupees(parsedBaseRateInPaise)}.` });
@@ -104,10 +122,11 @@ const AdminDeliverySettings = () => {
   const previewEstimate = useMemo(() => {
     const weightInGrams = Math.max(1, Math.floor(Number(previewWeight) || DEFAULT_ITEM_WEIGHT_IN_GRAMS));
     const quantity = Math.max(1, Math.floor(Number(previewQuantity) || 1));
+    const subtotalInPaise = parsePriceToPaise(previewSubtotalRupees) || 0;
     return calculateDeliveryEstimate([createPreviewItem(quantity)], {
       [previewProductId]: { weightInGrams },
-    }, deliveryPricing);
-  }, [deliveryPricing, previewQuantity, previewWeight]);
+    }, deliveryPricing, { subtotalInPaise });
+  }, [deliveryPricing, previewQuantity, previewSubtotalRupees, previewWeight]);
 
   return (
     <div className="space-y-6 sm:space-y-8">
@@ -154,14 +173,45 @@ const AdminDeliverySettings = () => {
               <button
                 type="button"
                 onClick={handleSavePricing}
-                disabled={saving || Boolean(baseRateError)}
+                disabled={saving || Boolean(baseRateError) || Boolean(freeDeliveryError)}
                 className="inline-flex h-11 items-center justify-center rounded-sm bg-gold px-5 font-display text-sm font-semibold tracking-[0.08em] text-charcoal transition-colors hover:bg-gold-light disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {saving ? "Saving..." : "Save Base Rate"}
+                {saving ? "Saving..." : "Save Delivery Settings"}
               </button>
             </div>
             <p className="mt-2 font-body text-xs text-muted-foreground">This amount is used for the first {formatShipmentWeight(DELIVERY_SLAB_WEIGHT_IN_GRAMS)} charged at checkout.</p>
             {baseRateError && <p className="mt-2 font-body text-xs text-destructive">{baseRateError}</p>}
+
+            <div className="mt-5 rounded-lg border border-border bg-card p-4">
+              <label className="flex cursor-pointer items-center justify-between gap-3 font-body text-sm font-semibold text-foreground">
+                <span className="flex items-center gap-2"><Gift className="h-4 w-4 text-gold" /> Free delivery above minimum order</span>
+                <input type="checkbox" checked={freeDeliveryEnabled} onChange={(event) => setFreeDeliveryEnabled(event.target.checked)} />
+              </label>
+              <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                <label className="font-body text-sm font-semibold text-foreground">
+                  Minimum order amount (Rs.)
+                  <input
+                    value={freeDeliveryMinRupees}
+                    onChange={(event) => setFreeDeliveryMinRupees(event.target.value.replace(/[^0-9.]/g, ""))}
+                    disabled={!freeDeliveryEnabled}
+                    className="mt-2 h-11 w-full rounded-md border border-border bg-background px-3 font-body text-sm outline-none transition-colors focus:border-gold focus:ring-2 focus:ring-gold/20 disabled:opacity-60"
+                    inputMode="decimal"
+                    placeholder="1500"
+                  />
+                </label>
+                <label className="font-body text-sm font-semibold text-foreground">
+                  Checkout message
+                  <input
+                    value={freeDeliveryMessage}
+                    onChange={(event) => setFreeDeliveryMessage(event.target.value)}
+                    disabled={!freeDeliveryEnabled}
+                    className="mt-2 h-11 w-full rounded-md border border-border bg-background px-3 font-body text-sm outline-none transition-colors focus:border-gold focus:ring-2 focus:ring-gold/20 disabled:opacity-60"
+                    placeholder="Free delivery unlocked"
+                  />
+                </label>
+              </div>
+              {freeDeliveryError && <p className="mt-2 font-body text-xs text-destructive">{freeDeliveryError}</p>}
+            </div>
           </div>
 
           <div className="mb-5 flex items-center gap-3">
@@ -193,6 +243,15 @@ const AdminDeliverySettings = () => {
                 inputMode="numeric"
               />
             </label>
+            <label className="font-body text-sm font-semibold text-foreground sm:col-span-2">
+              Cart subtotal for free-delivery preview (Rs.)
+              <input
+                value={previewSubtotalRupees}
+                onChange={(event) => setPreviewSubtotalRupees(event.target.value.replace(/[^0-9.]/g, ""))}
+                className="mt-2 h-11 w-full rounded-md border border-border bg-background px-3 font-body text-sm outline-none transition-colors focus:border-gold focus:ring-2 focus:ring-gold/20"
+                inputMode="decimal"
+              />
+            </label>
           </div>
 
           <div className="mt-5 grid gap-3 rounded-lg border border-gold/20 bg-gold/10 p-4 font-body text-sm sm:grid-cols-3">
@@ -203,6 +262,7 @@ const AdminDeliverySettings = () => {
             <div>
               <span className="block text-muted-foreground">Delivery charge</span>
               <span className="mt-1 block font-semibold text-foreground">{formatPaiseAsRupees(previewEstimate.chargeInPaise)}</span>
+              {previewEstimate.originalChargeInPaise && <span className="mt-1 block text-[0.72rem] text-muted-foreground line-through">{formatPaiseAsRupees(previewEstimate.originalChargeInPaise)}</span>}
             </div>
             <div>
               <span className="block text-muted-foreground">Fallback weight</span>

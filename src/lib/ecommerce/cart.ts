@@ -25,6 +25,7 @@ export const createCartItemFromProduct = (product: Product, quantity = 1): CartI
     amountInPaise: getProductAmountInPaise(product),
     displayPrice: getProductDisplayPrice(product),
     stockStatus: normalizeProductStockStatus(product.stockStatus),
+    allowedPaymentMethods: product.allowedPaymentMethods,
     maxQuantity,
   };
 };

@@ -24,10 +24,16 @@ export type DeliveryProfileMap = Record<string, ProductDeliveryProfile>;
 
 export interface DeliveryEstimate {
   chargeInPaise: number;
+  originalChargeInPaise?: number;
   weightInGrams: number;
   usesFallbackWeight: boolean;
   freeDeliveryItemCount: number;
   billableItemCount: number;
+  freeDeliveryReason?: string;
+}
+
+export interface DeliveryEstimateOptions {
+  subtotalInPaise?: number;
 }
 
 export interface DeliveryOneShipmentPayload {
@@ -103,8 +109,15 @@ const getPositiveNumber = (value: unknown) => (
   typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined
 );
 
+const getTrimmedString = (value: unknown) => (
+  typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined
+);
+
 export const normalizeDeliveryPricingSettings = (settings?: DeliveryPricingSettings | null): Required<DeliveryPricingSettings> => ({
   baseChargeInPaise: getPositiveNumber(settings?.baseChargeInPaise) || BASE_DELIVERY_CHARGE_IN_PAISE,
+  freeDeliveryEnabled: settings?.freeDeliveryEnabled === true,
+  freeDeliveryMinSubtotalInPaise: getPositiveNumber(settings?.freeDeliveryMinSubtotalInPaise) || 0,
+  freeDeliveryMessage: getTrimmedString(settings?.freeDeliveryMessage) || "Free delivery unlocked",
 });
 
 export const normalizeDeliveryProfile = (profile?: ProductDeliveryProfile | null): ProductDeliveryProfile => {
@@ -139,6 +152,7 @@ export const calculateDeliveryEstimate = (
   items: CartItem[],
   profiles: DeliveryProfileMap,
   settings?: DeliveryPricingSettings | null,
+  options?: DeliveryEstimateOptions,
 ): DeliveryEstimate => {
   let usesFallbackWeight = false;
   let freeDeliveryItemCount = 0;
@@ -167,8 +181,26 @@ export const calculateDeliveryEstimate = (
 
   const slabs = Math.max(1, Math.ceil(weightInGrams / DELIVERY_SLAB_WEIGHT_IN_GRAMS));
 
+  const chargeInPaise = pricingSettings.baseChargeInPaise + Math.max(0, slabs - 1) * EXTRA_DELIVERY_SLAB_CHARGE_IN_PAISE;
+
+  if (
+    pricingSettings.freeDeliveryEnabled
+    && pricingSettings.freeDeliveryMinSubtotalInPaise > 0
+    && (options?.subtotalInPaise || 0) >= pricingSettings.freeDeliveryMinSubtotalInPaise
+  ) {
+    return {
+      chargeInPaise: 0,
+      originalChargeInPaise: chargeInPaise,
+      freeDeliveryReason: pricingSettings.freeDeliveryMessage,
+      weightInGrams,
+      usesFallbackWeight,
+      freeDeliveryItemCount,
+      billableItemCount,
+    };
+  }
+
   return {
-    chargeInPaise: pricingSettings.baseChargeInPaise + Math.max(0, slabs - 1) * EXTRA_DELIVERY_SLAB_CHARGE_IN_PAISE,
+    chargeInPaise,
     weightInGrams,
     usesFallbackWeight,
     freeDeliveryItemCount,

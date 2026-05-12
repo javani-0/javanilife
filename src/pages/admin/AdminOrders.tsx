@@ -99,6 +99,14 @@ type UndoSource = "toast" | "inline";
 const isPlaceholderPickupId = (pickupId?: string) => (pickupId || "").trim().toLowerCase().startsWith("requested-");
 const isRealPickupId = (pickupId?: string) => Boolean((pickupId || "").trim()) && !isPlaceholderPickupId(pickupId);
 
+const formatShipmentDimensions = (delivery?: Order["items"][number]["delivery"]) => {
+  const length = delivery?.lengthInCm;
+  const width = delivery?.widthInCm;
+  const height = delivery?.heightInCm;
+  if (!length && !width && !height) return "Not saved";
+  return `${length || "-"} x ${width || "-"} x ${height || "-"} cm`;
+};
+
 const AdminOrders = () => {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -794,6 +802,23 @@ const AdminOrders = () => {
                   </div>
                 </div>
 
+                <div className="mt-4 rounded-lg border border-gold/20 bg-card p-3">
+                  <p className="font-body text-xs font-semibold uppercase tracking-[0.14em] text-gold">Manifest package data</p>
+                  <p className="mt-1 font-body text-xs leading-relaxed text-muted-foreground">These order-time snapshots are sent to Delhivery when you click Manifest Order.</p>
+                  <div className="mt-3 space-y-2">
+                    {selectedOrder.items.filter((item) => item.itemType !== "course").map((item) => (
+                      <div key={`${item.productId}-${item.sourceId || item.name}`} className="rounded-md border border-border bg-background/70 p-2.5 font-body text-xs">
+                        <div className="font-semibold text-foreground">{item.name}</div>
+                        <div className="mt-1 grid gap-1 text-muted-foreground sm:grid-cols-3">
+                          <span>Qty: <strong className="text-foreground">{item.quantity}</strong></span>
+                          <span>Weight: <strong className="text-foreground">{formatShipmentWeight(item.shipmentWeightInGrams || 0)}</strong></span>
+                          <span>Size: <strong className="text-foreground">{formatShipmentDimensions(item.delivery)}</strong></span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
                 {canUseDeliveryOneFulfillment ? (
                   <div className="mt-4 grid gap-3 font-body text-sm sm:grid-cols-2">
                     <label className="font-semibold text-foreground">
@@ -861,7 +886,7 @@ const AdminOrders = () => {
                 {hasRealPickupId && selectedOrder.status === "cancelled" && pickupCancellationNeedsConfig && (
                   <div data-testid="pickup-cancellation-config-warning" className="mt-3 rounded-lg border border-destructive/20 bg-destructive/10 p-3 font-body text-xs leading-relaxed text-destructive">
                     <p>
-                      Pickup request <strong>{selectedPickupId}</strong> must be cancelled manually on the Delhivery One dashboard — Delhivery&apos;s public cancel API is unavailable.
+                      Pickup request <strong>{selectedPickupId}</strong>{" "}must be cancelled manually on the Delhivery One dashboard — Delhivery&apos;s public cancel API is unavailable.
                     </p>
                     <div className="mt-3 flex flex-wrap gap-2">
                       <a

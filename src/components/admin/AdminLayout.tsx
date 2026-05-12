@@ -4,7 +4,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import {
   LayoutDashboard, ClipboardList, BookOpen, Image, ShoppingBag, Users,
   Handshake, SlidersHorizontal, LogOut, Menu, X, PackageCheck,
-  ChevronLeft, ChevronRight, Truck,
+  ChevronLeft, ChevronRight, TicketPercent, Truck,
 } from "lucide-react";
 import logoWhite from "@/assets/logo-white.png";
 
@@ -14,6 +14,7 @@ const navItems = [
   { label: "Courses Manager", icon: BookOpen, path: "/admin/courses" },
   { label: "Gallery Manager", icon: Image, path: "/admin/gallery" },
   { label: "Products Manager", icon: ShoppingBag, path: "/admin/products" },
+  { label: "Coupons", icon: TicketPercent, path: "/admin/coupons" },
   { label: "Delivery Settings", icon: Truck, path: "/admin/delivery-settings" },
   { label: "Orders Manager", icon: PackageCheck, path: "/admin/orders" },
   { label: "Customers", icon: Users, path: "/admin/customers" },
