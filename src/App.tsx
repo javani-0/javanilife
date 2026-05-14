@@ -2,7 +2,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
+import { BrowserRouter, Navigate, Routes, Route, useLocation, useParams } from "react-router-dom";
 import { useEffect, lazy, Suspense, useState } from "react";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { CartProvider } from "@/contexts/CartContext";
@@ -99,6 +99,11 @@ const SuspenseLoader = () => (
   </div>
 );
 
+const SharePreviewRedirect = ({ collection }: { collection: "products" | "courses" }) => {
+  const { id } = useParams();
+  return <Navigate to={`/${collection}/${id || ""}`} replace />;
+};
+
 const App = () => {
   const [showLoader, setShowLoader] = useState(true);
 
@@ -145,6 +150,8 @@ const App = () => {
                     <Route path="/account/addresses" element={<AccountRoute><AccountAddresses /></AccountRoute>} />
                     <Route path="/products/:id" element={<ProductDetail />} />
                     <Route path="/courses/:id" element={<CourseDetail />} />
+                    <Route path="/share/products/:id" element={<SharePreviewRedirect collection="products" />} />
+                    <Route path="/share/courses/:id" element={<SharePreviewRedirect collection="courses" />} />
                     <Route path="/contact" element={<Contact />} />
                     <Route path="/guru-bandhu" element={<GuruBandhu />} />
                     <Route path="/terms-and-conditions" element={<TermsAndConditions />} />

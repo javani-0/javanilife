@@ -103,10 +103,35 @@ export type CartItemType = "product" | "course";
 
 export type ProductStockStatus = "available" | "out-of-stock" | "coming-soon";
 export type PaymentMethod = "cod" | "razorpay";
-export type PaymentStatus = "pending" | "paid" | "failed" | "refunded" | "cod-pending" | "cod-collected";
+export type PaymentStatus = "pending" | "paid" | "partially-paid" | "failed" | "refunded" | "cod-pending" | "cod-collected";
+export type CoursePaymentPlanOption = "full" | "installment";
+export type CourseInstallmentStatus = "pending" | "paid" | "overdue";
 export type OrderStatus = "placed" | "confirmed" | "packed" | "shipped" | "out-for-delivery" | "delivered" | "cancelled" | "returned";
 export type UserRole = "admin" | "user";
 export type OrderCancellationStatus = "none" | "requested" | "approved" | "rejected";
+
+export interface CourseInstallmentPayment {
+  installmentNumber: number;
+  label: string;
+  percentage: number;
+  amountInPaise: number;
+  status: CourseInstallmentStatus;
+  dueDate?: string;
+  paidAt?: unknown;
+  razorpayPaymentId?: string;
+  lastReminderSentAt?: unknown;
+  lastReminderMonthKey?: string;
+  reminderCount?: number;
+}
+
+export interface CourseInstallmentPlan {
+  status: "active" | "completed" | "cancelled";
+  totalInPaise: number;
+  initialPaymentInPaise: number;
+  remainingInPaise: number;
+  reminderDayOfMonth: number;
+  installments: CourseInstallmentPayment[];
+}
 
 export interface ProductDeliveryProfile {
   weightInGrams?: number;
@@ -209,9 +234,13 @@ export interface CheckoutAddress {
 export interface PaymentInfo {
   method: PaymentMethod;
   status: PaymentStatus;
+  plan?: CoursePaymentPlanOption;
+  totalPayableInPaise?: number;
+  expectedOnlineAmountInPaise?: number;
   razorpayOrderId?: string;
   razorpayPaymentId?: string;
   razorpaySignatureVerified?: boolean;
+  installmentPlan?: CourseInstallmentPlan;
   paidAt?: unknown;
 }
 

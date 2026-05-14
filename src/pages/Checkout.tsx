@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { addDoc, collection, doc, getDoc, getDocs, onSnapshot, serverTimestamp } from "firebase/firestore";
-import { ArrowLeft, CheckCircle2, CreditCard, LockKeyhole, MapPin, MessageCircle, PackageCheck, ShieldCheck, TicketPercent, Truck, X } from "lucide-react";
+import { ArrowLeft, CalendarDays, CheckCircle2, CreditCard, LockKeyhole, MapPin, MessageCircle, PackageCheck, ShieldCheck, TicketPercent, Truck, X } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -23,6 +23,7 @@ import { db } from "@/lib/firebase";
 import {
   calculateCartTotals,
   calculateCouponDiscount,
+  createCourseInstallmentPlan,
   calculateDeliveryEstimate,
   createRazorpayOrder,
   createRazorpayPrefill,
@@ -32,6 +33,8 @@ import {
   evaluateCouponEligibility,
   formatCouponBenefit,
   formatPaiseAsRupees,
+  getCourseCheckoutPayNowAmount,
+  getCourseInstallmentEligibility,
   getAllowedPaymentMethodsForCart,
   normalizeCustomerAddress,
   normalizeCouponCode,
@@ -41,6 +44,7 @@ import {
   sendOrderAutomation,
   verifyRazorpayPayment,
   type CheckoutAddress,
+  type CoursePaymentPlanOption,
   type DeliveryPricingSettings,
   type DeliveryProfileMap,
   type PaymentMethod,
@@ -186,7 +190,8 @@ const Checkout = () => {
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
   const [accountWhatsAppDialogOpen, setAccountWhatsAppDialogOpen] = useState(false);
-  const [placedOrder, setPlacedOrder] = useState<{ id: string; orderNumber: string; totalInPaise: number; paymentLabel: string; hasShippableItems: boolean } | null>(null);
+  const [coursePaymentPlan, setCoursePaymentPlan] = useState<CoursePaymentPlanOption>("full");
+  const [placedOrder, setPlacedOrder] = useState<{ id: string; orderNumber: string; totalInPaise: number; paidNowInPaise: number; paymentLabel: string; hasShippableItems: boolean; paymentPlan: CoursePaymentPlanOption } | null>(null);
 
   const applySavedAddress = (savedAddress?: CheckoutAddress | null) => {
     if (!savedAddress) {
@@ -359,6 +364,19 @@ const Checkout = () => {
   const allowedPaymentMethodsKey = paymentEligibility.allowedMethods.join("|");
   const hasCourseItems = useMemo(() => items.some((item) => item.itemType === "course"), [items]);
   const hasShippableItems = useMemo(() => items.some((item) => item.itemType !== "course"), [items]);
+  const courseInstallmentEligibility = useMemo(
+    () => getCourseInstallmentEligibility(items, checkoutTotals.totalInPaise),
+    [checkoutTotals.totalInPaise, items],
+  );
+  const selectedCoursePaymentPlan: CoursePaymentPlanOption = coursePaymentPlan === "installment" && courseInstallmentEligibility.eligible ? "installment" : "full";
+  const courseInstallmentPreview = useMemo(
+    () => courseInstallmentEligibility.eligible ? createCourseInstallmentPlan({ totalInPaise: checkoutTotals.totalInPaise }) : null,
+    [checkoutTotals.totalInPaise, courseInstallmentEligibility.eligible],
+  );
+  const onlinePaymentAmountInPaise = useMemo(
+    () => getCourseCheckoutPayNowAmount({ paymentPlan: selectedCoursePaymentPlan, totalInPaise: checkoutTotals.totalInPaise }),
+    [checkoutTotals.totalInPaise, selectedCoursePaymentPlan],
+  );
   const codAvailable = paymentEligibility.allowedMethods.includes("cod");
   const onlineAvailable = paymentEligibility.allowedMethods.includes("razorpay");
   const activeCheckoutSteps = useMemo(() => checkoutSteps.map((step) => (
@@ -381,6 +399,12 @@ const Checkout = () => {
       setPaymentMethod(paymentEligibility.allowedMethods[0] || "razorpay");
     }
   }, [allowedPaymentMethodsKey, items.length, paymentEligibility.allowedMethods, paymentMethod]);
+
+  useEffect(() => {
+    if (!courseInstallmentEligibility.eligible && coursePaymentPlan === "installment") {
+      setCoursePaymentPlan("full");
+    }
+  }, [courseInstallmentEligibility.eligible, coursePaymentPlan]);
 
   const applyCoupon = (code: string) => {
     const normalizedCode = normalizeCouponCode(code);
@@ -444,7 +468,15 @@ const Checkout = () => {
 
     const normalizedAddress = normalizeAddress(address);
     const orderNumber = createOrderNumber();
-    const paymentLabel = paymentMethod === "razorpay" ? "Razorpay Online" : "Cash on Delivery";
+    const paymentPlan = paymentMethod === "razorpay" ? selectedCoursePaymentPlan : "full";
+    const payNowAmountInPaise = paymentMethod === "razorpay" ? onlinePaymentAmountInPaise : checkoutTotals.totalInPaise;
+    const paymentLabel = paymentMethod === "razorpay"
+      ? paymentPlan === "installment" ? "Razorpay Installment (50%)" : "Razorpay Online"
+      : "Cash on Delivery";
+    const orderCreatedAt = new Date();
+    const installmentPlan = paymentMethod === "razorpay" && paymentPlan === "installment"
+      ? createCourseInstallmentPlan({ totalInPaise: checkoutTotals.totalInPaise, createdAt: orderCreatedAt })
+      : undefined;
 
     setSubmitting(true);
     try {
@@ -452,7 +484,7 @@ const Checkout = () => {
       const razorpayOrder = paymentMethod === "razorpay"
         ? await createRazorpayOrder({
           idToken,
-          amountInPaise: checkoutTotals.totalInPaise,
+          amountInPaise: payNowAmountInPaise,
           orderNumber,
           customerId: user.uid,
           customerName: normalizedAddress.fullName,
@@ -475,8 +507,12 @@ const Checkout = () => {
           ? {
             method: "razorpay",
             status: "pending",
+            plan: paymentPlan,
+            totalPayableInPaise: checkoutTotals.totalInPaise,
+            expectedOnlineAmountInPaise: payNowAmountInPaise,
             razorpayOrderId: razorpayOrder?.orderId,
             razorpaySignatureVerified: false,
+            installmentPlan,
           }
           : {
             method: "cod",
@@ -511,8 +547,10 @@ const Checkout = () => {
           {
             status: "placed",
             label: "Order placed",
-            note: paymentMethod === "razorpay" ? "Customer selected Razorpay online payment." : "Customer selected Cash on Delivery.",
-            createdAt: new Date().toISOString(),
+            note: paymentMethod === "razorpay"
+              ? paymentPlan === "installment" ? "Customer selected course installment payment." : "Customer selected Razorpay online payment."
+              : "Customer selected Cash on Delivery.",
+            createdAt: orderCreatedAt.toISOString(),
             createdBy: user.uid,
           },
         ],
@@ -572,8 +610,8 @@ const Checkout = () => {
         console.error("Order was created but the cart could not be cleared", clearCartError);
       }
       clearBuyNowItem();
-      setPlacedOrder({ id: orderDocument.id, orderNumber, totalInPaise: checkoutTotals.totalInPaise, paymentLabel, hasShippableItems });
-      toast({ title: paymentMethod === "razorpay" ? "Payment received" : "Order placed", description: `${orderNumber} has been created.` });
+      setPlacedOrder({ id: orderDocument.id, orderNumber, totalInPaise: checkoutTotals.totalInPaise, paidNowInPaise: payNowAmountInPaise, paymentLabel, hasShippableItems, paymentPlan });
+      toast({ title: paymentMethod === "razorpay" ? (paymentPlan === "installment" ? "First installment received" : "Payment received") : "Order placed", description: `${orderNumber} has been created.` });
     } catch (error) {
       console.error("Unable to place order", error);
       const firebaseCode = typeof error === "object" && error && "code" in error ? String((error as { code?: unknown }).code || "") : "";
@@ -603,7 +641,9 @@ const Checkout = () => {
             <h1 className="mt-3 font-display text-3xl text-foreground sm:text-4xl">{placedOrder.hasShippableItems ? "Thank you for your order" : "Course purchase confirmed"}</h1>
             <p className="mx-auto mt-4 max-w-xl font-body text-muted-foreground">
               {!placedOrder.hasShippableItems
-                ? "Your online payment was verified through Razorpay. Admin can now review the course purchase and follow up with enrollment details."
+                ? placedOrder.paymentPlan === "installment"
+                  ? "Your first installment was verified through Razorpay. Admin can now review the course purchase and follow up with enrollment details."
+                  : "Your online payment was verified through Razorpay. Admin can now review the course purchase and follow up with enrollment details."
                 : placedOrder.paymentLabel === "Razorpay Online"
                 ? "Your online payment was verified through Razorpay. Admin can now review it, confirm packing, and continue with Delivery One shipment handling."
                 : "Your COD order has been placed. Admin can now review it, confirm packing, and continue with Delivery One shipment handling."}
@@ -617,8 +657,14 @@ const Checkout = () => {
                 <span className="text-muted-foreground">Payment</span>
                 <span className="font-semibold text-foreground">{placedOrder.paymentLabel}</span>
               </div>
+              {placedOrder.paidNowInPaise < placedOrder.totalInPaise && (
+                <div className="mt-3 flex items-center justify-between gap-4">
+                  <span className="text-muted-foreground">Paid now</span>
+                  <span className="font-semibold text-foreground">{formatPaiseAsRupees(placedOrder.paidNowInPaise)}</span>
+                </div>
+              )}
               <div className="mt-3 flex items-center justify-between gap-4">
-                <span className="text-muted-foreground">Total</span>
+                <span className="text-muted-foreground">{placedOrder.paidNowInPaise < placedOrder.totalInPaise ? "Course fee" : "Total"}</span>
                 <span className="font-semibold text-gold">{formatPaiseAsRupees(placedOrder.totalInPaise)}</span>
               </div>
             </div>
@@ -821,6 +867,35 @@ const Checkout = () => {
                     <span className="mt-2 block font-body text-xs leading-relaxed text-muted-foreground">{onlineAvailable ? "Pay now using Razorpay test or live credentials configured on the server." : paymentEligibility.onlineUnavailableReason || "Online payment is unavailable for this cart."}</span>
                   </label>
                 </div>
+                {hasCourseItems && !hasShippableItems && onlineAvailable && (
+                  <div className="mt-5 rounded-xl border border-gold/20 bg-gold/10 p-4">
+                    <div className="mb-3 flex items-start gap-2">
+                      <CalendarDays className="mt-0.5 h-4 w-4 text-gold" />
+                      <div>
+                        <p className="font-body text-sm font-bold text-foreground">Course installment option</p>
+                        <p className="font-body text-xs leading-relaxed text-muted-foreground">
+                          {courseInstallmentEligibility.eligible
+                            ? "Available for this course payment. Pay 50% now, then 25% + 25% on the 5th of the next months."
+                            : courseInstallmentEligibility.reason}
+                        </p>
+                      </div>
+                    </div>
+                    {courseInstallmentEligibility.eligible && courseInstallmentPreview && (
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <label className={`cursor-pointer rounded-lg border p-3 transition-colors ${selectedCoursePaymentPlan === "full" ? "border-gold bg-card" : "border-border bg-background/70 hover:border-gold/50"}`}>
+                          <input type="radio" name="coursePaymentPlan" value="full" checked={selectedCoursePaymentPlan === "full"} onChange={() => setCoursePaymentPlan("full")} className="sr-only" />
+                          <span className="block font-body text-sm font-bold text-foreground">Pay full fee</span>
+                          <span className="mt-1 block font-body text-xs text-muted-foreground">Pay {formatPaiseAsRupees(checkoutTotals.totalInPaise)} now.</span>
+                        </label>
+                        <label className={`cursor-pointer rounded-lg border p-3 transition-colors ${selectedCoursePaymentPlan === "installment" ? "border-gold bg-card" : "border-border bg-background/70 hover:border-gold/50"}`}>
+                          <input type="radio" name="coursePaymentPlan" value="installment" checked={selectedCoursePaymentPlan === "installment"} onChange={() => setCoursePaymentPlan("installment")} className="sr-only" />
+                          <span className="block font-body text-sm font-bold text-foreground">3 installments</span>
+                          <span className="mt-1 block font-body text-xs text-muted-foreground">Pay {formatPaiseAsRupees(courseInstallmentPreview.initialPaymentInPaise)} now.</span>
+                        </label>
+                      </div>
+                    )}
+                  </div>
+                )}
                 {paymentEligibility.blockingReason && <p className="mt-3 rounded-xl border border-destructive/25 bg-destructive/10 p-3 font-body text-sm text-destructive">{paymentEligibility.blockingReason}</p>}
               </div>
             </section>
@@ -931,6 +1006,20 @@ const Checkout = () => {
                 </div>
               </div>
 
+              {paymentMethod === "razorpay" && selectedCoursePaymentPlan === "installment" && courseInstallmentPreview && (
+                <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-3 font-body text-xs leading-relaxed text-emerald-900">
+                  <div className="mb-2 flex items-center gap-2 font-semibold">
+                    <CalendarDays className="h-4 w-4 text-emerald-700" /> Installment schedule
+                  </div>
+                  <div className="space-y-1">
+                    <div className="flex justify-between gap-3"><span>Pay now (50%)</span><span className="font-semibold">{formatPaiseAsRupees(courseInstallmentPreview.initialPaymentInPaise)}</span></div>
+                    {courseInstallmentPreview.installments.slice(1).map((installment) => (
+                      <div key={installment.installmentNumber} className="flex justify-between gap-3"><span>{installment.label} on {installment.dueDate}</span><span className="font-semibold">{formatPaiseAsRupees(installment.amountInPaise)}</span></div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <div className="mt-5 rounded-xl border border-gold/20 bg-gold/10 p-3 font-body text-xs leading-relaxed text-foreground">
                 <div className="mb-1 flex items-center gap-2 font-semibold">
                   <MessageCircle className="h-4 w-4 text-gold" /> WhatsApp updates
@@ -947,7 +1036,9 @@ const Checkout = () => {
 
               {paymentMethod === "razorpay" && (
                 <div className="mt-4 rounded-xl border border-gold/20 bg-gold/10 p-3 font-body text-xs leading-relaxed text-foreground">
-                  Razorpay Checkout will open after your order is saved. The order is marked paid only after server-side signature verification.
+                  {selectedCoursePaymentPlan === "installment"
+                    ? "Razorpay Checkout will collect the 50% first installment now. The remaining installments are tracked for monthly WhatsApp reminders."
+                    : "Razorpay Checkout will open after your order is saved. The order is marked paid only after server-side signature verification."}
                 </div>
               )}
 
@@ -958,7 +1049,7 @@ const Checkout = () => {
               )}
 
               <button type="submit" disabled={submitting || deliveryLoading || paymentEligibility.allowedMethods.length === 0} className="mt-5 flex w-full items-center justify-center gap-2 rounded-sm bg-gradient-primary px-5 py-3 font-display text-sm font-semibold tracking-[0.08em] text-primary-foreground shadow-[0_10px_24px_rgba(139,26,26,0.2)] transition-all hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:brightness-100">
-                <ShieldCheck className="h-4 w-4" /> {submitting ? (paymentMethod === "razorpay" ? "Processing Payment..." : "Placing Order...") : paymentMethod === "razorpay" ? "Pay Now" : "Place COD Order"}
+                <ShieldCheck className="h-4 w-4" /> {submitting ? (paymentMethod === "razorpay" ? "Processing Payment..." : "Placing Order...") : paymentMethod === "razorpay" ? (selectedCoursePaymentPlan === "installment" ? "Pay 1st Installment" : "Pay Now") : "Place COD Order"}
               </button>
               <p className="mt-3 text-center font-body text-xs text-muted-foreground">Your order will be saved for admin order management.</p>
             </aside>

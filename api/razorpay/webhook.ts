@@ -27,6 +27,19 @@ interface RazorpayWebhookPayload {
   };
 }
 
+interface StoredOrderData {
+  totalInPaise?: number;
+  payment?: {
+    status?: string;
+    plan?: string;
+    expectedOnlineAmountInPaise?: number;
+    installmentPlan?: {
+      status?: string;
+      installments?: Array<Record<string, unknown>>;
+    };
+  };
+}
+
 function verifyWebhookSignature(rawBody: string, signature: string, secret: string): boolean {
   if (!signature || !secret) return false;
   const expected = crypto.createHmac("sha256", secret).update(rawBody).digest("hex");
@@ -48,6 +61,28 @@ async function getRawBody(request: ApiRequest): Promise<string> {
     request.on("error", reject);
   });
 }
+
+const getExpectedOnlineAmount = (orderData: StoredOrderData) => {
+  const expectedOnlineAmount = Number(orderData.payment?.expectedOnlineAmountInPaise);
+  if (Number.isFinite(expectedOnlineAmount) && expectedOnlineAmount > 0) return Math.round(expectedOnlineAmount);
+  return Math.round(Number(orderData.totalInPaise || 0));
+};
+
+const markInitialInstallmentPaid = (orderData: StoredOrderData, razorpayPaymentId: string, paidAtIso: string) => {
+  const installments = orderData.payment?.installmentPlan?.installments;
+  if (!Array.isArray(installments)) return undefined;
+
+  return installments.map((installment) => {
+    const installmentNumber = Number(installment.installmentNumber || 0);
+    if (installmentNumber !== 1) return installment;
+    return {
+      ...installment,
+      status: "paid",
+      paidAt: paidAtIso,
+      razorpayPaymentId,
+    };
+  });
+};
 
 export default async function handler(request: ApiRequest, response: ApiResponse) {
   if (!requirePost(request, response)) return;
@@ -96,17 +131,36 @@ export default async function handler(request: ApiRequest, response: ApiResponse
 
         if (!ordersQuery.empty) {
           const orderDoc = ordersQuery.docs[0];
-          const orderData = orderDoc.data() || {};
+          const orderData = (orderDoc.data() || {}) as StoredOrderData;
+          const expectedOnlineAmount = getExpectedOnlineAmount(orderData);
+          const capturedAmount = Number(payment.amount || 0);
+          const currentPaymentStatus = orderData.payment?.status || "pending";
+          const isInstallmentPayment = orderData.payment?.plan === "installment";
 
-          // Only update if not already marked paid (idempotency)
-          if (orderData.status !== "paid" && orderData.status !== "processing" && orderData.status !== "shipped" && orderData.status !== "delivered") {
-            await orderDoc.ref.update({
-              status: "paid",
+          if (capturedAmount !== expectedOnlineAmount) {
+            console.warn("Webhook: captured amount does not match stored expected amount", { razorpayOrderId, capturedAmount, expectedOnlineAmount });
+            sendJson(response, 200, { received: true });
+            return;
+          }
+
+          // Only update if not already marked paid or partially paid (idempotency)
+          if (!(["paid", "partially-paid"].includes(currentPaymentStatus))) {
+            const paidAtIso = new Date().toISOString();
+            const paidInstallments = isInstallmentPayment ? markInitialInstallmentPaid(orderData, razorpayPaymentId, paidAtIso) : undefined;
+            const updatePayload: Record<string, unknown> = {
+              "payment.status": isInstallmentPayment ? "partially-paid" : "paid",
               "payment.razorpayPaymentId": razorpayPaymentId,
               "payment.paidAt": FieldValue.serverTimestamp(),
               "payment.verifiedVia": "webhook",
               updatedAt: FieldValue.serverTimestamp(),
-            });
+            };
+
+            if (isInstallmentPayment) {
+              updatePayload["payment.installmentPlan.status"] = "active";
+              if (paidInstallments) updatePayload["payment.installmentPlan.installments"] = paidInstallments;
+            }
+
+            await orderDoc.ref.update(updatePayload);
           }
         }
       } catch (error) {

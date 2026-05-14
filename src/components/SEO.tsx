@@ -13,6 +13,18 @@ const SEO = ({ title, description, canonical, ogImage, ogType = "website", jsonL
   useEffect(() => {
     document.title = title;
 
+    const toAbsoluteUrl = (value?: string) => {
+      if (!value) return undefined;
+      try {
+        return new URL(value, window.location.origin).toString();
+      } catch {
+        return value;
+      }
+    };
+
+    const absoluteCanonical = toAbsoluteUrl(canonical || window.location.pathname);
+    const absoluteOgImage = toAbsoluteUrl(ogImage);
+
     const setMeta = (name: string, content: string, property?: boolean) => {
       const attr = property ? "property" : "name";
       let el = document.querySelector(`meta[${attr}="${name}"]`) as HTMLMetaElement;
@@ -28,7 +40,15 @@ const SEO = ({ title, description, canonical, ogImage, ogType = "website", jsonL
     setMeta("og:title", title, true);
     setMeta("og:description", description, true);
     setMeta("og:type", ogType, true);
-    if (ogImage) setMeta("og:image", ogImage, true);
+    if (absoluteCanonical) setMeta("og:url", absoluteCanonical, true);
+    if (absoluteOgImage) {
+      setMeta("og:image", absoluteOgImage, true);
+      setMeta("og:image:secure_url", absoluteOgImage, true);
+    }
+    setMeta("twitter:card", "summary_large_image");
+    setMeta("twitter:title", title);
+    setMeta("twitter:description", description);
+    if (absoluteOgImage) setMeta("twitter:image", absoluteOgImage);
 
     // Canonical
     if (canonical) {
@@ -38,7 +58,7 @@ const SEO = ({ title, description, canonical, ogImage, ogType = "website", jsonL
         link.rel = "canonical";
         document.head.appendChild(link);
       }
-      link.href = canonical;
+      link.href = absoluteCanonical || canonical;
     }
 
     // JSON-LD

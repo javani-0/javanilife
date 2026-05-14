@@ -26,6 +26,7 @@ export const ADMIN_ORDER_STATUS_OPTIONS: OrderStatus[] = [
 export const ADMIN_PAYMENT_STATUS_OPTIONS: PaymentStatus[] = [
   "pending",
   "paid",
+  "partially-paid",
   "failed",
   "refunded",
   "cod-pending",

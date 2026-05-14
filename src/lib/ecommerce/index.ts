@@ -6,6 +6,7 @@ export * from "./customers";
 export * from "./delivery";
 export * from "./deliveryClient";
 export * from "./discounts";
+export * from "./installments";
 export * from "./notificationClient";
 export * from "./orders";
 export * from "./paymentEligibility";

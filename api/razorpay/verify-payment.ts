@@ -24,13 +24,41 @@ interface StoredOrderData {
   totalInPaise?: number;
   payment?: {
     method?: string;
+    plan?: string;
+    expectedOnlineAmountInPaise?: number;
     razorpayOrderId?: string;
+    installmentPlan?: {
+      status?: string;
+      installments?: Array<Record<string, unknown>>;
+    };
   };
 }
 
 const isFirebaseAuthError = (error: unknown) => {
   const code = typeof error === "object" && error && "code" in error ? String((error as { code?: unknown }).code || "") : "";
   return code.startsWith("auth/");
+};
+
+const getExpectedOnlineAmount = (orderData: StoredOrderData) => {
+  const expectedOnlineAmount = Number(orderData.payment?.expectedOnlineAmountInPaise);
+  if (Number.isFinite(expectedOnlineAmount) && expectedOnlineAmount > 0) return Math.round(expectedOnlineAmount);
+  return Math.round(Number(orderData.totalInPaise || 0));
+};
+
+const markInitialInstallmentPaid = (orderData: StoredOrderData, razorpayPaymentId: string, paidAtIso: string) => {
+  const installments = orderData.payment?.installmentPlan?.installments;
+  if (!Array.isArray(installments)) return undefined;
+
+  return installments.map((installment) => {
+    const installmentNumber = Number(installment.installmentNumber || 0);
+    if (installmentNumber !== 1) return installment;
+    return {
+      ...installment,
+      status: "paid",
+      paidAt: paidAtIso,
+      razorpayPaymentId,
+    };
+  });
 };
 
 export default async function handler(request: ApiRequest, response: ApiResponse) {
@@ -108,8 +136,9 @@ export default async function handler(request: ApiRequest, response: ApiResponse
       sendError(response, 400, "Missing order context for Razorpay verification.");
       return;
     }
-    if (payment.currency !== getRazorpayCurrency().toUpperCase() || Number(payment.amount) !== Number(orderData.totalInPaise)) {
-      sendError(response, 409, "Razorpay payment amount does not match the stored order total.");
+    const expectedOnlineAmount = getExpectedOnlineAmount(orderData);
+    if (payment.currency !== getRazorpayCurrency().toUpperCase() || Number(payment.amount) !== expectedOnlineAmount) {
+      sendError(response, 409, "Razorpay payment amount does not match the stored payment amount.");
       return;
     }
     if (!["captured", "authorized"].includes(String(payment.status || ""))) {
@@ -117,20 +146,31 @@ export default async function handler(request: ApiRequest, response: ApiResponse
       return;
     }
 
-    await orderReference.update({
+    const paidAtIso = new Date().toISOString();
+    const isInstallmentPayment = orderData.payment?.plan === "installment";
+    const paidInstallments = isInstallmentPayment ? markInitialInstallmentPaid(orderData, razorpayPaymentId, paidAtIso) : undefined;
+    const updatePayload: Record<string, unknown> = {
       "payment.status": "paid",
       "payment.razorpayPaymentId": razorpayPaymentId,
       "payment.razorpaySignatureVerified": true,
       "payment.paidAt": FieldValue.serverTimestamp(),
       timeline: FieldValue.arrayUnion({
         status: "placed",
-        label: "Online payment received",
-        note: "Razorpay payment signature was verified on the server.",
-        createdAt: new Date().toISOString(),
+        label: isInstallmentPayment ? "First installment received" : "Online payment received",
+        note: isInstallmentPayment ? "Razorpay first installment signature was verified on the server." : "Razorpay payment signature was verified on the server.",
+        createdAt: paidAtIso,
         createdBy: decodedToken.uid,
       }),
       updatedAt: FieldValue.serverTimestamp(),
-    });
+    };
+
+    if (isInstallmentPayment) {
+      updatePayload["payment.status"] = "partially-paid";
+      updatePayload["payment.installmentPlan.status"] = "active";
+      if (paidInstallments) updatePayload["payment.installmentPlan.installments"] = paidInstallments;
+    }
+
+    await orderReference.update(updatePayload);
 
     sendJson(response, 200, { verified: true, paymentStatus: payment.status });
   } catch (error) {

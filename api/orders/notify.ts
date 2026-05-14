@@ -4,7 +4,7 @@ import { getWhatsAppConfigStatus, getWhatsAppEnvValue, sendWhatsAppTemplate, san
 
 export type OrderAutomationEvent = "order-placed" | "order-status-updated" | "payment-status-updated";
 export type OrderStatus = "placed" | "confirmed" | "packed" | "shipped" | "out-for-delivery" | "delivered" | "cancelled" | "returned";
-export type PaymentStatus = "pending" | "paid" | "failed" | "refunded" | "cod-pending" | "cod-collected";
+export type PaymentStatus = "pending" | "paid" | "partially-paid" | "failed" | "refunded" | "cod-pending" | "cod-collected";
 
 interface NotifyOrderBody {
   orderId?: string;
@@ -28,7 +28,7 @@ export interface OrderSnapshot {
   totalInPaise?: number;
   items?: OrderItemSnapshot[];
   address?: { phone?: string };
-  payment?: { method?: string };
+  payment?: { method?: string; status?: PaymentStatus; plan?: string };
 }
 
 const allowedEvents: OrderAutomationEvent[] = ["order-placed", "order-status-updated", "payment-status-updated"];
@@ -62,6 +62,7 @@ const statusLabels: Record<OrderStatus, string> = {
 const paymentStatusLabels: Record<PaymentStatus, string> = {
   pending: "Pending",
   paid: "Paid",
+  "partially-paid": "Partially Paid",
   failed: "Failed",
   refunded: "Refunded",
   "cod-pending": "COD Pending",
@@ -247,7 +248,11 @@ const sendOrderPlacedMessages = async (orderId: string, order: OrderSnapshot) =>
   const customerName = order.customerName || "Customer";
   const summary = itemsSummary(order.items);
   const total = rupeesFromPaise(order.totalInPaise);
-  const paymentLabel = order.payment?.method === "cod" ? "Cash on Delivery (COD)" : "Paid Online";
+  const paymentLabel = order.payment?.method === "cod"
+    ? "Cash on Delivery (COD)"
+    : order.payment?.plan === "installment" || order.payment?.status === "partially-paid"
+      ? "First installment paid online"
+      : "Paid Online";
 
   const [customerPhone, adminPhone] = await Promise.all([
     safeResolve("Unable to resolve customer WhatsApp number", () => getCustomerWhatsAppNumber(order), ""),

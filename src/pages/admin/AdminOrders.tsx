@@ -76,6 +76,7 @@ const paymentMethodLabels: Record<PaymentMethod, string> = {
 const paymentStatusLabels: Record<PaymentStatus, string> = {
   pending: "Pending",
   paid: "Paid",
+  "partially-paid": "Partially Paid",
   failed: "Failed",
   refunded: "Refunded",
   "cod-pending": "COD Pending",

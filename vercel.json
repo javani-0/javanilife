@@ -15,9 +15,12 @@
   ],
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/api/$1" },
+    { "source": "/share/products/:id", "destination": "/api/share-page?type=product&id=:id" },
+    { "source": "/share/courses/:id", "destination": "/api/share-page?type=course&id=:id" },
     { "source": "/((?!api/|@vite/|@react-refresh|.*\\..*).*)", "destination": "/" }
   ],
   "crons": [
-    { "path": "/api/cron/delivery-tracking", "schedule": "0 2 * * *" }
+    { "path": "/api/cron/delivery-tracking", "schedule": "0 2 * * *" },
+    { "path": "/api/cron/course-installments", "schedule": "0 5 5 * *" }
   ]
 }

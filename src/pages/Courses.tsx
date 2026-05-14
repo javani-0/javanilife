@@ -10,7 +10,7 @@ import PrimaryButton from "@/components/PrimaryButton";
 import SEO from "@/components/SEO";
 import { Link, useNavigate } from "react-router-dom";
 import { useScrollAnimation } from "@/hooks/useScrollAnimation";
-import { MessageCircle, ArrowLeft, Search, ShoppingBag, SlidersHorizontal } from "lucide-react";
+import { MessageCircle, Search, ShoppingBag, SlidersHorizontal } from "lucide-react";
 import ShareButton from "@/components/ShareButton";
 import { useCart } from "@/contexts/cart-context";
 import { useToast } from "@/hooks/use-toast";
@@ -230,7 +230,6 @@ const ComparisonTable = () => {
 };
 
 const Courses = () => {
-  const navigate = useNavigate();
   const [activeFilter, setActiveFilter] = useState<CourseCategory>("all");
   const [searchTerm, setSearchTerm] = useState("");
   const [sortMode, setSortMode] = useState<CourseSortMode>("featured");
@@ -279,11 +278,6 @@ const Courses = () => {
     .filter((section) => (activeFilter === "all" || activeFilter === section.category.id) && section.courses.length > 0), [activeCourseCategories, activeFilter, visibleCourses]);
   const hasAny = courseSections.length > 0;
 
-  useEffect(() => {
-    document.body.classList.add("hide-nav-mobile");
-    return () => document.body.classList.remove("hide-nav-mobile");
-  }, []);
-
   return (
     <>
       <SEO
@@ -291,11 +285,7 @@ const Courses = () => {
         description="Explore grades, diploma, pre-grade, masterclass & workshops, yoga, and konnakol courses in classical Indian arts including Bharatanatyam, Kuchipudi, Carnatic Music, and more at Javani Spiritual Hub."
       />
       <main>
-        {/* Mobile back arrow */}
-        <button onClick={() => navigate(-1)} className="lg:hidden fixed top-4 left-4 z-[600] flex items-center justify-center w-10 h-10 rounded-full bg-black/40 text-white backdrop-blur-sm">
-          <ArrowLeft className="w-5 h-5" />
-        </button>
-        <PageHero backgroundImages={[heroDancer1, heroDancer2, heroDancer3]} label="OUR COURSES" heading="Our Sacred Courses" subtext="Classical arts for every soul — from first steps to national certification." />
+        <PageHero backgroundImages={[heroDancer1, heroDancer2, heroDancer3]} label="OUR COURSES" heading="Our Sacred Courses" subtext="Classical arts for every soul — from first steps to national certification." size="compact" />
 
         <div className="sticky top-0 z-[500] border-b border-gold/10 bg-background/95 py-3 shadow-sm backdrop-blur sm:top-[80px] sm:py-4">
           <div className="mx-auto flex max-w-7xl flex-col gap-3 px-4 sm:px-6 lg:flex-row lg:items-center lg:justify-between">
