@@ -3,6 +3,14 @@ import { collection, onSnapshot } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { isCouponActive, normalizeCoupon, type Coupon } from "@/lib/ecommerce";
 
+export const getRedeemableCoupons = (coupons: Coupon[], now = new Date()) => (
+  coupons.filter((coupon) => isCouponActive(coupon, now))
+);
+
+export const getCheckoutCoupons = (coupons: Coupon[], now = new Date()) => (
+  getRedeemableCoupons(coupons, now).filter((coupon) => coupon.visibleAtCheckout)
+);
+
 export const useCoupons = () => {
   const [coupons, setCoupons] = useState<Coupon[]>([]);
   const [loading, setLoading] = useState(true);
@@ -27,7 +35,8 @@ export const useCoupons = () => {
     return unsubscribe;
   }, []);
 
-  const checkoutCoupons = useMemo(() => coupons.filter((coupon) => coupon.visibleAtCheckout && isCouponActive(coupon)), [coupons]);
+  const redeemableCoupons = useMemo(() => getRedeemableCoupons(coupons), [coupons]);
+  const checkoutCoupons = useMemo(() => getCheckoutCoupons(coupons), [coupons]);
 
-  return { coupons, checkoutCoupons, loading };
+  return { coupons, redeemableCoupons, checkoutCoupons, loading };
 };

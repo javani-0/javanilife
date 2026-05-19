@@ -175,7 +175,7 @@ const Checkout = () => {
   const navigate = useNavigate();
   const { user, userProfile, loading: authLoading } = useAuth();
   const { items, loading: cartLoading, clearCart, clearBuyNowItem } = useCart();
-  const { checkoutCoupons, loading: couponsLoading } = useCoupons();
+  const { redeemableCoupons, checkoutCoupons, loading: couponsLoading } = useCoupons();
   const { toast } = useToast();
   const [address, setAddress] = useState<CheckoutAddress>(emptyAddress);
   const [savedAddresses, setSavedAddresses] = useState<CheckoutAddress[]>([]);
@@ -339,8 +339,8 @@ const Checkout = () => {
     deliveryChargeInPaise: deliveryEstimate.chargeInPaise,
   }), [cartSubtotalInPaise, deliveryEstimate.chargeInPaise, items]);
   const selectedCoupon = useMemo(
-    () => checkoutCoupons.find((coupon) => coupon.code === appliedCouponCode),
-    [appliedCouponCode, checkoutCoupons],
+    () => redeemableCoupons.find((coupon) => coupon.code === appliedCouponCode),
+    [appliedCouponCode, redeemableCoupons],
   );
   const selectedCouponEligibility = useMemo(
     () => selectedCoupon ? evaluateCouponEligibility(selectedCoupon, couponContext) : null,
@@ -410,7 +410,7 @@ const Checkout = () => {
     const normalizedCode = normalizeCouponCode(code);
     if (!normalizedCode) return;
 
-    const coupon = checkoutCoupons.find((item) => item.code === normalizedCode);
+    const coupon = redeemableCoupons.find((item) => item.code === normalizedCode);
     if (!coupon) {
       toast({ title: "Coupon not available", description: "This coupon is inactive, hidden, or does not exist.", variant: "destructive" });
       return;
