@@ -8,6 +8,7 @@ import {
   isFinalOrderStatus,
   normalizeCancellationReason,
   orderStatusLabels,
+  requireOpenCancellationRequest,
   type OrderSnapshot,
 } from "../_lib/order-delivery.js";
 import { runOrderAutomation } from "./notify.js";
@@ -15,6 +16,7 @@ import { runOrderAutomation } from "./notify.js";
 interface ApproveCancelBody {
   orderId?: string;
   adminNote?: string;
+  action?: "approve" | "reject";
 }
 
 type PickupCancellationStatus = "cancelled" | "not-required" | "failed" | "manual-required";
@@ -126,6 +128,26 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     }
 
     const order = orderSnapshot.data() as OrderSnapshot;
+
+    if (body.action === "reject") {
+      requireOpenCancellationRequest(order);
+      await orderSnapshot.ref.update({
+        "cancellation.status": "rejected",
+        "cancellation.rejectedAt": FieldValue.serverTimestamp(),
+        "cancellation.rejectedBy": decoded.uid,
+        "cancellation.adminNote": adminNote,
+        timeline: FieldValue.arrayUnion(createTimelineEvent(order.status || "placed", "Cancellation rejected", adminNote || "Admin rejected the cancellation request.", decoded.uid)),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      sendJson(response, 200, {
+        ok: true,
+        orderId,
+        cancellationStatus: "rejected",
+        message: "Cancellation request rejected.",
+      });
+      return;
+    }
+
     const pickupId = getString(order.delivery?.pickupId).trim();
     const pickupRequestStatus = getString(order.delivery?.pickupRequestStatus).trim();
     const currentPickupCancellationStatus = getString(order.delivery?.pickupCancellationStatus).trim();

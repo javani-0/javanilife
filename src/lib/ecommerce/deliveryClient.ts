@@ -92,7 +92,7 @@ export const approveOrderCancellation = (idToken: string, orderId: string, admin
 );
 
 export const rejectOrderCancellation = (idToken: string, orderId: string, adminNote?: string): Promise<OrderCancellationResponse> => (
-  postOrderDeliveryAction(idToken, "/api/orders/reject-cancel", { orderId, adminNote }, "Unable to reject order cancellation.")
+  postOrderDeliveryAction(idToken, "/api/orders/approve-cancel", { orderId, adminNote, action: "reject" }, "Unable to reject order cancellation.")
 );
 
 export const refreshDeliveryOneTracking = (idToken: string, orderId: string): Promise<DeliveryOneTrackingResponse> => (

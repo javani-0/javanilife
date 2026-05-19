@@ -14,6 +14,7 @@
     }
   ],
   "rewrites": [
+    { "source": "/api/webhook", "destination": "/api/razorpay/webhook" },
     { "source": "/api/(.*)", "destination": "/api/$1" },
     { "source": "/share/products/:id", "destination": "/api/share-page?type=product&id=:id" },
     { "source": "/share/courses/:id", "destination": "/api/share-page?type=course&id=:id" },
