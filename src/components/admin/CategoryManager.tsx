@@ -52,6 +52,7 @@ const CategoryManager = <Category extends CategoryDraft>({
   const [drafts, setDrafts] = useState<Category[]>(categories);
   const [newLabel, setNewLabel] = useState("");
   const [saving, setSaving] = useState(false);
+  const [sectionOpen, setSectionOpen] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
   const toggleExpanded = (id: string) => {
@@ -137,19 +138,36 @@ const CategoryManager = <Category extends CategoryDraft>({
   };
 
   return (
-    <section className="rounded-xl border border-gold/15 bg-card p-5 shadow-card sm:p-6">
-      <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-        <div>
-          <p className="font-body text-xs font-semibold uppercase tracking-[0.2em] text-gold">Categories</p>
-          <h2 className="mt-1 font-display text-2xl text-foreground">{title}</h2>
-          <p className="mt-1 max-w-2xl font-body text-sm text-muted-foreground">{description}</p>
+    <section className="rounded-xl border border-gold/15 bg-card shadow-card overflow-hidden">
+      {/* Collapsible header */}
+      <button
+        type="button"
+        onClick={() => setSectionOpen((prev) => !prev)}
+        className="w-full flex items-center justify-between gap-3 px-5 py-4 sm:px-6 hover:bg-muted/30 transition-colors text-left"
+      >
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="min-w-0">
+            <p className="font-body text-xs font-semibold uppercase tracking-[0.2em] text-gold">Categories</p>
+            <h2 className="font-display text-lg text-foreground leading-snug">{title}</h2>
+          </div>
+          <span className="shrink-0 rounded-full bg-muted px-2.5 py-0.5 font-body text-[0.72rem] text-muted-foreground">
+            {drafts.length}
+          </span>
         </div>
-        <button type="button" onClick={saveCategories} disabled={saving} className="inline-flex items-center justify-center gap-2 rounded-md bg-gold px-4 py-2.5 font-body text-sm font-semibold text-charcoal transition-colors hover:bg-gold-light disabled:opacity-60">
-          <Save className="h-4 w-4" /> {saving ? "Saving..." : "Save Categories"}
-        </button>
-      </div>
+        <ChevronDown className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200 ${sectionOpen ? "rotate-180" : ""}`} />
+      </button>
 
-      <div className="mt-5 space-y-2">
+      {/* Collapsible body */}
+      {sectionOpen && (
+        <div className="border-t border-border/50 px-5 pt-4 pb-5 sm:px-6 sm:pb-6">
+          <div className="flex items-center justify-between gap-3 mb-5">
+            <p className="font-body text-sm text-muted-foreground max-w-xl">{description}</p>
+            <button type="button" onClick={saveCategories} disabled={saving} className="shrink-0 inline-flex items-center gap-2 rounded-md bg-gold px-4 py-2 font-body text-sm font-semibold text-charcoal transition-colors hover:bg-gold-light disabled:opacity-60">
+              <Save className="h-4 w-4" /> {saving ? "Saving…" : "Save"}
+            </button>
+          </div>
+
+          <div className="space-y-2">
         {drafts.map((category) => {
           const isActive = category.active !== false;
           const isExpanded = expanded.has(category.id);
@@ -260,6 +278,8 @@ const CategoryManager = <Category extends CategoryDraft>({
           <Plus className="h-4 w-4" /> Add Category
         </button>
       </div>
+        </div>
+      )}
     </section>
   );
 };
