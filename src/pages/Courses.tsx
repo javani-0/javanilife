@@ -287,7 +287,7 @@ const Courses = () => {
       <main>
         <PageHero backgroundImages={[heroDancer1, heroDancer2, heroDancer3]} label="OUR COURSES" heading="Our Sacred Courses" subtext="Classical arts for every soul — from first steps to national certification." size="compact" />
 
-        <div className="sticky top-0 z-[500] border-b border-gold/10 bg-background/95 py-3 shadow-sm backdrop-blur sm:top-[80px] sm:py-4">
+        <div className="z-[500] border-b border-gold/10 bg-background py-3 shadow-[0_10px_30px_rgba(51,35,20,0.08)] sm:sticky sm:top-[80px] sm:py-4">
           <div className="mx-auto flex max-w-7xl flex-col gap-3 px-4 sm:px-6 lg:flex-row lg:items-center lg:justify-between">
             <div className="grid gap-3 sm:grid-cols-[1fr_220px] lg:w-[560px]">
               <label className="relative block">
