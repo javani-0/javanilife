@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Plus, Save, Trash2 } from "lucide-react";
+import { ChevronDown, Plus, Save, Trash2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { slugifyCategoryId, type CourseCategoryOption, type ManagedCategoryOption } from "@/lib/ecommerce";
 
@@ -52,6 +52,16 @@ const CategoryManager = <Category extends CategoryDraft>({
   const [drafts, setDrafts] = useState<Category[]>(categories);
   const [newLabel, setNewLabel] = useState("");
   const [saving, setSaving] = useState(false);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+
+  const toggleExpanded = (id: string) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
 
   useEffect(() => {
     setDrafts(categories);
@@ -139,71 +149,109 @@ const CategoryManager = <Category extends CategoryDraft>({
         </button>
       </div>
 
-      <div className="mt-5 space-y-3">
-        {drafts.map((category) => (
-          <div key={category.id} className="rounded-lg border border-border bg-background/70 p-4">
-            <div className={`grid gap-3 ${mode === "course" ? "lg:grid-cols-[1fr_1fr_150px_110px_auto]" : "lg:grid-cols-[1fr_170px_110px_auto]"}`}>
-              <label>
-                <span className={labelClass}>Name</span>
-                <input value={category.label} onChange={(event) => updateDraft(category.id, { label: event.target.value } as Partial<Category>)} className={`${inputClass} mt-1`} />
-              </label>
+      <div className="mt-5 space-y-2">
+        {drafts.map((category) => {
+          const isActive = category.active !== false;
+          const isExpanded = expanded.has(category.id);
+          const usageCount = usageCounts[category.id] || 0;
+          const hasCourseFields = isCourseCategory(category);
+          return (
+            <div key={category.id} className="rounded-lg border border-border bg-background/70 overflow-hidden">
+              {/* Always-visible row */}
+              <div className="flex items-center gap-3 px-4 py-3">
+                {/* Name input */}
+                <div className="flex-1 min-w-0">
+                  <input
+                    value={category.label}
+                    onChange={(event) => updateDraft(category.id, { label: event.target.value } as Partial<Category>)}
+                    className="w-full bg-transparent font-body text-[0.875rem] font-medium text-foreground outline-none border-b border-transparent focus:border-gold transition-colors placeholder:text-muted-foreground"
+                    placeholder="Category name"
+                  />
+                  <p className="mt-0.5 font-body text-[0.7rem] text-muted-foreground">
+                    {usageCount} {mode === "course" ? "course" : "product"}{usageCount !== 1 ? "s" : ""}
+                    {!hasCourseFields && <span className="ml-1.5 opacity-60">· {category.id}</span>}
+                  </p>
+                </div>
 
-              {isCourseCategory(category) && (
-                <>
-                  <label>
-                    <span className={labelClass}>Badge</span>
-                    <input value={category.badge} onChange={(event) => updateDraft(category.id, { badge: event.target.value } as Partial<Category>)} className={`${inputClass} mt-1`} />
-                  </label>
-                  <label>
-                    <span className={labelClass}>Detail</span>
-                    <input value={category.detail} onChange={(event) => updateDraft(category.id, { detail: event.target.value } as Partial<Category>)} className={`${inputClass} mt-1`} />
-                  </label>
-                  <label>
-                    <span className={labelClass}>Color</span>
-                    <select value={category.badgeColor} onChange={(event) => updateDraft(category.id, { badgeColor: event.target.value } as Partial<Category>)} className={`${inputClass} mt-1`}>
-                      <option value="red">Red</option>
-                      <option value="gold">Gold</option>
-                      <option value="charcoal">Charcoal</option>
-                    </select>
-                  </label>
-                </>
-              )}
+                {/* Toggle switch */}
+                <label className="flex items-center gap-1.5 cursor-pointer shrink-0" title={isActive ? "Active — click to hide" : "Hidden — click to activate"}>
+                  <input
+                    type="checkbox"
+                    className="sr-only"
+                    checked={isActive}
+                    onChange={(event) => updateDraft(category.id, { active: event.target.checked } as Partial<Category>)}
+                  />
+                  <div className={`relative w-8 h-[18px] rounded-full border transition-colors ${isActive ? "bg-green-500 border-green-500" : "bg-muted border-border"}`}>
+                    <span className={`absolute top-[2px] w-[14px] h-[14px] rounded-full bg-white shadow-sm transition-transform ${isActive ? "translate-x-[14px]" : "translate-x-[2px]"}`} />
+                  </div>
+                  <span className={`font-body text-[0.72rem] w-9 ${isActive ? "text-green-600" : "text-muted-foreground"}`}>
+                    {isActive ? "Active" : "Hidden"}
+                  </span>
+                </label>
 
-              {!isCourseCategory(category) && (
-                <div>
-                  <span className={labelClass}>Slug</span>
-                  <p className="mt-1 rounded-md border border-border bg-muted px-3 py-2 font-body text-[0.82rem] text-muted-foreground">{category.id}</p>
+                {/* Expand button (course categories only) */}
+                {hasCourseFields && (
+                  <button
+                    type="button"
+                    onClick={() => toggleExpanded(category.id)}
+                    className={`shrink-0 p-1.5 rounded-md transition-colors ${
+                      isExpanded ? "text-gold bg-gold/10" : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                    }`}
+                    aria-label={isExpanded ? "Collapse settings" : "Edit badge & section settings"}
+                    title={isExpanded ? "Collapse" : "Badge & section settings"}
+                  >
+                    <ChevronDown className={`h-4 w-4 transition-transform duration-200 ${isExpanded ? "rotate-180" : ""}`} />
+                  </button>
+                )}
+
+                {/* Delete */}
+                <button
+                  type="button"
+                  onClick={() => removeCategory(category)}
+                  className="shrink-0 p-1.5 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                  aria-label={`Delete ${category.label}`}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              </div>
+
+              {/* Expandable detail fields (course only) */}
+              {hasCourseFields && isExpanded && (
+                <div className="border-t border-border/50 bg-muted/30 px-4 py-4 space-y-3">
+                  <p className={`${labelClass} mb-2`}>Badge &amp; Display</p>
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    <label>
+                      <span className={labelClass}>Badge Text</span>
+                      <input value={(category as CourseCategoryOption).badge} onChange={(event) => updateDraft(category.id, { badge: event.target.value } as Partial<Category>)} className={`${inputClass} mt-1`} />
+                    </label>
+                    <label>
+                      <span className={labelClass}>Badge Color</span>
+                      <select value={(category as CourseCategoryOption).badgeColor} onChange={(event) => updateDraft(category.id, { badgeColor: event.target.value } as Partial<Category>)} className={`${inputClass} mt-1`}>
+                        <option value="red">Red</option>
+                        <option value="gold">Gold</option>
+                        <option value="charcoal">Charcoal</option>
+                      </select>
+                    </label>
+                    <label>
+                      <span className={labelClass}>Detail</span>
+                      <input value={(category as CourseCategoryOption).detail} onChange={(event) => updateDraft(category.id, { detail: event.target.value } as Partial<Category>)} className={`${inputClass} mt-1`} />
+                    </label>
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-[200px_1fr]">
+                    <label>
+                      <span className={labelClass}>Section Label</span>
+                      <input value={(category as CourseCategoryOption).sectionLabel} onChange={(event) => updateDraft(category.id, { sectionLabel: event.target.value } as Partial<Category>)} className={`${inputClass} mt-1`} />
+                    </label>
+                    <label>
+                      <span className={labelClass}>Section Description</span>
+                      <input value={(category as CourseCategoryOption).description} onChange={(event) => updateDraft(category.id, { description: event.target.value } as Partial<Category>)} className={`${inputClass} mt-1`} />
+                    </label>
+                  </div>
                 </div>
               )}
-
-              <label className="flex items-end gap-2 pb-2 font-body text-sm font-semibold text-foreground">
-                <input type="checkbox" checked={category.active !== false} onChange={(event) => updateDraft(category.id, { active: event.target.checked } as Partial<Category>)} />
-                Active
-              </label>
-
-              <button type="button" onClick={() => removeCategory(category)} className="self-end rounded-md p-2 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive" aria-label={`Delete ${category.label}`}>
-                <Trash2 className="h-4 w-4" />
-              </button>
             </div>
-
-            {isCourseCategory(category) && (
-              <div className="mt-3 grid gap-3 lg:grid-cols-[220px_1fr]">
-                <label>
-                  <span className={labelClass}>Section Label</span>
-                  <input value={category.sectionLabel} onChange={(event) => updateDraft(category.id, { sectionLabel: event.target.value } as Partial<Category>)} className={`${inputClass} mt-1`} />
-                </label>
-                <label>
-                  <span className={labelClass}>Section Description</span>
-                  <input value={category.description} onChange={(event) => updateDraft(category.id, { description: event.target.value } as Partial<Category>)} className={`${inputClass} mt-1`} />
-                </label>
-              </div>
-            )}
-
-            <p className="mt-2 font-body text-[0.72rem] text-muted-foreground">
-              {usageCounts[category.id] || 0} {mode === "course" ? "courses" : "products"} using this category
-            </p>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       <div className="mt-4 flex flex-col gap-2 sm:flex-row">
