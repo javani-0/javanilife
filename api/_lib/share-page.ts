@@ -40,7 +40,14 @@ export const resolveShareImageUrl = (imageUrl: string | undefined, origin: strin
   if (trimmedImageUrl.startsWith("//")) return `https:${trimmedImageUrl}`;
 
   try {
-    return new URL(trimmedImageUrl, origin).toString();
+    const resolvedUrl = new URL(trimmedImageUrl, origin).toString();
+    // Cloudinary images: inject transformations so the OG image is always a
+    // compressed 1200×630 JPEG — prevents large PNGs from blocking WhatsApp previews.
+    const cloudinaryMatch = resolvedUrl.match(/^(https:\/\/res\.cloudinary\.com\/[^/]+\/image\/upload\/)(.+)$/);
+    if (cloudinaryMatch) {
+      return `${cloudinaryMatch[1]}c_fill,w_1200,h_630,q_auto,f_jpg/${cloudinaryMatch[2]}`;
+    }
+    return resolvedUrl;
   } catch {
     return defaultSocialShareImageUrl;
   }
