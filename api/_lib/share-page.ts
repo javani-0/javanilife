@@ -105,10 +105,10 @@ export const createSocialShareHtml = ({ title, description, imageUrl, targetUrl,
   <meta name="twitter:image" content="${safeImageUrl}">
   <meta name="share-preview-url" content="${safePreviewUrl}">
   <meta http-equiv="refresh" content="0;url=${safeTargetUrl}">
+  <script>window.location.replace(${redirectScriptUrl});</script>
 </head>
 <body>
-  <p>Opening <a href="${safeTargetUrl}">${safeTitle}</a>.</p>
-  <script>window.location.replace(${redirectScriptUrl});</script>
+  <noscript><meta http-equiv="refresh" content="0;url=${safeTargetUrl}"></noscript>
 </body>
 </html>`;
 };
