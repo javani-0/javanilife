@@ -30,14 +30,19 @@ const getHeader = (request: ApiRequest, name: string) => {
 };
 
 const getOrigin = (request: ApiRequest) => {
+  // Use the actual request host first — this is the domain the visitor used,
+  // so the redirect lands on the same domain they came from (e.g. www.javanilife.com).
+  const protocol = getHeader(request, "x-forwarded-proto") || "https";
+  const host = getHeader(request, "x-forwarded-host") || getHeader(request, "host");
+  if (host) return `${protocol}://${host}`.replace(/\/+$/, "");
+
+  // Fall back to explicit env var, then Vercel deployment URL, then localhost.
   const configuredOrigin = process.env.PUBLIC_APP_URL || process.env.VITE_PUBLIC_APP_URL || process.env.VITE_SITE_URL || process.env.SITE_URL;
   if (configuredOrigin) return configuredOrigin.replace(/\/+$/, "");
 
   if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
 
-  const protocol = getHeader(request, "x-forwarded-proto") || "https";
-  const host = getHeader(request, "x-forwarded-host") || getHeader(request, "host") || "localhost:8080";
-  return `${protocol}://${host}`.replace(/\/+$/, "");
+  return "http://localhost:8080";
 };
 
 const getQueryValue = (request: SharePageRequest, key: string) => {
