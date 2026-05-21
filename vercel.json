@@ -16,16 +16,6 @@
   "rewrites": [
     { "source": "/api/webhook", "destination": "/api/razorpay/webhook" },
     { "source": "/api/(.*)", "destination": "/api/$1" },
-    {
-      "source": "/products/:id",
-      "has": [{ "type": "header", "key": "user-agent", "value": "(?i).*(whatsapp|facebookexternalhit|twitterbot|telegrambot|linkedinbot|slackbot|discordbot|applebot|googlebot|bingbot|yandexbot|bot|crawler|spider|preview|scraper).*" }],
-      "destination": "/api/share-page?type=product&id=:id"
-    },
-    {
-      "source": "/courses/:id",
-      "has": [{ "type": "header", "key": "user-agent", "value": "(?i).*(whatsapp|facebookexternalhit|twitterbot|telegrambot|linkedinbot|slackbot|discordbot|applebot|googlebot|bingbot|yandexbot|bot|crawler|spider|preview|scraper).*" }],
-      "destination": "/api/share-page?type=course&id=:id"
-    },
     { "source": "/share/products/:id", "destination": "/api/share-page?type=product&id=:id" },
     { "source": "/share/courses/:id", "destination": "/api/share-page?type=course&id=:id" },
     { "source": "/((?!api/|@vite/|@react-refresh|.*\\..*).*)", "destination": "/" }

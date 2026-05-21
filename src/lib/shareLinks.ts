@@ -3,12 +3,27 @@ interface CreateShareUrlOptions {
   url: string;
 }
 
-// Social crawlers (WhatsApp, Facebook, etc.) are served OG meta tags via a
-// Vercel User-Agent rewrite on the actual /products/:id and /courses/:id URLs,
-// so no /share/ redirect is needed. Just share the canonical URL directly.
-export const getSharePreviewPath = (url: string) => url;
+const sharePreviewRoutes: Array<{ source: RegExp; destination: string }> = [
+  { source: /^\/products\/([^/?#]+)\/?$/i, destination: "/share/products" },
+  { source: /^\/courses\/([^/?#]+)\/?$/i, destination: "/share/courses" },
+];
+
+export const getSharePreviewPath = (url: string) => {
+  if (!url.startsWith("/")) return url;
+
+  const parsedUrl = new URL(url, "https://javani.local");
+  const route = sharePreviewRoutes.find(({ source }) => source.test(parsedUrl.pathname));
+  if (!route) return url;
+
+  const match = parsedUrl.pathname.match(route.source);
+  const itemId = match?.[1];
+  if (!itemId) return url;
+
+  return `${route.destination}/${itemId}${parsedUrl.search}${parsedUrl.hash}`;
+};
 
 export const createShareUrl = ({ origin, url }: CreateShareUrlOptions) => {
-  if (!url.startsWith("/")) return url;
-  return new URL(url, origin).toString();
+  const sharePath = getSharePreviewPath(url);
+  if (!sharePath.startsWith("/")) return sharePath;
+  return new URL(sharePath, origin).toString();
 };

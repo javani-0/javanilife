@@ -70,6 +70,35 @@ const sendHtml = (response: HtmlApiResponse, html: string) => {
   response.end?.(html);
 };
 
+// Social media crawlers that need the OG HTML preview page.
+// Real browsers get an instant 302 redirect instead.
+const CRAWLER_PATTERNS = [
+  /facebookexternalhit/i,
+  /twitterbot/i,
+  /whatsapp/i,
+  /telegrambot/i,
+  /linkedinbot/i,
+  /slackbot/i,
+  /discordbot/i,
+  /googlebot/i,
+  /bingbot/i,
+  /applebot/i,
+  /pinterest/i,
+  /vkshare/i,
+  /rogerbot/i,
+  /embedly/i,
+  /quora link preview/i,
+  /showyoubot/i,
+  /outbrain/i,
+  /semrushbot/i,
+  /ahrefsbot/i,
+];
+
+const isSocialCrawler = (request: ApiRequest) => {
+  const ua = getHeader(request, "user-agent") || "";
+  return CRAWLER_PATTERNS.some((pattern) => pattern.test(ua));
+};
+
 export default async function handler(request: SharePageRequest, response: HtmlApiResponse) {
   if (request.method && !["GET", "HEAD"].includes(request.method)) {
     response.setHeader?.("Allow", "GET, HEAD");
@@ -89,6 +118,16 @@ export default async function handler(request: SharePageRequest, response: HtmlA
     const origin = getOrigin(request);
     const targetPath = getSharePageTargetPath(type, id);
     const targetUrl = new URL(targetPath, origin).toString();
+
+    // Real browser click — instant redirect, no HTML page, no flash.
+    if (!isSocialCrawler(request)) {
+      response.setHeader?.("Cache-Control", "no-store");
+      response.setHeader?.("Location", targetUrl);
+      response.status(302).end?.();
+      return;
+    }
+
+    // Social crawler — serve the full OG meta HTML for the preview card.
     const previewUrl = new URL(`/share/${type === "product" ? "products" : "courses"}/${encodeURIComponent(id)}`, origin).toString();
     const snapshot = await getFirebaseAdminDb().collection(getSharePageCollection(type)).doc(id).get();
 
