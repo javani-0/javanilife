@@ -193,7 +193,7 @@ const AdminLayout = () => {
         </header>
 
         {/* Scrollable Content */}
-        <main className="flex-1 overflow-y-auto admin-scroll p-6 md:p-8">
+        <main className="flex-1 overflow-x-hidden overflow-y-auto admin-scroll p-6 md:p-8">
           <div key={location.pathname} className="admin-page-enter">
             <Outlet />
           </div>

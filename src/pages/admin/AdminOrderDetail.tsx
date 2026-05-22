@@ -774,7 +774,7 @@ const AdminOrderDetail = () => {
   // ─── Full-page render ────────────────────────────────────────────────────
 
   return (
-    <div className="space-y-6">
+    <div className="min-w-0 space-y-6">
       {/* Page header */}
       <div>
         <button
@@ -912,9 +912,9 @@ const AdminOrderDetail = () => {
               {order.items?.map((item) => (
                 <div
                   key={`${item.productId}-${item.sourceId || item.name}`}
-                  className="flex items-center justify-between gap-3 rounded-lg border border-border/60 bg-background/70 p-3 font-body text-sm"
+                  className="flex items-center justify-between gap-3 overflow-hidden rounded-lg border border-border/60 bg-background/70 p-3 font-body text-sm"
                 >
-                  <div className="min-w-0">
+                  <div className="min-w-0 overflow-hidden">
                     <p className="truncate font-semibold text-foreground">{item.name}</p>
                     <p className="text-xs text-muted-foreground">
                       Qty {item.quantity}
@@ -1053,7 +1053,7 @@ const AdminOrderDetail = () => {
               ].map(({ label, value }) => (
                 <div key={label} className="rounded-lg border border-gold/20 bg-background p-3">
                   <span className="block text-muted-foreground">{label}</span>
-                  <span className="mt-1 block font-semibold text-foreground">{value}</span>
+                  <span className="mt-1 block break-all font-semibold text-foreground">{value}</span>
                 </div>
               ))}
             </div>
@@ -1072,9 +1072,9 @@ const AdminOrderDetail = () => {
                   .map((item) => (
                     <div
                       key={`${item.productId}-${item.sourceId || item.name}`}
-                      className="rounded-md border border-border bg-card/70 p-2.5 font-body text-xs"
+                      className="min-w-0 overflow-hidden rounded-md border border-border bg-card/70 p-2.5 font-body text-xs"
                     >
-                      <p className="font-semibold text-foreground">{item.name}</p>
+                      <p className="truncate font-semibold text-foreground">{item.name}</p>
                       <div className="mt-1 grid gap-1 text-muted-foreground sm:grid-cols-3">
                         <span>
                           Qty: <strong className="text-foreground">{item.quantity}</strong>
@@ -1176,7 +1176,7 @@ const AdminOrderDetail = () => {
             {hasRealPickupId && (
               <p className="mt-3 rounded-lg border border-gold/20 bg-card p-3 font-body text-xs text-muted-foreground">
                 Pickup booked:{" "}
-                <span className="font-semibold text-foreground">{selectedPickupId}</span>
+                <span className="break-all font-semibold text-foreground">{selectedPickupId}</span>
                 {order.delivery.pickupDate ? ` · ${order.delivery.pickupDate}` : ""}
                 {order.delivery.pickupTime ? ` · ${order.delivery.pickupTime}` : ""}
                 {order.delivery.expectedPackageCount
@@ -1212,7 +1212,7 @@ const AdminOrderDetail = () => {
               >
                 <p>
                   Pickup request{" "}
-                  <strong>{selectedPickupId}</strong> must be cancelled manually on the Delhivery
+                  <strong className="break-all">{selectedPickupId}</strong> must be cancelled manually on the Delhivery
                   One dashboard — Delhivery&apos;s public cancel API is unavailable.
                 </p>
                 <div className="mt-3 flex flex-wrap gap-2">
