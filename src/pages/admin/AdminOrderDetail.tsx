@@ -774,7 +774,7 @@ const AdminOrderDetail = () => {
   // ─── Full-page render ────────────────────────────────────────────────────
 
   return (
-    <div className="min-w-0 space-y-6">
+    <div className="min-w-0 space-y-4 sm:space-y-6">
       {/* Page header */}
       <div>
         <button
@@ -788,7 +788,7 @@ const AdminOrderDetail = () => {
           E-Commerce
         </p>
         <div className="mt-1 flex flex-wrap items-center gap-3">
-          <h1 className="font-display text-2xl text-foreground sm:text-3xl">
+          <h1 className="break-all font-display text-2xl text-foreground sm:text-3xl">
             {order.orderNumber || order.id}
           </h1>
           <span
@@ -841,72 +841,71 @@ const AdminOrderDetail = () => {
       )}
 
       {/* Main content grid */}
-      <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
+      <div className="grid gap-4 sm:gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
         {/* Left column */}
         <div className="space-y-6">
           {/* Customer & Address */}
-          <section className="rounded-2xl border border-border/60 bg-card p-5 shadow-card">
+          <section className="rounded-2xl border border-border/60 bg-card p-4 shadow-card sm:p-5">
             <h2 className="mb-4 font-display text-xl text-foreground">Customer &amp; Address</h2>
             <div className="grid gap-3 font-body text-sm sm:grid-cols-2">
               <div className="flex items-start gap-3">
                 <UserRound className="mt-0.5 h-4 w-4 shrink-0 text-gold" />
-                <div>
-                  <p className="font-semibold text-foreground">{order.customerName}</p>
-                  <p className="text-muted-foreground">{order.customerId}</p>
+                <div className="min-w-0 flex-1 overflow-hidden">
+                  <p className="truncate font-semibold text-foreground">{order.customerName}</p>
+                  <p className="truncate text-muted-foreground">{order.customerId}</p>
                 </div>
               </div>
               {order.customerEmail && (
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-3 overflow-hidden">
                   <Mail className="h-4 w-4 shrink-0 text-gold" />
                   <a
                     href={`mailto:${order.customerEmail}`}
-                    className="text-foreground hover:text-gold"
+                    className="truncate text-foreground hover:text-gold"
                   >
                     {order.customerEmail}
                   </a>
                 </div>
               )}
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-3 overflow-hidden">
                 <MessageCircle className="h-4 w-4 shrink-0 text-gold" />
-                <span className="text-muted-foreground">
+                <span className="truncate text-muted-foreground">
                   WhatsApp:{" "}
                   <span className="text-foreground">
                     {order.customerWhatsAppNumber || order.customerPhone || "Not saved"}
                   </span>
                 </span>
               </div>
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-3 overflow-hidden">
                 <Phone className="h-4 w-4 shrink-0 text-gold" />
-                <span className="text-muted-foreground">
+                <span className="truncate text-muted-foreground">
                   Call:{" "}
                   <span className="text-foreground">
                     {order.customerCallNumber || order.customerPhone || "Not saved"}
                   </span>
                 </span>
               </div>
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-3 overflow-hidden">
                 <Truck className="h-4 w-4 shrink-0 text-gold" />
-                <span className="text-muted-foreground">
+                <span className="truncate text-muted-foreground">
                   Delivery phone:{" "}
                   <span className="text-foreground">
                     {order.address?.phone || order.customerPhone || "Not saved"}
                   </span>
                 </span>
               </div>
-              <div className="flex items-start gap-3">
+              <div className="flex items-start gap-3 overflow-hidden">
                 <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-gold" />
                 <address className="not-italic text-foreground">
-                  {order.address?.line1}
-                  {order.address?.line2 ? `, ${order.address.line2}` : ""}
-                  <br />
-                  {order.address?.city}, {order.address?.state} {order.address?.pincode}
+                  <div className="break-all">{order.address?.line1}</div>
+                  <div className="break-all">{order.address?.line2 ? `${order.address.line2}` : ""}</div>
+                  <div className="break-words">{order.address?.city}, {order.address?.state} {order.address?.pincode}</div>
                 </address>
               </div>
             </div>
           </section>
 
           {/* Items */}
-          <section className="rounded-2xl border border-border/60 bg-card p-5 shadow-card">
+          <section className="rounded-2xl border border-border/60 bg-card p-4 shadow-card sm:p-5">
             <h2 className="mb-4 font-display text-xl text-foreground">Items</h2>
             <div className="space-y-2">
               {order.items?.map((item) => (
@@ -914,8 +913,8 @@ const AdminOrderDetail = () => {
                   key={`${item.productId}-${item.sourceId || item.name}`}
                   className="flex items-center justify-between gap-3 overflow-hidden rounded-lg border border-border/60 bg-background/70 p-3 font-body text-sm"
                 >
-                  <div className="min-w-0 overflow-hidden">
-                    <p className="truncate font-semibold text-foreground">{item.name}</p>
+                  <div className="min-w-0">
+                    <p className="break-words font-semibold text-foreground">{item.name}</p>
                     <p className="text-xs text-muted-foreground">
                       Qty {item.quantity}
                       {item.categoryLabel ? ` · ${item.categoryLabel}` : ""}
@@ -962,7 +961,7 @@ const AdminOrderDetail = () => {
           </section>
 
           {/* Delivery One */}
-          <section className="rounded-2xl border border-gold/20 bg-card p-5 shadow-card">
+          <section className="rounded-2xl border border-gold/20 bg-card p-4 shadow-card sm:p-5">
             <div className="mb-1 flex items-center gap-2">
               <Truck className="h-5 w-5 text-gold" />
               <h2 className="font-display text-xl text-foreground">Delivery One</h2>
@@ -973,12 +972,12 @@ const AdminOrderDetail = () => {
             </p>
 
             {/* Action buttons */}
-            <div className="flex flex-wrap gap-2">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:flex xl:flex-wrap">
               <button
                 type="button"
                 onClick={handleSyncDelivery}
                 disabled={syncingDelivery || !deliveryEligibility.eligible}
-                className="inline-flex h-10 items-center justify-center gap-2 rounded-sm bg-gold px-4 font-display text-xs font-semibold tracking-[0.08em] text-charcoal transition-colors hover:bg-gold-light disabled:cursor-not-allowed disabled:opacity-60"
+                className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-sm bg-gold px-4 font-display text-xs font-semibold tracking-[0.08em] text-charcoal transition-colors hover:bg-gold-light disabled:cursor-not-allowed disabled:opacity-60 xl:w-auto"
               >
                 <RefreshCw className={`h-4 w-4 ${syncingDelivery ? "animate-spin" : ""}`} />
                 {syncingDelivery ? "Manifesting…" : "Manifest Order"}
@@ -987,7 +986,7 @@ const AdminOrderDetail = () => {
                 type="button"
                 onClick={handleRefreshTracking}
                 disabled={refreshingTracking || !hasDeliveryWaybill}
-                className="inline-flex h-10 items-center justify-center gap-2 rounded-sm border border-gold/35 px-4 font-display text-xs font-semibold tracking-[0.08em] text-gold transition-colors hover:bg-gold/10 disabled:cursor-not-allowed disabled:opacity-60"
+                className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-sm border border-gold/35 px-4 font-display text-xs font-semibold tracking-[0.08em] text-gold transition-colors hover:bg-gold/10 disabled:cursor-not-allowed disabled:opacity-60 xl:w-auto"
               >
                 <RefreshCw className={`h-4 w-4 ${refreshingTracking ? "animate-spin" : ""}`} />
                 {refreshingTracking ? "Refreshing…" : "Refresh Tracking"}
@@ -996,7 +995,7 @@ const AdminOrderDetail = () => {
                 type="button"
                 onClick={handlePrintLabel}
                 disabled={printingLabel || !canUseDeliveryOneFulfillment}
-                className="inline-flex h-10 items-center justify-center gap-2 rounded-sm border border-gold/35 px-4 font-display text-xs font-semibold tracking-[0.08em] text-gold transition-colors hover:bg-gold/10 disabled:cursor-not-allowed disabled:opacity-60"
+                className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-sm border border-gold/35 px-4 font-display text-xs font-semibold tracking-[0.08em] text-gold transition-colors hover:bg-gold/10 disabled:cursor-not-allowed disabled:opacity-60 xl:w-auto"
               >
                 <Printer className={`h-4 w-4 ${printingLabel ? "animate-pulse" : ""}`} />
                 {printingLabel ? "Fetching…" : "Print Label"}
@@ -1010,7 +1009,7 @@ const AdminOrderDetail = () => {
                   || hasRealPickupId
                   || hasPickupRequestMissingId
                 }
-                className="inline-flex h-10 items-center justify-center gap-2 rounded-sm border border-gold/35 px-4 font-display text-xs font-semibold tracking-[0.08em] text-gold transition-colors hover:bg-gold/10 disabled:cursor-not-allowed disabled:opacity-60"
+                className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-sm border border-gold/35 px-4 font-display text-xs font-semibold tracking-[0.08em] text-gold transition-colors hover:bg-gold/10 disabled:cursor-not-allowed disabled:opacity-60 xl:w-auto"
               >
                 <PackagePlus className={`h-4 w-4 ${schedulingPickup ? "animate-pulse" : ""}`} />
                 {schedulingPickup
@@ -1030,7 +1029,7 @@ const AdminOrderDetail = () => {
             )}
 
             {/* Status grid */}
-            <div className="mt-5 grid gap-3 font-body text-xs sm:grid-cols-2 xl:grid-cols-4">
+            <div className="mt-5 grid grid-cols-2 gap-3 font-body text-xs xl:grid-cols-4">
               {[
                 {
                   label: "Delivery status",
@@ -1059,7 +1058,7 @@ const AdminOrderDetail = () => {
             </div>
 
             {/* Manifest package data */}
-            <div className="mt-4 rounded-lg border border-gold/20 bg-background p-4">
+            <div className="mt-4 rounded-lg border border-gold/20 bg-background p-3 sm:p-4">
               <p className="font-body text-xs font-semibold uppercase tracking-[0.14em] text-gold">
                 Manifest package data
               </p>
@@ -1072,10 +1071,10 @@ const AdminOrderDetail = () => {
                   .map((item) => (
                     <div
                       key={`${item.productId}-${item.sourceId || item.name}`}
-                      className="min-w-0 overflow-hidden rounded-md border border-border bg-card/70 p-2.5 font-body text-xs"
+                      className="min-w-0 rounded-md border border-border bg-card/70 p-2.5 font-body text-xs"
                     >
-                      <p className="truncate font-semibold text-foreground">{item.name}</p>
-                      <div className="mt-1 grid gap-1 text-muted-foreground sm:grid-cols-3">
+                      <p className="break-words font-semibold text-foreground">{item.name}</p>
+                      <div className="mt-1 grid grid-cols-3 gap-1 text-muted-foreground">
                         <span>
                           Qty: <strong className="text-foreground">{item.quantity}</strong>
                         </span>
@@ -1220,7 +1219,7 @@ const AdminOrderDetail = () => {
                     href={`https://one.delhivery.com/pickup-requests/${selectedPickupId}?international=false`}
                     target="_blank"
                     rel="noreferrer"
-                    className="inline-flex items-center gap-1.5 rounded-sm bg-destructive px-3 py-2 font-display text-[11px] font-semibold tracking-[0.08em] text-destructive-foreground transition-colors hover:bg-destructive/90"
+                    className="inline-flex w-full items-center justify-center gap-1.5 rounded-sm bg-destructive px-3 py-2 font-display text-[11px] font-semibold tracking-[0.08em] text-destructive-foreground transition-colors hover:bg-destructive/90 xl:w-auto"
                   >
                     Open in Delhivery One <ExternalLink className="h-3.5 w-3.5" />
                   </a>
@@ -1262,7 +1261,7 @@ const AdminOrderDetail = () => {
                 href={order.delivery.labelUrl}
                 target="_blank"
                 rel="noreferrer"
-                className="mt-3 inline-flex items-center gap-2 font-body text-xs font-semibold text-gold hover:text-gold-light"
+                className="mt-3 inline-flex flex-wrap items-center gap-2 font-body text-xs font-semibold text-gold hover:text-gold-light"
               >
                 Open saved shipping label <ExternalLink className="h-3.5 w-3.5" />
               </a>
@@ -1281,7 +1280,7 @@ const AdminOrderDetail = () => {
                 <input
                   value={providerOrderId}
                   onChange={(e) => setProviderOrderId(e.target.value)}
-                  className="mt-2 h-10 w-full rounded-md border border-border bg-background px-3 font-body text-sm outline-none focus:border-gold"
+                  className="mt-2 h-10 w-full min-w-0 rounded-md border border-border bg-background px-3 font-body text-base sm:text-sm outline-none focus:border-gold"
                   placeholder="Delivery One order/reference ID"
                 />
               </label>
@@ -1290,7 +1289,7 @@ const AdminOrderDetail = () => {
                 <input
                   value={trackingNumber}
                   onChange={(e) => setTrackingNumber(e.target.value)}
-                  className="mt-2 h-10 w-full rounded-md border border-border bg-background px-3 font-body text-sm outline-none focus:border-gold"
+                  className="mt-2 h-10 w-full min-w-0 rounded-md border border-border bg-background px-3 font-body text-base sm:text-sm outline-none focus:border-gold"
                   placeholder="AWB or tracking number"
                 />
               </label>
@@ -1299,7 +1298,7 @@ const AdminOrderDetail = () => {
                 <input
                   value={trackingUrl}
                   onChange={(e) => setTrackingUrl(e.target.value)}
-                  className="mt-2 h-10 w-full rounded-md border border-border bg-background px-3 font-body text-sm outline-none focus:border-gold"
+                  className="mt-2 h-10 w-full min-w-0 rounded-md border border-border bg-background px-3 font-body text-base sm:text-sm outline-none focus:border-gold"
                   placeholder="https://…"
                 />
               </label>
@@ -1310,7 +1309,7 @@ const AdminOrderDetail = () => {
                 href={order.delivery.trackingUrl}
                 target="_blank"
                 rel="noreferrer"
-                className="mt-3 inline-flex items-center gap-2 font-body text-xs font-semibold text-gold hover:text-gold-light"
+                className="mt-3 inline-flex flex-wrap items-center gap-2 font-body text-xs font-semibold text-gold hover:text-gold-light"
               >
                 Open saved tracking link <ExternalLink className="h-3.5 w-3.5" />
               </a>
@@ -1319,7 +1318,7 @@ const AdminOrderDetail = () => {
 
           {/* Cancellation section */}
           {(cancellationStatus !== "none" || canAdminCancelSyncedOrder) && (
-            <section className="rounded-2xl border border-destructive/20 bg-destructive/5 p-5 shadow-card">
+            <section className="rounded-2xl border border-destructive/20 bg-destructive/5 p-4 shadow-card sm:p-5">
               <div className="mb-4 flex items-center gap-2">
                 <AlertTriangle className="h-5 w-5 text-destructive" />
                 <h2 className="font-display text-xl text-foreground">Cancellation Request</h2>
@@ -1398,7 +1397,7 @@ const AdminOrderDetail = () => {
 
           {/* Timeline */}
           {order.timeline?.length > 0 && (
-            <section className="rounded-2xl border border-border/60 bg-card p-5 shadow-card">
+            <section className="rounded-2xl border border-border/60 bg-card p-4 shadow-card sm:p-5">
               <h2 className="mb-4 font-display text-xl text-foreground">Timeline</h2>
               <ol className="relative space-y-4 border-l border-gold/25 pl-5">
                 {[...order.timeline].reverse().map((event, index) => (
@@ -1408,7 +1407,7 @@ const AdminOrderDetail = () => {
                       {event.label}
                     </p>
                     {event.note && (
-                      <p className="font-body text-xs text-muted-foreground">{event.note}</p>
+                      <p className="break-words font-body text-xs text-muted-foreground">{event.note}</p>
                     )}
                     {event.createdAt && (
                       <p className="mt-0.5 font-body text-xs text-muted-foreground/70">
@@ -1431,7 +1430,7 @@ const AdminOrderDetail = () => {
 
           {/* Customer notes */}
           {order.customerNotes && (
-            <section className="rounded-2xl border border-border/60 bg-card p-5 shadow-card">
+            <section className="rounded-2xl border border-border/60 bg-card p-4 shadow-card sm:p-5">
               <h2 className="mb-2 font-display text-xl text-foreground">Customer Notes</h2>
               <p className="font-body text-sm text-muted-foreground">{order.customerNotes}</p>
             </section>
@@ -1440,7 +1439,7 @@ const AdminOrderDetail = () => {
 
         {/* Right column — admin controls */}
         <div className="space-y-4 lg:sticky lg:top-24 lg:self-start">
-          <section className="rounded-2xl border border-border/60 bg-card p-5 shadow-card">
+          <section className="rounded-2xl border border-border/60 bg-card p-4 shadow-card sm:p-5">
             <h2 className="mb-4 font-display text-xl text-foreground">Admin Controls</h2>
             <div className="space-y-4">
               <label className="block font-body text-sm font-semibold text-foreground">
@@ -1448,7 +1447,7 @@ const AdminOrderDetail = () => {
                 <select
                   value={selectedStatus}
                   onChange={(e) => setSelectedStatus(e.target.value as OrderStatus)}
-                  className="mt-2 h-11 w-full rounded-md border border-border bg-background px-3 font-body text-sm outline-none focus:border-gold"
+                  className="mt-2 h-11 w-full min-w-0 rounded-md border border-border bg-background px-3 font-body text-base sm:text-sm outline-none focus:border-gold"
                 >
                   {ADMIN_ORDER_STATUS_OPTIONS.map((s) => (
                     <option key={s} value={s}>
@@ -1462,7 +1461,7 @@ const AdminOrderDetail = () => {
                 <select
                   value={selectedPaymentStatus}
                   onChange={(e) => setSelectedPaymentStatus(e.target.value as PaymentStatus)}
-                  className="mt-2 h-11 w-full rounded-md border border-border bg-background px-3 font-body text-sm outline-none focus:border-gold"
+                  className="mt-2 h-11 w-full min-w-0 rounded-md border border-border bg-background px-3 font-body text-base sm:text-sm outline-none focus:border-gold"
                 >
                   {ADMIN_PAYMENT_STATUS_OPTIONS.map((s) => (
                     <option key={s} value={s}>
@@ -1477,7 +1476,7 @@ const AdminOrderDetail = () => {
                   value={adminNotes}
                   onChange={(e) => setAdminNotes(e.target.value)}
                   rows={5}
-                  className="mt-2 w-full rounded-md border border-border bg-background px-3 py-3 font-body text-sm outline-none focus:border-gold"
+                  className="mt-2 w-full min-w-0 rounded-md border border-border bg-background px-3 py-3 font-body text-base sm:text-sm outline-none focus:border-gold"
                   placeholder="Private admin note for this order"
                 />
               </label>
@@ -1492,7 +1491,7 @@ const AdminOrderDetail = () => {
             </div>
           </section>
 
-          <section className="rounded-2xl border border-destructive/20 bg-card p-5 shadow-card">
+          <section className="rounded-2xl border border-destructive/20 bg-card p-4 shadow-card sm:p-5">
             <h2 className="mb-2 font-display text-lg text-foreground">Danger Zone</h2>
             <p className="mb-4 font-body text-xs text-muted-foreground">
               Deletion cannot be recovered after the undo timer ends.

@@ -65,7 +65,7 @@ const AdminLayout = () => {
 
   return (
     /* Full-viewport flex container — overflow hidden so only main scrolls */
-    <div className="h-screen overflow-hidden flex bg-background">
+    <div className="flex min-h-screen w-full max-w-[100vw] overflow-x-hidden bg-background lg:h-dvh lg:min-h-dvh lg:overflow-hidden">
 
       {/* ── Desktop Sidebar ── */}
       <aside
@@ -170,10 +170,10 @@ const AdminLayout = () => {
       )}
 
       {/* ── Main area: fixed header + scrollable content + fixed footer ── */}
-      <div className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden">
+      <div className="flex w-full min-w-0 max-w-full flex-1 flex-col lg:h-dvh lg:min-h-dvh lg:overflow-hidden">
 
         {/* Fixed Header */}
-        <header className="flex-shrink-0 h-16 flex items-center justify-between px-6 bg-ivory/97 backdrop-blur-sm shadow-sm border-b border-border z-30">
+        <header className="sticky top-0 z-30 flex h-16 flex-shrink-0 items-center justify-between border-b border-border bg-ivory/97 px-4 shadow-sm backdrop-blur-sm sm:px-6 lg:static">
           <div className="flex items-center gap-3">
             <button
               onClick={() => setMobileSidebarOpen(true)}
@@ -182,7 +182,7 @@ const AdminLayout = () => {
             >
               <Menu className="w-5 h-5" />
             </button>
-            <h2 className="font-display font-semibold text-[1.3rem] text-foreground">{currentPage}</h2>
+            <h2 className="font-display text-[1.1rem] font-semibold text-foreground sm:text-[1.3rem]">{currentPage}</h2>
           </div>
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 rounded-full bg-gradient-primary text-primary-foreground flex items-center justify-center font-body font-bold text-[0.75rem]">
@@ -193,15 +193,15 @@ const AdminLayout = () => {
         </header>
 
         {/* Scrollable Content */}
-        <main className="flex-1 overflow-x-hidden overflow-y-auto admin-scroll p-6 md:p-8">
+        <main className="admin-scroll w-full max-w-full flex-1 overflow-x-hidden p-3 pb-6 sm:p-5 sm:pb-8 md:p-8 lg:overflow-y-auto">
           <div key={location.pathname} className="admin-page-enter">
             <Outlet />
           </div>
         </main>
 
-        {/* Fixed Footer */}
-        <footer className="flex-shrink-0 h-10 flex items-center justify-center px-6 bg-ivory/97 border-t border-border">
-          <p className="font-body text-[0.7rem] text-muted-foreground">
+        {/* Footer */}
+        <footer className="mt-auto flex min-h-10 flex-shrink-0 items-center justify-center border-t border-border bg-ivory/97 px-3 py-2 sm:px-6 lg:h-10 lg:py-0">
+          <p className="text-center font-body text-[0.65rem] leading-tight text-muted-foreground sm:text-[0.7rem]">
             © {new Date().getFullYear()} Javani Spiritual Hub &middot; Admin Panel
           </p>
         </footer>
