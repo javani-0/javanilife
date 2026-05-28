@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { addDoc, collection, doc, getDoc, getDocs, onSnapshot, serverTimestamp } from "firebase/firestore";
-import { ArrowLeft, CalendarDays, CheckCircle2, CreditCard, LockKeyhole, MapPin, MessageCircle, PackageCheck, ShieldCheck, TicketPercent, Truck, X } from "lucide-react";
+import { createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile } from "firebase/auth";
+import { addDoc, collection, doc, getDoc, getDocs, onSnapshot, serverTimestamp, setDoc } from "firebase/firestore";
+import { ArrowLeft, BookOpen, CalendarDays, CheckCircle2, CreditCard, Eye, EyeOff, KeyRound, LockKeyhole, MapPin, MessageCircle, PackageCheck, Phone, ShieldCheck, TicketPercent, Truck, UserRound, X } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -19,7 +20,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useCart } from "@/contexts/cart-context";
 import { useCoupons } from "@/hooks/useCoupons";
 import { useToast } from "@/hooks/use-toast";
-import { db } from "@/lib/firebase";
+import { auth, db } from "@/lib/firebase";
 import {
   calculateCartTotals,
   calculateCouponDiscount,
@@ -193,6 +194,16 @@ const Checkout = () => {
   const [coursePaymentPlan, setCoursePaymentPlan] = useState<CoursePaymentPlanOption>("full");
   const [placedOrder, setPlacedOrder] = useState<{ id: string; orderNumber: string; totalInPaise: number; paidNowInPaise: number; paymentLabel: string; hasShippableItems: boolean; paymentPlan: CoursePaymentPlanOption } | null>(null);
 
+  // Inline signup / login for unauthenticated users
+  const [inlineMode, setInlineMode] = useState<"signup" | "login">("signup");
+  const [inlineName, setInlineName] = useState("");
+  const [inlineEmail, setInlineEmail] = useState("");
+  const [inlinePhone, setInlinePhone] = useState("");
+  const [inlinePassword, setInlinePassword] = useState("");
+  const [inlineShowPassword, setInlineShowPassword] = useState(false);
+  const [inlineLoading, setInlineLoading] = useState(false);
+  const [inlineError, setInlineError] = useState("");
+
   const applySavedAddress = (savedAddress?: CheckoutAddress | null) => {
     if (!savedAddress) {
       setSelectedSavedAddressId("custom");
@@ -226,6 +237,7 @@ const Checkout = () => {
       ...currentAddress,
       fullName: currentAddress.fullName || user.displayName || userProfile?.username || "",
       email: currentAddress.email || user.email || userProfile?.email || "",
+      phone: currentAddress.phone || sanitizeDigits(userProfile?.whatsappNumber || userProfile?.phone || ""),
     }));
   }, [user, userProfile]);
 
@@ -430,6 +442,50 @@ const Checkout = () => {
   const updateAddress = (field: keyof CheckoutAddress) => (event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     if (selectedSavedAddressId !== "custom") setSelectedSavedAddressId("custom");
     setAddress((currentAddress) => ({ ...currentAddress, [field]: event.target.value }));
+  };
+
+  const handleInlineSignup = async (e: FormEvent) => {
+    e.preventDefault();
+    setInlineError("");
+    if (!inlineName.trim()) { setInlineError("Full name is required."); return; }
+    const digits = sanitizeDigits(inlinePhone);
+    if (digits.length !== 10) { setInlineError("Please enter a valid 10-digit WhatsApp number."); return; }
+    if (inlinePassword.length < 6) { setInlineError("Password must be at least 6 characters."); return; }
+    setInlineLoading(true);
+    try {
+      const cred = await createUserWithEmailAndPassword(auth, inlineEmail, inlinePassword);
+      await updateProfile(cred.user, { displayName: inlineName.trim() });
+      await setDoc(doc(db, "users", cred.user.uid), {
+        uid: cred.user.uid,
+        username: inlineName.trim(),
+        email: inlineEmail.trim(),
+        phone: digits,
+        whatsappNumber: digits,
+        createdAt: serverTimestamp(),
+      });
+    } catch (err: unknown) {
+      const code = (err as { code?: string }).code;
+      if (code === "auth/email-already-in-use") setInlineError("This email is already registered. Please sign in instead.");
+      else if (code === "auth/invalid-email") setInlineError("Please enter a valid email address.");
+      else if (code === "auth/weak-password") setInlineError("Password must be at least 6 characters.");
+      else setInlineError("Something went wrong. Please try again.");
+      setInlineLoading(false);
+    }
+  };
+
+  const handleInlineLogin = async (e: FormEvent) => {
+    e.preventDefault();
+    setInlineError("");
+    setInlineLoading(true);
+    try {
+      await signInWithEmailAndPassword(auth, inlineEmail, inlinePassword);
+    } catch (err: unknown) {
+      const code = (err as { code?: string }).code;
+      if (code === "auth/user-not-found" || code === "auth/wrong-password" || code === "auth/invalid-credential") setInlineError("Incorrect email or password. Please try again.");
+      else if (code === "auth/invalid-email") setInlineError("Please enter a valid email address.");
+      else setInlineError("Sign in failed. Please try again.");
+      setInlineLoading(false);
+    }
   };
 
   const placeOrder = async (event: FormEvent<HTMLFormElement>) => {
@@ -731,21 +787,185 @@ const Checkout = () => {
         {showLoading ? (
           <div className="rounded-xl bg-card p-8 font-body text-muted-foreground shadow-card">Preparing checkout...</div>
         ) : !user ? (
-          <section className="rounded-2xl border border-gold/20 bg-card p-8 text-center shadow-card sm:p-12">
-            <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-full bg-gold/10 text-gold">
-              <LockKeyhole className="h-8 w-8" />
+          <section className="rounded-2xl border border-gold/20 bg-card shadow-card">
+            {/* Header */}
+            <div className="border-b border-gold/15 px-6 py-5 sm:px-8">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gold/10 text-gold">
+                  <UserRound className="h-5 w-5" />
+                </div>
+                <div>
+                  <h2 className="font-display text-2xl text-foreground">
+                    {inlineMode === "signup" ? "Create Account & Continue" : "Sign In & Continue"}
+                  </h2>
+                  <p className="font-body text-sm text-muted-foreground">
+                    {inlineMode === "signup"
+                      ? "Quick setup — your account will be ready for checkout right away."
+                      : "Welcome back — sign in to continue with your order."}
+                  </p>
+                </div>
+              </div>
             </div>
-            <h2 className="font-display text-3xl text-foreground">Login required for checkout</h2>
-            <p className="mx-auto mt-3 max-w-xl font-body text-muted-foreground">
-              You can browse and add products or courses as a guest, but checkout needs an account so your cart, order, and updates stay connected.
-            </p>
-            <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
-              <Link to={`/login?redirect=${encodeURIComponent("/checkout")}`} className="inline-flex items-center justify-center rounded-sm bg-gold px-7 py-3 font-display text-sm font-semibold tracking-[0.08em] text-charcoal transition-colors hover:bg-gold-light">
-                Sign In To Checkout
-              </Link>
-              <Link to={`/signup?redirect=${encodeURIComponent("/checkout")}`} className="inline-flex items-center justify-center rounded-sm border border-gold/50 px-7 py-3 font-display text-sm font-semibold tracking-[0.08em] text-gold transition-colors hover:bg-gold hover:text-white">
-                Create Account
-              </Link>
+
+            <div className="px-6 py-6 sm:px-8">
+              {/* Mode toggle */}
+              <div className="mb-5 flex rounded-xl border border-border bg-background/70 p-1">
+                <button
+                  type="button"
+                  onClick={() => { setInlineMode("signup"); setInlineError(""); }}
+                  className={`flex-1 rounded-lg py-2.5 font-body text-sm font-semibold transition-colors ${inlineMode === "signup" ? "bg-gold text-charcoal shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+                >
+                  New Account
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setInlineMode("login"); setInlineError(""); }}
+                  className={`flex-1 rounded-lg py-2.5 font-body text-sm font-semibold transition-colors ${inlineMode === "login" ? "bg-gold text-charcoal shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+                >
+                  Sign In
+                </button>
+              </div>
+
+              {inlineError && (
+                <div className="mb-4 rounded-xl border border-destructive/20 bg-destructive/10 px-4 py-3 font-body text-sm text-destructive">
+                  {inlineError}
+                </div>
+              )}
+
+              {inlineMode === "signup" ? (
+                <form onSubmit={handleInlineSignup} className="space-y-3">
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <label className="font-body text-sm font-semibold text-foreground">
+                      <span className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold tracking-wider text-foreground/70">
+                        <UserRound className="h-3.5 w-3.5 text-gold" /> FULL NAME
+                      </span>
+                      <input
+                        type="text"
+                        value={inlineName}
+                        onChange={(e) => setInlineName(e.target.value)}
+                        required
+                        placeholder="Your full name"
+                        className="mt-1 h-11 w-full rounded-xl border border-border bg-background px-3 font-body text-sm font-normal text-foreground outline-none transition-all placeholder:text-muted-foreground/60 focus:border-gold focus:ring-2 focus:ring-gold/20"
+                      />
+                    </label>
+                    <label className="font-body text-sm font-semibold text-foreground">
+                      <span className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold tracking-wider text-foreground/70">
+                        <Phone className="h-3.5 w-3.5 text-gold" /> WHATSAPP NUMBER
+                      </span>
+                      <input
+                        type="tel"
+                        value={inlinePhone}
+                        onChange={(e) => setInlinePhone(e.target.value)}
+                        required
+                        inputMode="tel"
+                        maxLength={15}
+                        placeholder="10-digit number"
+                        className="mt-1 h-11 w-full rounded-xl border border-border bg-background px-3 font-body text-sm font-normal text-foreground outline-none transition-all placeholder:text-muted-foreground/60 focus:border-gold focus:ring-2 focus:ring-gold/20"
+                      />
+                    </label>
+                  </div>
+                  <label className="block font-body text-sm font-semibold text-foreground">
+                    <span className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold tracking-wider text-foreground/70">
+                      <MessageCircle className="h-3.5 w-3.5 text-gold" /> EMAIL ADDRESS
+                    </span>
+                    <input
+                      type="email"
+                      value={inlineEmail}
+                      onChange={(e) => setInlineEmail(e.target.value)}
+                      required
+                      placeholder="you@example.com"
+                      className="mt-1 h-11 w-full rounded-xl border border-border bg-background px-3 font-body text-sm font-normal text-foreground outline-none transition-all placeholder:text-muted-foreground/60 focus:border-gold focus:ring-2 focus:ring-gold/20"
+                    />
+                  </label>
+                  <label className="block font-body text-sm font-semibold text-foreground">
+                    <span className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold tracking-wider text-foreground/70">
+                      <KeyRound className="h-3.5 w-3.5 text-gold" /> PASSWORD
+                    </span>
+                    <div className="relative mt-1">
+                      <input
+                        type={inlineShowPassword ? "text" : "password"}
+                        value={inlinePassword}
+                        onChange={(e) => setInlinePassword(e.target.value)}
+                        required
+                        minLength={6}
+                        placeholder="Minimum 6 characters"
+                        className="h-11 w-full rounded-xl border border-border bg-background px-3 pr-11 font-body text-sm font-normal text-foreground outline-none transition-all placeholder:text-muted-foreground/60 focus:border-gold focus:ring-2 focus:ring-gold/20"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setInlineShowPassword(!inlineShowPassword)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-gold"
+                      >
+                        {inlineShowPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    </div>
+                  </label>
+
+                  {/* Why WhatsApp */}
+                  <div className="flex items-start gap-2 rounded-xl border border-gold/20 bg-gold/5 px-3 py-2.5">
+                    <BookOpen className="mt-0.5 h-3.5 w-3.5 shrink-0 text-gold" />
+                    <p className="font-body text-[0.75rem] leading-relaxed text-muted-foreground">
+                      Your WhatsApp number is used for <strong className="text-foreground">delivery updates</strong> on products and <strong className="text-foreground">course enrollment confirmations</strong>. You can update it anytime in Account Details.
+                    </p>
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={inlineLoading}
+                    className="flex h-12 w-full items-center justify-center rounded-xl bg-gradient-primary font-display text-sm font-semibold tracking-[0.06em] text-primary-foreground transition-all hover:brightness-110 disabled:opacity-60"
+                  >
+                    {inlineLoading ? "Creating Account…" : "Create Account & Continue to Checkout"}
+                  </button>
+                </form>
+              ) : (
+                <form onSubmit={handleInlineLogin} className="space-y-3">
+                  <label className="block font-body text-sm font-semibold text-foreground">
+                    <span className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold tracking-wider text-foreground/70">
+                      <MessageCircle className="h-3.5 w-3.5 text-gold" /> EMAIL ADDRESS
+                    </span>
+                    <input
+                      type="email"
+                      value={inlineEmail}
+                      onChange={(e) => setInlineEmail(e.target.value)}
+                      required
+                      placeholder="you@example.com"
+                      className="mt-1 h-11 w-full rounded-xl border border-border bg-background px-3 font-body text-sm font-normal text-foreground outline-none transition-all placeholder:text-muted-foreground/60 focus:border-gold focus:ring-2 focus:ring-gold/20"
+                    />
+                  </label>
+                  <label className="block font-body text-sm font-semibold text-foreground">
+                    <span className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold tracking-wider text-foreground/70">
+                      <KeyRound className="h-3.5 w-3.5 text-gold" /> PASSWORD
+                    </span>
+                    <div className="relative mt-1">
+                      <input
+                        type={inlineShowPassword ? "text" : "password"}
+                        value={inlinePassword}
+                        onChange={(e) => setInlinePassword(e.target.value)}
+                        required
+                        placeholder="Your password"
+                        className="h-11 w-full rounded-xl border border-border bg-background px-3 pr-11 font-body text-sm font-normal text-foreground outline-none transition-all placeholder:text-muted-foreground/60 focus:border-gold focus:ring-2 focus:ring-gold/20"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setInlineShowPassword(!inlineShowPassword)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-gold"
+                      >
+                        {inlineShowPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    </div>
+                  </label>
+                  <button
+                    type="submit"
+                    disabled={inlineLoading}
+                    className="flex h-12 w-full items-center justify-center rounded-xl bg-gradient-primary font-display text-sm font-semibold tracking-[0.06em] text-primary-foreground transition-all hover:brightness-110 disabled:opacity-60"
+                  >
+                    {inlineLoading ? "Signing In…" : "Sign In & Continue to Checkout"}
+                  </button>
+                  <p className="text-center font-body text-xs text-muted-foreground">
+                    <Link to="/login" className="font-semibold text-gold hover:underline">Forgot password?</Link>
+                  </p>
+                </form>
+              )}
             </div>
           </section>
         ) : items.length === 0 ? (

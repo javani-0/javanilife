@@ -16,6 +16,7 @@ import ProtectedRoute from "./components/admin/ProtectedRoute";
 import AdminLayout from "./components/admin/AdminLayout";
 import PageLoader from "./components/PageLoader";
 import NotificationPermissionPrompt from "./components/NotificationPermissionPrompt";
+import WhatsAppPromptModal from "./components/WhatsAppPromptModal";
 
 // Public pages — eagerly imported so Suspense never flashes on navigation
 import Index from "./pages/Index";
@@ -128,6 +129,7 @@ const App = () => {
             <BrowserRouter>
               <ScrollToTop />
               <NotificationPermissionPrompt />
+              <WhatsAppPromptModal />
               <PublicNavbar />
               <CartDrawer />
               <PublicFloatingButtons />
