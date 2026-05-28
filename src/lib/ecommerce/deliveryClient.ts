@@ -96,7 +96,7 @@ export const rejectOrderCancellation = (idToken: string, orderId: string, adminN
 );
 
 export const refreshDeliveryOneTracking = (idToken: string, orderId: string): Promise<DeliveryOneTrackingResponse> => (
-  postOrderDeliveryAction(idToken, "/api/orders/track-delivery", { orderId }, "Unable to refresh Delivery One tracking.")
+  postOrderDeliveryAction(idToken, "/api/orders/sync-delivery", { orderId, action: "track" }, "Unable to refresh Delivery One tracking.")
 );
 
 export interface DeliveryOneLabelResponse {

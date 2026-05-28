@@ -10,11 +10,14 @@ import {
   normalizeDeliveryOneLabelPdfSize,
   pushDeliveryOneOrder,
   scheduleDeliveryOnePickup,
+  trackDeliveryOneShipment,
 } from "../_lib/delivery-one.js";
+import { createTrackingUpdatePayload, type OrderSnapshot } from "../_lib/order-delivery.js";
+import { runOrderAutomation, type OrderStatus } from "./notify.js";
 
 interface SyncDeliveryBody {
   orderId?: string;
-  action?: "sync" | "label" | "pickup" | "cancel-pickup" | "mark-pickup-cancelled";
+  action?: "sync" | "label" | "pickup" | "cancel-pickup" | "mark-pickup-cancelled" | "track";
   pdfSize?: string;
   pickupDate?: string;
   pickupTime?: string;
@@ -256,6 +259,36 @@ export default async function handler(request: ApiRequest, response: ApiResponse
         )),
       });
       sendJson(response, 200, { ok: true, orderId, pickupId: booked ? pickupId : undefined, pickupDate, pickupTime, pickupLocation, expectedPackageCount, pickupRequestStatus, message: pickupMessage });
+      return;
+    }
+
+    if (action === "track") {
+      const orderTyped = order as OrderSnapshot;
+      const waybill = getString(orderTyped.delivery?.trackingNumber as string).trim();
+      if (!waybill) {
+        sendError(response, 409, "This order does not have a Delivery One tracking number yet.");
+        return;
+      }
+      const update = await trackDeliveryOneShipment(waybill, String(orderTyped.orderNumber || orderId));
+      const nextStatus = update.orderStatus;
+      await orderSnapshot.ref.update(createTrackingUpdatePayload({ order: orderTyped, update, createdBy: decoded.uid }));
+      const notificationStatuses = new Set<string>(["delivered", "cancelled"]);
+      const shouldNotify = Boolean(nextStatus && notificationStatuses.has(nextStatus)) && orderTyped.status !== nextStatus;
+      const automation = shouldNotify
+        ? await runOrderAutomation({ orderId, event: "order-status-updated", status: nextStatus as OrderStatus, recordedBy: decoded.uid })
+            .catch((err) => { console.error("Unable to send tracking refresh automation", err); return null; })
+        : null;
+      sendJson(response, 200, {
+        ok: true,
+        orderId,
+        trackingNumber: update.trackingNumber || waybill,
+        providerStatus: update.providerStatus,
+        providerStatusType: update.providerStatusType,
+        orderStatus: update.orderStatus,
+        lifecycleStatus: update.lifecycleStatus,
+        notificationStatus: automation?.warnings?.length ? "attention" : automation ? "sent" : shouldNotify ? "unchanged" : "not-required",
+        message: "Delivery One tracking refreshed.",
+      });
       return;
     }
 

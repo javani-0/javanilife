@@ -198,7 +198,8 @@ export const sendWhatsAppOtpTemplate = ({ to, code }: { to: string; code: string
     return Promise.resolve({ status: "failed", errorMessage: "WhatsApp recipient phone number is missing." } as WhatsAppSendResult);
   }
 
-  const sendWithButton = () => postWhatsAppMessage({
+  // Authentication template with Copy Code button (Meta recommended format)
+  const sendWithCopyCodeButton = () => postWhatsAppMessage({
     to: safeNumber,
     type: "template",
     template: {
@@ -211,9 +212,9 @@ export const sendWhatsAppOtpTemplate = ({ to, code }: { to: string; code: string
         },
         {
           type: "button",
-          sub_type: "url",
+          sub_type: "copy_code",
           index: "0",
-          parameters: [{ type: "text", text: code }],
+          parameters: [{ type: "coupon_code", coupon_code: code }],
         },
       ],
     },
@@ -234,5 +235,5 @@ export const sendWhatsAppOtpTemplate = ({ to, code }: { to: string; code: string
     },
   });
 
-  return sendWithButton().then((result) => result.status === "failed" ? sendWithoutButton() : result);
+  return sendWithCopyCodeButton().then((result) => result.status === "failed" ? sendWithoutButton() : result);
 };

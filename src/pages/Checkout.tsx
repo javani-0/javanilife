@@ -833,10 +833,12 @@ const Checkout = () => {
                     Phone
                     <input value={address.phone} onChange={updateAddress("phone")} className="mt-2 h-11 w-full rounded-md border border-border bg-background px-3 font-body text-sm outline-none transition-colors focus:border-gold focus:ring-2 focus:ring-gold/20" placeholder="10-digit mobile number" inputMode="tel" />
                   </label>
-                  <label className="font-body text-sm font-semibold text-foreground sm:col-span-2">
-                    Email
-                    <input value={address.email || ""} onChange={updateAddress("email")} className="mt-2 h-11 w-full rounded-md border border-border bg-background px-3 font-body text-sm outline-none transition-colors focus:border-gold focus:ring-2 focus:ring-gold/20" placeholder="you@example.com" type="email" />
-                  </label>
+                  {hasShippableItems && (
+                    <label className="font-body text-sm font-semibold text-foreground sm:col-span-2">
+                      Email
+                      <input value={address.email || ""} onChange={updateAddress("email")} className="mt-2 h-11 w-full rounded-md border border-border bg-background px-3 font-body text-sm outline-none transition-colors focus:border-gold focus:ring-2 focus:ring-gold/20" placeholder="you@example.com" type="email" />
+                    </label>
+                  )}
                   {hasShippableItems && (
                     <>
                       <label className="font-body text-sm font-semibold text-foreground sm:col-span-2">
@@ -865,10 +867,12 @@ const Checkout = () => {
                       </label>
                     </>
                   )}
-                  <label className="font-body text-sm font-semibold text-foreground sm:col-span-2">
-                    {hasShippableItems ? "Delivery notes" : "Notes"}
-                    <textarea value={address.notes || ""} onChange={updateAddress("notes")} rows={3} className="mt-2 w-full rounded-md border border-border bg-background px-3 py-3 font-body text-sm outline-none transition-colors focus:border-gold focus:ring-2 focus:ring-gold/20" placeholder={hasShippableItems ? "Optional notes for delivery or admin follow-up" : "Optional notes for admin follow-up"} />
-                  </label>
+                  {hasShippableItems && (
+                    <label className="font-body text-sm font-semibold text-foreground sm:col-span-2">
+                      Delivery notes
+                      <textarea value={address.notes || ""} onChange={updateAddress("notes")} rows={3} className="mt-2 w-full rounded-md border border-border bg-background px-3 py-3 font-body text-sm outline-none transition-colors focus:border-gold focus:ring-2 focus:ring-gold/20" placeholder="Optional notes for delivery or admin follow-up" />
+                    </label>
+                  )}
                 </div>
               </div>
 
@@ -884,11 +888,13 @@ const Checkout = () => {
                 </div>
 
                 <div className="grid gap-3 sm:grid-cols-2">
-                  <label className={`cursor-pointer rounded-xl border p-4 transition-colors ${paymentMethod === "cod" ? "border-gold bg-gold/10" : "border-border bg-background/70 hover:border-gold/50"} ${!codAvailable ? "cursor-not-allowed opacity-50" : ""}`}>
-                    <input type="radio" name="paymentMethod" value="cod" checked={paymentMethod === "cod"} onChange={() => codAvailable && setPaymentMethod("cod")} disabled={!codAvailable} className="sr-only" />
-                    <span className="font-body text-sm font-bold text-foreground">Cash on Delivery</span>
-                    <span className="mt-2 block font-body text-xs leading-relaxed text-muted-foreground">{codAvailable ? "Place the order now and collect payment at delivery." : paymentEligibility.codUnavailableReason || "COD is unavailable for this cart."}</span>
-                  </label>
+                  {hasShippableItems && (
+                    <label className={`cursor-pointer rounded-xl border p-4 transition-colors ${paymentMethod === "cod" ? "border-gold bg-gold/10" : "border-border bg-background/70 hover:border-gold/50"} ${!codAvailable ? "cursor-not-allowed opacity-50" : ""}`}>
+                      <input type="radio" name="paymentMethod" value="cod" checked={paymentMethod === "cod"} onChange={() => codAvailable && setPaymentMethod("cod")} disabled={!codAvailable} className="sr-only" />
+                      <span className="font-body text-sm font-bold text-foreground">Cash on Delivery</span>
+                      <span className="mt-2 block font-body text-xs leading-relaxed text-muted-foreground">{codAvailable ? "Place the order now and collect payment at delivery." : paymentEligibility.codUnavailableReason || "COD is unavailable for this cart."}</span>
+                    </label>
+                  )}
                   <label className={`cursor-pointer rounded-xl border p-4 transition-colors ${paymentMethod === "razorpay" ? "border-gold bg-gold/10" : "border-border bg-background/70 hover:border-gold/50"} ${!onlineAvailable ? "cursor-not-allowed opacity-50" : ""}`}>
                     <input type="radio" name="paymentMethod" value="razorpay" checked={paymentMethod === "razorpay"} onChange={() => onlineAvailable && setPaymentMethod("razorpay")} disabled={!onlineAvailable} className="sr-only" />
                     <span className="font-body text-sm font-bold text-foreground">Razorpay Online</span>

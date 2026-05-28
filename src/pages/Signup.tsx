@@ -41,10 +41,10 @@ const Signup = () => {
     }
     setSendingOtp(true);
     try {
-      const res = await fetch("/api/auth/send-otp", {
+      const res = await fetch("/api/auth/otp", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone: digits }),
+        body: JSON.stringify({ action: "send", phone: digits }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -69,10 +69,10 @@ const Signup = () => {
     }
     setVerifyingOtp(true);
     try {
-      const res = await fetch("/api/auth/verify-otp", {
+      const res = await fetch("/api/auth/otp", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone: sanitizePhone(phone), code: otp }),
+        body: JSON.stringify({ action: "verify", phone: sanitizePhone(phone), code: otp }),
       });
       const data = await res.json();
       if (!res.ok) {
