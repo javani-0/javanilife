@@ -610,6 +610,34 @@ const Checkout = () => {
         console.error("Order was created but the cart could not be cleared", clearCartError);
       }
       clearBuyNowItem();
+
+      // Auto-save custom address to address book after successful order
+      if (selectedSavedAddressId === "custom") {
+        void (async () => {
+          try {
+            const existingAddressesSnapshot = await getDocs(collection(db, "users", user.uid, "addresses"));
+            await addDoc(collection(db, "users", user.uid, "addresses"), {
+              fullName: normalizedAddress.fullName,
+              phone: normalizedAddress.phone,
+              email: normalizedAddress.email || "",
+              line1: normalizedAddress.line1 || "",
+              line2: normalizedAddress.line2 || "",
+              city: normalizedAddress.city || "",
+              state: normalizedAddress.state || "",
+              pincode: normalizedAddress.pincode || "",
+              landmark: normalizedAddress.landmark || "",
+              notes: normalizedAddress.notes || "",
+              isDefault: existingAddressesSnapshot.empty,
+              createdAt: serverTimestamp(),
+              updatedAt: serverTimestamp(),
+            });
+            toast({ title: "Address saved", description: "Your delivery address has been saved for future orders." });
+          } catch (saveError) {
+            console.error("Could not auto-save checkout address", saveError);
+          }
+        })();
+      }
+
       setPlacedOrder({ id: orderDocument.id, orderNumber, totalInPaise: checkoutTotals.totalInPaise, paidNowInPaise: payNowAmountInPaise, paymentLabel, hasShippableItems, paymentPlan });
       toast({ title: paymentMethod === "razorpay" ? (paymentPlan === "installment" ? "First installment received" : "Payment received") : "Order placed", description: `${orderNumber} has been created.` });
     } catch (error) {
