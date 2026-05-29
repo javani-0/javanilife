@@ -179,6 +179,7 @@ const Checkout = () => {
   const { redeemableCoupons, checkoutCoupons, loading: couponsLoading } = useCoupons();
   const { toast } = useToast();
   const [address, setAddress] = useState<CheckoutAddress>(emptyAddress);
+  const [deliveryMethod, setDeliveryMethod] = useState<"shipping" | "store-pickup">("shipping");
   const [savedAddresses, setSavedAddresses] = useState<CheckoutAddress[]>([]);
   const [selectedSavedAddressId, setSelectedSavedAddressId] = useState<string>("custom");
   const [deliveryPricing, setDeliveryPricing] = useState<Required<DeliveryPricingSettings>>(normalizeDeliveryPricingSettings());
@@ -192,7 +193,7 @@ const Checkout = () => {
   const [formError, setFormError] = useState("");
   const [accountWhatsAppDialogOpen, setAccountWhatsAppDialogOpen] = useState(false);
   const [coursePaymentPlan, setCoursePaymentPlan] = useState<CoursePaymentPlanOption>("full");
-  const [placedOrder, setPlacedOrder] = useState<{ id: string; orderNumber: string; totalInPaise: number; paidNowInPaise: number; paymentLabel: string; hasShippableItems: boolean; paymentPlan: CoursePaymentPlanOption } | null>(null);
+  const [placedOrder, setPlacedOrder] = useState<{ id: string; orderNumber: string; totalInPaise: number; paidNowInPaise: number; paymentLabel: string; hasShippableItems: boolean; paymentPlan: CoursePaymentPlanOption; deliveryMethod: "shipping" | "store-pickup" } | null>(null);
 
   // Inline signup / login for unauthenticated users
   const [inlineMode, setInlineMode] = useState<"signup" | "login">("signup");
@@ -362,7 +363,7 @@ const Checkout = () => {
     () => selectedCoupon && selectedCouponEligibility?.eligible ? calculateCouponDiscount(selectedCoupon, couponContext) : null,
     [couponContext, selectedCoupon, selectedCouponEligibility?.eligible],
   );
-  const finalDeliveryChargeInPaise = Math.max(0, deliveryEstimate.chargeInPaise - (appliedCoupon?.deliveryDiscountInPaise || 0));
+  const finalDeliveryChargeInPaise = deliveryMethod === "store-pickup" ? 0 : Math.max(0, deliveryEstimate.chargeInPaise - (appliedCoupon?.deliveryDiscountInPaise || 0));
   const checkoutTotals = useMemo(
     () => calculateCartTotals(items, finalDeliveryChargeInPaise, appliedCoupon?.discountInPaise || 0),
     [appliedCoupon?.discountInPaise, finalDeliveryChargeInPaise, items]
@@ -516,7 +517,7 @@ const Checkout = () => {
 
     const accountCallNumber = getAccountCallNumber(userProfile, accountWhatsAppNumber);
 
-    const validationError = validateAddress(address, { requireShippingAddress: hasShippableItems });
+    const validationError = validateAddress(address, { requireShippingAddress: hasShippableItems && deliveryMethod === "shipping" });
     if (validationError) {
       setFormError(validationError);
       return;
@@ -577,13 +578,14 @@ const Checkout = () => {
         delivery: {
           chargeInPaise: checkoutTotals.deliveryChargeInPaise,
           originalChargeInPaise: deliveryEstimate.originalChargeInPaise,
-          freeDeliveryReason: deliveryEstimate.freeDeliveryReason,
+          freeDeliveryReason: deliveryMethod === "store-pickup" ? "Store Pick Up" : deliveryEstimate.freeDeliveryReason,
           couponDeliveryDiscountInPaise: appliedCoupon?.deliveryDiscountInPaise || 0,
           status: "placed",
-          provider: hasShippableItems ? DEFAULT_DELIVERY_PROVIDER : "manual",
+          provider: hasShippableItems && deliveryMethod === "shipping" ? DEFAULT_DELIVERY_PROVIDER : "manual",
           syncStatus: "manual-ready",
           shipmentWeightInGrams: deliveryEstimate.weightInGrams,
           usesFallbackWeight: deliveryEstimate.usesFallbackWeight,
+          method: deliveryMethod,
         },
         status: "placed",
         subtotalInPaise: checkoutTotals.subtotalInPaise,
@@ -694,7 +696,7 @@ const Checkout = () => {
         })();
       }
 
-      setPlacedOrder({ id: orderDocument.id, orderNumber, totalInPaise: checkoutTotals.totalInPaise, paidNowInPaise: payNowAmountInPaise, paymentLabel, hasShippableItems, paymentPlan });
+      setPlacedOrder({ id: orderDocument.id, orderNumber, totalInPaise: checkoutTotals.totalInPaise, paidNowInPaise: payNowAmountInPaise, paymentLabel, hasShippableItems, paymentPlan, deliveryMethod });
       toast({ title: paymentMethod === "razorpay" ? (paymentPlan === "installment" ? "First installment received" : "Payment received") : "Order placed", description: `${orderNumber} has been created.` });
     } catch (error) {
       console.error("Unable to place order", error);
@@ -728,6 +730,10 @@ const Checkout = () => {
                 ? placedOrder.paymentPlan === "installment"
                   ? "Your first installment was verified through Razorpay. Admin can now review the course purchase and follow up with enrollment details."
                   : "Your online payment was verified through Razorpay. Admin can now review the course purchase and follow up with enrollment details."
+                : placedOrder.deliveryMethod === "store-pickup"
+                ? placedOrder.paymentLabel === "Razorpay Online"
+                  ? "Your online payment was verified. Admin will prepare your order for store pickup."
+                  : "Your store pickup order has been placed. Admin will prepare your items for collection."
                 : placedOrder.paymentLabel === "Razorpay Online"
                 ? "Your online payment was verified through Razorpay. Admin can now review it, confirm packing, and continue with Delivery One shipment handling."
                 : "Your COD order has been placed. Admin can now review it, confirm packing, and continue with Delivery One shipment handling."}
@@ -996,17 +1002,44 @@ const Checkout = () => {
             <div className="grid gap-8 lg:grid-cols-[1fr_380px]">
             <section className="space-y-6">
               <div className="rounded-2xl border border-border/60 bg-card p-5 shadow-card sm:p-6">
+                {hasShippableItems && (
+                  <div className="mb-8">
+                    <div className="mb-5 flex items-center gap-3">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gold/10 text-gold">
+                        <Truck className="h-5 w-5" />
+                      </div>
+                      <div>
+                        <h2 className="font-display text-2xl text-foreground">Delivery Method</h2>
+                        <p className="font-body text-sm text-muted-foreground">How would you like to receive your order?</p>
+                      </div>
+                    </div>
+                    
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <label className={`cursor-pointer rounded-xl border p-4 transition-colors ${deliveryMethod === "shipping" ? "border-gold bg-gold/10" : "border-border bg-background/70 hover:border-gold/50"}`}>
+                        <input type="radio" name="deliveryMethod" value="shipping" checked={deliveryMethod === "shipping"} onChange={() => setDeliveryMethod("shipping")} className="sr-only" />
+                        <span className="font-body text-sm font-bold text-foreground">Ship to address</span>
+                        <span className="mt-2 block font-body text-xs leading-relaxed text-muted-foreground">Standard delivery via courier.</span>
+                      </label>
+                      <label className={`cursor-pointer rounded-xl border p-4 transition-colors ${deliveryMethod === "store-pickup" ? "border-gold bg-gold/10" : "border-border bg-background/70 hover:border-gold/50"}`}>
+                        <input type="radio" name="deliveryMethod" value="store-pickup" checked={deliveryMethod === "store-pickup"} onChange={() => setDeliveryMethod("store-pickup")} className="sr-only" />
+                        <span className="font-body text-sm font-bold text-foreground">Store Pick Up</span>
+                        <span className="mt-2 block font-body text-xs leading-relaxed text-muted-foreground">Pick up directly from our store. No delivery charges.</span>
+                      </label>
+                    </div>
+                  </div>
+                )}
+
                 <div className="mb-5 flex items-center gap-3">
                   <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gold/10 text-gold">
                     <MapPin className="h-5 w-5" />
                   </div>
                   <div>
-                    <h2 className="font-display text-2xl text-foreground">{hasShippableItems ? "Delivery Details" : "Enrollment Details"}</h2>
-                    <p className="font-body text-sm text-muted-foreground">{hasShippableItems ? "Used for Delivery One shipment coordination." : "Used to attach this course purchase to your account and WhatsApp updates."}</p>
+                    <h2 className="font-display text-2xl text-foreground">{hasShippableItems ? (deliveryMethod === "store-pickup" ? "Customer Details" : "Delivery Details") : "Enrollment Details"}</h2>
+                    <p className="font-body text-sm text-muted-foreground">{hasShippableItems ? (deliveryMethod === "store-pickup" ? "Required for order tracking and contact." : "Used for Delivery One shipment coordination.") : "Used to attach this course purchase to your account and WhatsApp updates."}</p>
                   </div>
                 </div>
 
-                {hasShippableItems && savedAddresses.length > 0 && (
+                {hasShippableItems && deliveryMethod === "shipping" && savedAddresses.length > 0 && (
                   <div className="mb-5 space-y-3 rounded-xl border border-gold/20 bg-background/70 p-4">
                     <div>
                       <p className="font-body text-sm font-semibold text-foreground">Choose saved address</p>
@@ -1059,7 +1092,7 @@ const Checkout = () => {
                       <input value={address.email || ""} onChange={updateAddress("email")} className="mt-2 h-11 w-full rounded-md border border-border bg-background px-3 font-body text-sm outline-none transition-colors focus:border-gold focus:ring-2 focus:ring-gold/20" placeholder="you@example.com" type="email" />
                     </label>
                   )}
-                  {hasShippableItems && (
+                  {hasShippableItems && deliveryMethod === "shipping" && (
                     <>
                       <label className="font-body text-sm font-semibold text-foreground sm:col-span-2">
                         Address line 1
@@ -1089,8 +1122,8 @@ const Checkout = () => {
                   )}
                   {hasShippableItems && (
                     <label className="font-body text-sm font-semibold text-foreground sm:col-span-2">
-                      Delivery notes
-                      <textarea value={address.notes || ""} onChange={updateAddress("notes")} rows={3} className="mt-2 w-full rounded-md border border-border bg-background px-3 py-3 font-body text-sm outline-none transition-colors focus:border-gold focus:ring-2 focus:ring-gold/20" placeholder="Optional notes for delivery or admin follow-up" />
+                      {deliveryMethod === "shipping" ? "Delivery notes" : "Order notes"}
+                      <textarea value={address.notes || ""} onChange={updateAddress("notes")} rows={3} className="mt-2 w-full rounded-md border border-border bg-background px-3 py-3 font-body text-sm outline-none transition-colors focus:border-gold focus:ring-2 focus:ring-gold/20" placeholder={deliveryMethod === "shipping" ? "Optional notes for delivery or admin follow-up" : "Optional notes for admin follow-up"} />
                     </label>
                   )}
                 </div>
@@ -1235,7 +1268,7 @@ const Checkout = () => {
                 <div className="flex items-start justify-between gap-4">
                   <span className="text-muted-foreground">Delivery</span>
                   <span className="text-right font-medium text-foreground">
-                    {!hasShippableItems ? "Not required" : deliveryLoading ? "Calculating..." : (
+                    {!hasShippableItems ? "Not required" : deliveryMethod === "store-pickup" ? "Free (Store Pick Up)" : deliveryLoading ? "Calculating..." : (
                       <>
                         <span className="block">
                           {(deliveryEstimate.originalChargeInPaise || appliedCoupon?.deliveryDiscountInPaise) ? <span className="mr-2 text-muted-foreground line-through">{formatPaiseAsRupees(deliveryEstimate.originalChargeInPaise || deliveryEstimate.chargeInPaise)}</span> : null}
@@ -1281,7 +1314,7 @@ const Checkout = () => {
                 Order messages are sent to the WhatsApp number saved in Account Details, not this delivery phone field.
               </div>
 
-              {hasShippableItems && <div className="mt-4 rounded-xl border border-gold/20 bg-gold/10 p-3 font-body text-xs leading-relaxed text-foreground">
+              {hasShippableItems && deliveryMethod === "shipping" && <div className="mt-4 rounded-xl border border-gold/20 bg-gold/10 p-3 font-body text-xs leading-relaxed text-foreground">
                 <div className="mb-1 flex items-center gap-2 font-semibold">
                   <Truck className="h-4 w-4 text-gold" /> Delivery estimate
                 </div>

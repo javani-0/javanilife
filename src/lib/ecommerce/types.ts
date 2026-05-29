@@ -250,6 +250,7 @@ export interface DeliveryInfo {
   provider?: DeliveryProvider;
   syncStatus?: DeliverySyncStatus;
   lifecycleStatus?: DeliveryLifecycleStatus;
+  method?: "shipping" | "store-pickup";
   providerOrderId?: string;
   trackingNumber?: string;
   trackingUrl?: string;
