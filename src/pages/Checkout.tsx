@@ -50,6 +50,7 @@ import {
   type DeliveryProfileMap,
   type PaymentMethod,
 } from "@/lib/ecommerce";
+import { trackPurchase } from "@/lib/analytics/metaPixel";
 import heroTemple from "@/assets/hero-temple.jpg";
 
 type FirestoreSafeValue =
@@ -697,6 +698,10 @@ const Checkout = () => {
       }
 
       setPlacedOrder({ id: orderDocument.id, orderNumber, totalInPaise: checkoutTotals.totalInPaise, paidNowInPaise: payNowAmountInPaise, paymentLabel, hasShippableItems, paymentPlan, deliveryMethod });
+      // Meta Pixel Purchase — fires once here, the single success point for BOTH COD and
+      // Razorpay (Razorpay reaches this line only after payment verification succeeds).
+      // value = actual order total in rupees; eventID = order number for dedupe.
+      trackPurchase({ value: checkoutTotals.totalInPaise / 100, currency: "INR", eventId: orderNumber });
       toast({ title: paymentMethod === "razorpay" ? (paymentPlan === "installment" ? "First installment received" : "Payment received") : "Order placed", description: `${orderNumber} has been created.` });
     } catch (error) {
       console.error("Unable to place order", error);

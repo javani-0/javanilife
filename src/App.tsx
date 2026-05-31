@@ -17,6 +17,7 @@ import AdminLayout from "./components/admin/AdminLayout";
 import PageLoader from "./components/PageLoader";
 import NotificationPermissionPrompt from "./components/NotificationPermissionPrompt";
 import WhatsAppPromptModal from "./components/WhatsAppPromptModal";
+import { trackPageView } from "@/lib/analytics/metaPixel";
 
 // Public pages — eagerly imported so Suspense never flashes on navigation
 import Index from "./pages/Index";
@@ -62,6 +63,13 @@ const queryClient = new QueryClient();
 const ScrollToTop = () => {
   const { pathname } = useLocation();
   useEffect(() => { window.scrollTo(0, 0); }, [pathname]);
+  return null;
+};
+
+// Fires a Meta Pixel PageView on initial load and on every client-side route change.
+const MetaPixelPageViews = () => {
+  const { pathname } = useLocation();
+  useEffect(() => { trackPageView(); }, [pathname]);
   return null;
 };
 
@@ -128,6 +136,7 @@ const App = () => {
             {showLoader && <PageLoader />}
             <BrowserRouter>
               <ScrollToTop />
+              <MetaPixelPageViews />
               <NotificationPermissionPrompt />
               <WhatsAppPromptModal />
               <PublicNavbar />

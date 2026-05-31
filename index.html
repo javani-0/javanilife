@@ -32,7 +32,8 @@
   s.parentNode.insertBefore(t,s)}(window, document,'script',
   'https://connect.facebook.net/en_US/fbevents.js');
   fbq('init', '1500016554837133');
-  fbq('track', 'PageView');
+  // PageView is fired per route change in the app (see MetaPixelPageViews in src/App.tsx),
+  // so it is intentionally NOT tracked here.
   </script>
   <!-- End Meta Pixel Code -->
 </head>
