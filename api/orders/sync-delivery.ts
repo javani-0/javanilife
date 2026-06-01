@@ -53,7 +53,7 @@ export default async function handler(request: ApiRequest, response: ApiResponse
   try {
     const body = await readJsonBody<SyncDeliveryBody>(request);
     const orderId = getString(body.orderId).trim();
-    const action = getString(body.action, "sync") as "sync" | "label" | "pickup" | "cancel-pickup" | "mark-pickup-cancelled";
+    const action = getString(body.action, "sync") as "sync" | "label" | "pickup" | "cancel-pickup" | "mark-pickup-cancelled" | "track";
     if (!orderId) {
       sendError(response, 400, "orderId is required.");
       return;

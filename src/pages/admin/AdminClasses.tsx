@@ -53,6 +53,43 @@ const defaultForm: ClassFormState = {
 const inputClass = "w-full px-3 py-2 rounded-md border border-border font-body text-[0.875rem] outline-none focus:border-gold focus:ring-2 focus:ring-gold/20 bg-background";
 const labelClass = "font-body text-[0.85rem] text-muted-foreground block mb-1";
 
+const TimePicker = ({ value, onChange }: { value: string; onChange: (val: string) => void }) => {
+  const [hourStr, minuteStr] = value ? value.split(':') : ["", ""];
+  const h24 = hourStr ? parseInt(hourStr, 10) : null;
+  const h12 = h24 === null ? "" : (h24 % 12 === 0 ? 12 : h24 % 12).toString();
+  const ampm = h24 === null ? "" : (h24 >= 12 ? "PM" : "AM");
+  const minute = minuteStr || "";
+
+  const updateTime = (newH12: string, newMin: string, newAmPm: string) => {
+    if (!newH12) return onChange("");
+    const minToUse = newMin || "00";
+    const amPmToUse = newAmPm || "PM";
+    let h = parseInt(newH12, 10);
+    if (amPmToUse === "PM" && h < 12) h += 12;
+    if (amPmToUse === "AM" && h === 12) h = 0;
+    onChange(`${h.toString().padStart(2, '0')}:${minToUse}`);
+  };
+
+  return (
+    <div className="flex gap-2">
+      <select value={h12} onChange={e => updateTime(e.target.value, minute, ampm)} className="flex-1 px-2 py-2 rounded-md border border-border font-body text-[0.875rem] outline-none focus:border-gold focus:ring-2 focus:ring-gold/20 bg-background">
+        <option value="" disabled>HH</option>
+        {Array.from({length: 12}, (_, i) => <option key={i+1} value={i+1}>{i+1}</option>)}
+      </select>
+      <span className="self-center font-bold text-muted-foreground">:</span>
+      <select value={minute} onChange={e => updateTime(h12 || "12", e.target.value, ampm)} className="flex-1 px-2 py-2 rounded-md border border-border font-body text-[0.875rem] outline-none focus:border-gold focus:ring-2 focus:ring-gold/20 bg-background">
+        <option value="" disabled>MM</option>
+        {Array.from({length: 60}, (_, i) => i.toString().padStart(2, '0')).map(m => <option key={m} value={m}>{m}</option>)}
+      </select>
+      <select value={ampm} onChange={e => updateTime(h12 || "12", minute, e.target.value)} className="flex-[1.2] px-2 py-2 rounded-md border border-border font-body text-[0.875rem] outline-none focus:border-gold focus:ring-2 focus:ring-gold/20 bg-background">
+        <option value="" disabled>AM/PM</option>
+        <option value="AM">AM</option>
+        <option value="PM">PM</option>
+      </select>
+    </div>
+  );
+};
+
 const AdminClasses = () => {
   const [classes, setClasses] = useState<ClassDoc[]>([]);
   const [showModal, setShowModal] = useState(false);
@@ -256,11 +293,11 @@ const AdminClasses = () => {
               </div>
               <div>
                 <label className={labelClass}>Class Time — From</label>
-                <input type="time" value={form.scheduleStart} onChange={(event) => setForm({ ...form, scheduleStart: event.target.value })} className={inputClass} />
+                <TimePicker value={form.scheduleStart} onChange={(val) => setForm({ ...form, scheduleStart: val })} />
               </div>
               <div>
                 <label className={labelClass}>Class Time — To</label>
-                <input type="time" value={form.scheduleEnd} onChange={(event) => setForm({ ...form, scheduleEnd: event.target.value })} className={inputClass} />
+                <TimePicker value={form.scheduleEnd} onChange={(val) => setForm({ ...form, scheduleEnd: val })} />
               </div>
               {(form.scheduleDays.length > 0 || form.scheduleStart) && (
                 <p className="sm:col-span-2 -mt-2 font-body text-[0.72rem] text-muted-foreground">Schedule preview: <span className="font-semibold text-gold">{composeSchedule(form.scheduleDays, form.scheduleStart, form.scheduleEnd) || "—"}</span></p>
