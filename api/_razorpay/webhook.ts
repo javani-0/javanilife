@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import { getFirebaseAdminDb, FieldValue } from "../_lib/firebase-admin.js";
 import { requirePost, sendError, sendJson, type ApiRequest, type ApiResponse } from "../_lib/http.js";
+import { sendEmiInstallmentNotification } from "../orders/notify.js";
 import { monthKeyFor } from "../_lib/class-fees.js";
 import {
   ensureFeePayment,
@@ -281,6 +282,125 @@ async function handleSubscriptionEvent(event: string, subscription: RazorpaySubs
   }
 }
 
+// --- EMI Subscription (autopay) & Manual fallback flow ---------------------
+
+async function handleEmiSubscriptionEvent(event: string, subscription: RazorpaySubscriptionEntity, payment?: RazorpayPaymentEntity) {
+  const subscriptionId = subscription.id || "";
+  if (!subscriptionId) return;
+
+  const orderDocumentId = subscription.notes?.orderDocumentId || "";
+  if (!orderDocumentId) return;
+
+  const db = getFirebaseAdminDb();
+  const orderRef = db.collection("orders").doc(orderDocumentId);
+  const orderDoc = await orderRef.get();
+
+  if (!orderDoc.exists) return;
+  const orderData = orderDoc.data() || {};
+  const paymentInfo = orderData.payment || {};
+
+  if (event === "subscription.authenticated") {
+    await orderRef.update({
+      "payment.emiSubscription.mandateStatus": "authenticated",
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+    return;
+  }
+
+  if (event === "subscription.activated") {
+    await orderRef.update({
+      "payment.emiSubscription.mandateStatus": "active",
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+    return;
+  }
+
+  if (event === "subscription.charged") {
+    // A recurring charge succeeded
+    const installments = paymentInfo.installmentPlan?.installments || [];
+    const pendingInstallment = installments.find((inst: any) => inst.status === "pending");
+    
+    if (pendingInstallment) {
+      pendingInstallment.status = "paid";
+      pendingInstallment.paidAt = new Date().toISOString();
+      pendingInstallment.razorpayPaymentId = payment?.id || "";
+      pendingInstallment.paymentMethod = "autopay";
+
+      const allPaid = installments.every((inst: any) => inst.status === "paid");
+
+      await orderRef.update({
+        "payment.installmentPlan.installments": installments,
+        ...(allPaid ? { "payment.status": "paid", "payment.installmentPlan.status": "completed" } : {}),
+        "payment.emiSubscription.mandateStatus": "active",
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      
+      void sendEmiInstallmentNotification({
+        orderId: orderDocumentId,
+        installmentNumber: Number(pendingInstallment.installmentNumber),
+        status: "paid",
+        amountInPaise: Number(pendingInstallment.amountInPaise || 0)
+      }).catch((err) => console.error("Failed to send EMI notification", err));
+    }
+    return;
+  }
+
+  if (event === "subscription.pending" || event === "subscription.halted") {
+    await orderRef.update({
+      "payment.emiSubscription.mandateStatus": "halted",
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+  }
+
+  if (event === "subscription.cancelled" || event === "subscription.completed") {
+    await orderRef.update({
+      "payment.emiSubscription.mandateStatus": event === "subscription.cancelled" ? "cancelled" : "completed",
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+  }
+}
+
+async function handleEmiInstallmentCaptured(payment: RazorpayPaymentEntity) {
+  const orderDocumentId = payment.notes?.orderDocumentId || "";
+  const installmentNumber = Number(payment.notes?.installmentNumber || 0);
+  const razorpayPaymentId = payment.id || "";
+
+  if (!orderDocumentId || !installmentNumber) return;
+
+  const db = getFirebaseAdminDb();
+  const orderRef = db.collection("orders").doc(orderDocumentId);
+  const orderDoc = await orderRef.get();
+
+  if (!orderDoc.exists) return;
+  const orderData = orderDoc.data() || {};
+  const paymentInfo = orderData.payment || {};
+  const installments = paymentInfo.installmentPlan?.installments || [];
+
+  const targetInstallment = installments.find((inst: any) => inst.installmentNumber === installmentNumber);
+  
+  if (targetInstallment && targetInstallment.status !== "paid") {
+    targetInstallment.status = "paid";
+    targetInstallment.paidAt = new Date().toISOString();
+    targetInstallment.razorpayPaymentId = razorpayPaymentId;
+    targetInstallment.paymentMethod = "manual";
+
+    const allPaid = installments.every((inst: any) => inst.status === "paid");
+
+    await orderRef.update({
+      "payment.installmentPlan.installments": installments,
+      ...(allPaid ? { "payment.status": "paid", "payment.installmentPlan.status": "completed" } : {}),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+
+    void sendEmiInstallmentNotification({
+      orderId: orderDocumentId,
+      installmentNumber: Number(targetInstallment.installmentNumber),
+      status: "paid",
+      amountInPaise: Number(targetInstallment.amountInPaise || 0)
+    }).catch((err) => console.error("Failed to send EMI notification", err));
+  }
+}
+
 export default async function handler(request: ApiRequest, response: ApiResponse) {
   if (!requirePost(request, response)) return;
 
@@ -314,13 +434,19 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     if (event === "payment.captured" && payment) {
       if (payment.notes?.kind === "class-fee" && payment.notes.feePaymentId) {
         await markClassFeePaid(payment.notes.feePaymentId, payment.id || "", "manual");
+      } else if (payment.notes?.kind === "emi-installment" && payment.notes.orderDocumentId) {
+        await handleEmiInstallmentCaptured(payment);
       } else {
         await handleOrderCaptured(payment);
       }
     } else if (event === "payment.failed" && payment?.notes?.kind === "class-fee" && payment.notes.feePaymentId) {
       await markClassFeeFailed(payment.notes.feePaymentId);
     } else if (event.startsWith("subscription.") && subscription) {
-      await handleSubscriptionEvent(event, subscription, payment);
+      if (subscription.notes?.kind === "emi-order") {
+        await handleEmiSubscriptionEvent(event, subscription, payment);
+      } else {
+        await handleSubscriptionEvent(event, subscription, payment);
+      }
     }
   } catch (error) {
     // Log but still ACK so Razorpay does not retry endlessly.

@@ -54,9 +54,17 @@ const toDateKey = (date: Date) => date.toISOString().slice(0, 10);
 
 export const getCourseInstallmentReminderMonthKey = (date: Date) => date.toISOString().slice(0, 7);
 
-const isDueDateReached = (dueDate: string | undefined, now: Date) => {
-  if (!dueDate) return false;
-  return dueDate <= toDateKey(now);
+const isReminderDateReached = (dueDateStr: string | undefined, now: Date, reminderDaysBefore: number) => {
+  if (!dueDateStr) return false;
+  
+  // Calculate the reminder threshold date: dueDate - reminderDaysBefore
+  const dueDate = new Date(dueDateStr);
+  if (isNaN(dueDate.getTime())) return false;
+  
+  const reminderDate = new Date(dueDate);
+  reminderDate.setUTCDate(reminderDate.getUTCDate() - reminderDaysBefore);
+  
+  return toDateKey(now) >= toDateKey(reminderDate);
 };
 
 export const collectDueCourseInstallmentReminders = (
@@ -70,9 +78,12 @@ export const collectDueCourseInstallmentReminders = (
     const plan = payment.installmentPlan;
     if (payment.status !== "partially-paid" || plan?.status !== "active" || !Array.isArray(plan.installments)) return [];
 
+    // Fallback to 5 days if settings aren't present on the order
+    const reminderDaysBefore = Number((payment as any).emiSettings?.reminderDaysBefore) || 5;
+
     return plan.installments
       .filter((installment) => installment.status === "pending")
-      .filter((installment) => isDueDateReached(installment.dueDate, now))
+      .filter((installment) => isReminderDateReached(installment.dueDate, now, reminderDaysBefore))
       .filter((installment) => installment.lastReminderMonthKey !== monthKey)
       .map((installment) => ({
         orderId: order.id,

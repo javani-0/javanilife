@@ -952,12 +952,44 @@ const AdminOrderDetail = () => {
               <div className="flex justify-between font-body text-xs text-muted-foreground">
                 <span>
                   Payment: {paymentMethodLabels[order.payment?.method] || order.payment?.method}
+                  {order.payment?.plan === "installment" ? " (EMI)" : ""}
                 </span>
                 <span>
                   {paymentStatusLabels[order.payment?.status] || order.payment?.status}
                 </span>
               </div>
             </div>
+
+            {/* EMI Details */}
+            {order.payment?.plan === "installment" && order.payment?.installmentPlan && (
+              <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50/50 p-3 font-body text-xs">
+                <div className="mb-2 flex items-center justify-between">
+                  <div className="flex items-center gap-2 font-semibold text-emerald-900">
+                    <CalendarDays className="h-4 w-4 text-emerald-700" /> EMI Schedule
+                  </div>
+                  <span className="font-semibold text-emerald-800">
+                    {order.payment.emiSubscription?.mandateStatus === "active" ? "Autopay Active" : "Manual Payments"}
+                  </span>
+                </div>
+                <div className="space-y-1.5 divide-y divide-emerald-200/50">
+                  {order.payment.installmentPlan.installments?.map((inst: any) => (
+                    <div key={inst.installmentNumber} className="flex justify-between gap-3 pt-1.5 first:border-0 first:pt-0">
+                      <div>
+                        <span className="font-medium text-emerald-900">{inst.label}</span>
+                        <span className="ml-2 text-emerald-700/80">({inst.percentage}%)</span>
+                        <p className="mt-0.5 text-[0.65rem] text-emerald-700/70">Due: {inst.dueDate}</p>
+                      </div>
+                      <div className="text-right">
+                        <span className="font-semibold text-emerald-900">{formatPaiseAsRupees(inst.amountInPaise)}</span>
+                        <p className={`mt-0.5 text-[0.65rem] font-bold uppercase tracking-wider ${inst.status === "paid" ? "text-emerald-600" : "text-amber-600"}`}>
+                          {inst.status}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </section>
 
           {/* Delivery One */}

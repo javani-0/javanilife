@@ -36,6 +36,7 @@ import AccountOrders from "./pages/account/Orders";
 import AccountOrderDetail from "./pages/account/OrderDetail";
 import AccountWishlist from "./pages/account/Wishlist";
 import AccountAddresses from "./pages/account/Addresses";
+import AccountEmiDashboard from "./pages/account/EmiDashboard";
 import Contact from "./pages/Contact";
 import GuruBandhu from "./pages/GuruBandhu";
 import NotFound from "./pages/NotFound";
@@ -166,6 +167,7 @@ const App = () => {
                     <Route path="/account/profile" element={<AccountRoute><AccountProfile /></AccountRoute>} />
                     <Route path="/account/orders" element={<AccountRoute><AccountOrders /></AccountRoute>} />
                     <Route path="/account/classes" element={<AccountRoute><AccountClasses /></AccountRoute>} />
+                    <Route path="/account/emi" element={<AccountRoute><AccountEmiDashboard /></AccountRoute>} />
                     <Route path="/account/orders/:id" element={<AccountRoute><AccountOrderDetail /></AccountRoute>} />
                     <Route path="/account/wishlist" element={<AccountRoute><AccountWishlist /></AccountRoute>} />
                     <Route path="/account/addresses" element={<AccountRoute><AccountAddresses /></AccountRoute>} />

@@ -125,6 +125,22 @@ export const createRazorpayOrder = ({
   customerName,
 });
 
+export interface RazorpayCreateEmiSubscriptionResponse {
+  subscriptionId: string;
+  keyId: string;
+  shortUrl: string;
+}
+
+export const createEmiSubscription = ({
+  idToken,
+  orderDocumentId,
+}: {
+  idToken: string;
+  orderDocumentId: string;
+}) => postJson<RazorpayCreateEmiSubscriptionResponse>("/api/razorpay/create-emi-subscription", idToken, {
+  orderDocumentId,
+});
+
 export const verifyRazorpayPayment = ({
   idToken,
   orderDocumentId,

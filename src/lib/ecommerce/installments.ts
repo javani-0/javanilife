@@ -1,7 +1,9 @@
-import type { CartItem, CourseInstallmentPlan, CourseInstallmentStatus, CoursePaymentPlanOption } from "./types";
+import type { CartItem, CourseInstallmentPlan, CourseInstallmentStatus, CoursePaymentPlanOption, EmiSettings } from "./types";
+import { DEFAULT_EMI_SETTINGS } from "./types";
 
-export const COURSE_INSTALLMENT_MIN_AMOUNT_IN_PAISE = 1000000;
-export const COURSE_INSTALLMENT_REMINDER_DAY = 5;
+// Backward-compatible export — old code can still import this constant
+export const COURSE_INSTALLMENT_MIN_AMOUNT_IN_PAISE = DEFAULT_EMI_SETTINGS.minAmountInPaise;
+export const COURSE_INSTALLMENT_REMINDER_DAY = DEFAULT_EMI_SETTINGS.reminderDaysBefore;
 
 export interface CourseInstallmentEligibility {
   eligible: boolean;
@@ -12,6 +14,7 @@ export interface CourseInstallmentPlanInput {
   totalInPaise: number;
   createdAt?: Date;
   paidAt?: Date;
+  emiSettings?: EmiSettings;
 }
 
 const getSafeAmount = (amountInPaise: number) => (
@@ -20,19 +23,160 @@ const getSafeAmount = (amountInPaise: number) => (
 
 const toIsoDate = (date: Date) => date.toISOString().slice(0, 10);
 
-const getNextFifthDate = (fromDate: Date, monthOffset = 0) => {
-  const dueDate = new Date(Date.UTC(fromDate.getUTCFullYear(), fromDate.getUTCMonth(), COURSE_INSTALLMENT_REMINDER_DAY));
-  if (fromDate.getUTCDate() > COURSE_INSTALLMENT_REMINDER_DAY) {
-    dueDate.setUTCMonth(dueDate.getUTCMonth() + 1);
-  }
-  dueDate.setUTCMonth(dueDate.getUTCMonth() + monthOffset);
+const addDays = (date: Date, days: number) => {
+  const result = new Date(date);
+  result.setUTCDate(result.getUTCDate() + days);
+  return result;
+};
+
+const getNextMonthDate = (fromDate: Date, monthOffset: number, dayOfMonth: number) => {
+  const dueDate = new Date(Date.UTC(fromDate.getUTCFullYear(), fromDate.getUTCMonth() + 1 + monthOffset, dayOfMonth));
   return dueDate;
 };
 
-const getInstallmentLabel = (installmentNumber: number) => {
+const getInstallmentLabel = (installmentNumber: number, totalInstallments: number) => {
   if (installmentNumber === 1) return "1st installment";
   if (installmentNumber === 2) return "2nd installment";
-  return "3rd installment";
+  if (installmentNumber === 3) return "3rd installment";
+  return `${installmentNumber}th installment`;
+};
+
+// ── EMI Eligibility ──
+
+export const getEmiEligibility = (
+  items: Pick<CartItem, "itemType">[],
+  subtotalInPaise: number,
+  emiSettings: EmiSettings = DEFAULT_EMI_SETTINGS,
+): CourseInstallmentEligibility => {
+  if (!emiSettings.enabled) {
+    return { eligible: false, reason: "EMI option is currently disabled." };
+  }
+
+  if (items.length === 0) {
+    return { eligible: false, reason: "Cart is empty." };
+  }
+
+  const minAmount = getSafeAmount(emiSettings.minAmountInPaise);
+  const minRupees = Math.round(minAmount / 100);
+
+  if (getSafeAmount(subtotalInPaise) < minAmount) {
+    return { eligible: false, reason: `EMI is available for orders of ₹${minRupees.toLocaleString("en-IN")} or above.` };
+  }
+
+  return { eligible: true };
+};
+
+// Backward-compatible alias
+export const getCourseInstallmentEligibility = (
+  items: Pick<CartItem, "itemType">[],
+  subtotalInPaise: number,
+  emiSettings?: EmiSettings,
+): CourseInstallmentEligibility => getEmiEligibility(items, subtotalInPaise, emiSettings);
+
+// ── EMI Pay Now Amount ──
+
+export const getEmiPayNowAmount = ({
+  paymentPlan,
+  totalInPaise,
+  emiSettings = DEFAULT_EMI_SETTINGS,
+}: {
+  paymentPlan: CoursePaymentPlanOption;
+  totalInPaise: number;
+  emiSettings?: EmiSettings;
+}) => {
+  const safeTotal = getSafeAmount(totalInPaise);
+  if (paymentPlan !== "installment") return safeTotal;
+  return Math.ceil(safeTotal * (emiSettings.upfrontPercentage / 100));
+};
+
+// Backward-compatible alias
+export const getCourseCheckoutPayNowAmount = getEmiPayNowAmount;
+
+// ── EMI Installment Plan ──
+
+export const createEmiInstallmentPlan = ({
+  totalInPaise,
+  createdAt = new Date(),
+  paidAt,
+  emiSettings = DEFAULT_EMI_SETTINGS,
+}: CourseInstallmentPlanInput): CourseInstallmentPlan => {
+  const safeTotal = getSafeAmount(totalInPaise);
+  const upfrontPct = emiSettings.upfrontPercentage;
+  const installmentPcts = emiSettings.installmentPercentages;
+  const totalInstallments = 1 + installmentPcts.length;
+
+  // Calculate amounts
+  const initialPaymentInPaise = Math.ceil(safeTotal * (upfrontPct / 100));
+  const installmentAmounts = installmentPcts.map((pct) => Math.floor(safeTotal * (pct / 100)));
+
+  // Adjust last installment to absorb rounding difference
+  const totalScheduled = initialPaymentInPaise + installmentAmounts.reduce((a, b) => a + b, 0);
+  const difference = safeTotal - totalScheduled;
+  if (installmentAmounts.length > 0) {
+    installmentAmounts[installmentAmounts.length - 1] += difference;
+  }
+
+  const firstStatus: CourseInstallmentStatus = paidAt ? "paid" : "pending";
+  const scheduleDate = paidAt || createdAt;
+  const reminderDay = emiSettings.reminderDaysBefore;
+
+  const installments = [
+    {
+      installmentNumber: 1,
+      label: getInstallmentLabel(1, totalInstallments),
+      percentage: upfrontPct,
+      amountInPaise: initialPaymentInPaise,
+      status: firstStatus,
+      dueDate: toIsoDate(scheduleDate),
+      paidAt: paidAt?.toISOString(),
+    },
+    ...installmentPcts.map((pct, index) => ({
+      installmentNumber: index + 2,
+      label: getInstallmentLabel(index + 2, totalInstallments),
+      percentage: pct,
+      amountInPaise: installmentAmounts[index],
+      status: "pending" as CourseInstallmentStatus,
+      dueDate: toIsoDate(getNextMonthDate(scheduleDate, index, 5)),
+    })),
+  ];
+
+  return {
+    status: safeTotal > 0 ? "active" : "completed",
+    totalInPaise: safeTotal,
+    initialPaymentInPaise,
+    remainingInPaise: Math.max(0, safeTotal - initialPaymentInPaise),
+    reminderDayOfMonth: 5,
+    installments,
+  };
+};
+
+// Backward-compatible alias
+export const createCourseInstallmentPlan = createEmiInstallmentPlan;
+
+// ── Helper: Get recurring installment amount for Razorpay Subscription ──
+
+export const getEmiRecurringAmount = (
+  totalInPaise: number,
+  emiSettings: EmiSettings = DEFAULT_EMI_SETTINGS,
+): number => {
+  const safeTotal = getSafeAmount(totalInPaise);
+  if (emiSettings.installmentPercentages.length === 0) return 0;
+  // All recurring installments should be the same amount for Razorpay Subscriptions
+  // Use the first installment percentage
+  return Math.floor(safeTotal * (emiSettings.installmentPercentages[0] / 100));
+};
+
+export const getEmiRecurringCount = (emiSettings: EmiSettings = DEFAULT_EMI_SETTINGS): number =>
+  emiSettings.installmentPercentages.length;
+
+// ── Format helpers ──
+
+export const formatEmiSummary = (emiSettings: EmiSettings = DEFAULT_EMI_SETTINGS): string => {
+  const parts = [`${emiSettings.upfrontPercentage}% upfront`];
+  emiSettings.installmentPercentages.forEach((pct, i) => {
+    parts.push(`${pct}%`);
+  });
+  return parts.join(" + ");
 };
 
 export const isCourseInstallmentEligible = ({
@@ -43,81 +187,4 @@ export const isCourseInstallmentEligible = ({
   hasCourseItems: boolean;
   hasShippableItems: boolean;
   subtotalInPaise: number;
-}) => hasCourseItems && !hasShippableItems && getSafeAmount(subtotalInPaise) >= COURSE_INSTALLMENT_MIN_AMOUNT_IN_PAISE;
-
-export const getCourseInstallmentEligibility = (
-  items: Pick<CartItem, "itemType">[],
-  subtotalInPaise: number,
-): CourseInstallmentEligibility => {
-  const hasCourseItems = items.some((item) => item.itemType === "course");
-  const hasShippableItems = items.some((item) => item.itemType !== "course");
-
-  if (!hasCourseItems || hasShippableItems) {
-    return { eligible: false, reason: "Installments are available only for course checkout." };
-  }
-
-  if (getSafeAmount(subtotalInPaise) < COURSE_INSTALLMENT_MIN_AMOUNT_IN_PAISE) {
-    return { eligible: false, reason: "Installments are available for course payments of ₹10,000 or above." };
-  }
-
-  return { eligible: true };
-};
-
-export const getCourseCheckoutPayNowAmount = ({
-  paymentPlan,
-  totalInPaise,
-}: {
-  paymentPlan: CoursePaymentPlanOption;
-  totalInPaise: number;
-}) => {
-  const safeTotal = getSafeAmount(totalInPaise);
-  return paymentPlan === "installment" ? Math.ceil(safeTotal * 0.5) : safeTotal;
-};
-
-export const createCourseInstallmentPlan = ({
-  totalInPaise,
-  createdAt = new Date(),
-  paidAt,
-}: CourseInstallmentPlanInput): CourseInstallmentPlan => {
-  const safeTotal = getSafeAmount(totalInPaise);
-  const initialPaymentInPaise = Math.ceil(safeTotal * 0.5);
-  const secondInstallmentInPaise = Math.floor(safeTotal * 0.25);
-  const thirdInstallmentInPaise = Math.max(0, safeTotal - initialPaymentInPaise - secondInstallmentInPaise);
-  const firstStatus: CourseInstallmentStatus = paidAt ? "paid" : "pending";
-  const scheduleDate = paidAt || createdAt;
-
-  return {
-    status: safeTotal > 0 ? "active" : "completed",
-    totalInPaise: safeTotal,
-    initialPaymentInPaise,
-    remainingInPaise: Math.max(0, safeTotal - initialPaymentInPaise),
-    reminderDayOfMonth: COURSE_INSTALLMENT_REMINDER_DAY,
-    installments: [
-      {
-        installmentNumber: 1,
-        label: getInstallmentLabel(1),
-        percentage: 50,
-        amountInPaise: initialPaymentInPaise,
-        status: firstStatus,
-        dueDate: toIsoDate(scheduleDate),
-        paidAt: paidAt?.toISOString(),
-      },
-      {
-        installmentNumber: 2,
-        label: getInstallmentLabel(2),
-        percentage: 25,
-        amountInPaise: secondInstallmentInPaise,
-        status: "pending",
-        dueDate: toIsoDate(getNextFifthDate(scheduleDate, 0)),
-      },
-      {
-        installmentNumber: 3,
-        label: getInstallmentLabel(3),
-        percentage: 25,
-        amountInPaise: thirdInstallmentInPaise,
-        status: "pending",
-        dueDate: toIsoDate(getNextFifthDate(scheduleDate, 1)),
-      },
-    ],
-  };
-};
+}) => subtotalInPaise >= DEFAULT_EMI_SETTINGS.minAmountInPaise;

@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react";
 import { doc, getDoc, setDoc, collection, onSnapshot, addDoc, updateDoc, deleteDoc, query, orderBy } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { Plus, Pencil, Trash2, X, Image, BarChart3, MessageSquare, Layers, Phone, Globe, Bell, Award } from "lucide-react";
+import { Plus, Pencil, Trash2, X, Image, BarChart3, MessageSquare, Layers, Phone, Globe, Bell, Award, CreditCard } from "lucide-react";
+import { normalizeEmiSettings, type EmiSettings } from "@/lib/ecommerce/types";
 import { contactInfoDefaults, type ContactInfo } from "@/hooks/useContactInfo";
 import { useToast } from "@/hooks/use-toast";
 import { defaultGradingSettings, normalizeGradingSettings, type FeeRow, type GradingSettings } from "@/lib/gradingSettings";
@@ -58,6 +59,7 @@ const AdminSiteSettings = () => {
   // ── Contact Info ──
   const [contactInfo, setContactInfo] = useState<ContactInfo>(contactInfoDefaults);
   const [gradingSettings, setGradingSettings] = useState<GradingSettings>(defaultGradingSettings);
+  const [emiSettings, setEmiSettings] = useState<EmiSettings>(normalizeEmiSettings());
 
   // ── Fetch all data ──
   useEffect(() => {
@@ -110,8 +112,23 @@ const AdminSiteSettings = () => {
     getDoc(doc(db, "siteSettings", "gradingFees")).then((snap) => {
       setGradingSettings(normalizeGradingSettings(snap.exists() ? snap.data() : undefined));
     });
+    // EMI Settings
+    getDoc(doc(db, "siteSettings", "emiSettings")).then((snap) => {
+      setEmiSettings(normalizeEmiSettings(snap.exists() ? snap.data() as Partial<EmiSettings> : undefined));
+    });
     return unsub;
   }, []);
+
+  // ── EMI Settings Save ──
+  const saveEmiSettings = async () => {
+    const totalPct = emiSettings.upfrontPercentage + emiSettings.installmentPercentages.reduce((a, b) => a + b, 0);
+    if (totalPct !== 100) {
+      toast({ title: "Percentages must total 100%", description: `Current total: ${totalPct}%`, variant: "destructive" });
+      return;
+    }
+    await setDoc(doc(db, "siteSettings", "emiSettings"), emiSettings);
+    toast({ title: "EMI settings updated" });
+  };
 
   // ── Hero Save ──
   const saveHeroImages = async (imgs: string[]) => {
@@ -237,6 +254,89 @@ const AdminSiteSettings = () => {
   return (
     <div className="space-y-8">
       <h2 className="font-display font-semibold text-[1.5rem] text-foreground">Site Settings</h2>
+
+      {/* EMI Settings */}
+      <Section title="EMI / Installment Settings" icon={CreditCard}>
+        <p className="font-body text-[0.8rem] text-muted-foreground">Configure EMI payment options. When a customer's cart total meets the minimum, they can pay in installments via Razorpay.</p>
+        <div className="space-y-4">
+          <div className="flex items-center gap-3">
+            <label className="font-body text-[0.85rem] text-muted-foreground">Enable EMI</label>
+            <button
+              onClick={() => setEmiSettings({ ...emiSettings, enabled: !emiSettings.enabled })}
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${emiSettings.enabled ? "bg-gold" : "bg-border"}`}
+            >
+              <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${emiSettings.enabled ? "translate-x-6" : "translate-x-1"}`} />
+            </button>
+            <span className={`font-body text-[0.8rem] font-semibold ${emiSettings.enabled ? "text-gold" : "text-muted-foreground"}`}>{emiSettings.enabled ? "Active" : "Disabled"}</span>
+          </div>
+          <div className="grid gap-3 md:grid-cols-2">
+            <div>
+              <label className="font-body text-[0.85rem] text-muted-foreground block mb-1">Minimum Cart Amount (₹)</label>
+              <input
+                type="number"
+                value={Math.round(emiSettings.minAmountInPaise / 100)}
+                onChange={(e) => setEmiSettings({ ...emiSettings, minAmountInPaise: Math.round(Number(e.target.value) * 100) })}
+                min={1000}
+                className="w-full px-3 py-2 rounded-md border border-border font-body text-[0.85rem] outline-none focus:border-gold"
+              />
+              <p className="font-body text-[0.7rem] text-muted-foreground mt-1">EMI will be offered when cart total ≥ this amount</p>
+            </div>
+            <div>
+              <label className="font-body text-[0.85rem] text-muted-foreground block mb-1">Reminder Days Before Due</label>
+              <input
+                type="number"
+                value={emiSettings.reminderDaysBefore}
+                onChange={(e) => setEmiSettings({ ...emiSettings, reminderDaysBefore: Math.max(1, Math.min(15, Number(e.target.value) || 5)) })}
+                min={1}
+                max={15}
+                className="w-full px-3 py-2 rounded-md border border-border font-body text-[0.85rem] outline-none focus:border-gold"
+              />
+              <p className="font-body text-[0.7rem] text-muted-foreground mt-1">WhatsApp reminder sent this many days before due date</p>
+            </div>
+          </div>
+          <div className="rounded-lg border border-border/70 p-4 space-y-3">
+            <h4 className="font-display font-semibold text-foreground">Payment Split</h4>
+            <p className="font-body text-[0.75rem] text-muted-foreground">Must total 100%. For example: 50% upfront + 25% + 25%.</p>
+            <div className="grid gap-3 md:grid-cols-3">
+              <div>
+                <label className="font-body text-[0.85rem] text-muted-foreground block mb-1">Upfront (%)</label>
+                <input
+                  type="number"
+                  value={emiSettings.upfrontPercentage}
+                  onChange={(e) => setEmiSettings({ ...emiSettings, upfrontPercentage: Math.max(10, Math.min(90, Number(e.target.value) || 50)) })}
+                  min={10}
+                  max={90}
+                  className="w-full px-3 py-2 rounded-md border border-border font-body text-[0.85rem] outline-none focus:border-gold"
+                />
+              </div>
+              {emiSettings.installmentPercentages.map((pct, i) => (
+                <div key={i}>
+                  <label className="font-body text-[0.85rem] text-muted-foreground block mb-1">Installment {i + 2} (%)</label>
+                  <input
+                    type="number"
+                    value={pct}
+                    onChange={(e) => {
+                      const updated = [...emiSettings.installmentPercentages];
+                      updated[i] = Math.max(5, Math.min(50, Number(e.target.value) || 25));
+                      setEmiSettings({ ...emiSettings, installmentPercentages: updated });
+                    }}
+                    min={5}
+                    max={50}
+                    className="w-full px-3 py-2 rounded-md border border-border font-body text-[0.85rem] outline-none focus:border-gold"
+                  />
+                </div>
+              ))}
+            </div>
+            <p className="font-body text-[0.8rem] font-semibold">
+              Total: {emiSettings.upfrontPercentage + emiSettings.installmentPercentages.reduce((a, b) => a + b, 0)}%
+              {emiSettings.upfrontPercentage + emiSettings.installmentPercentages.reduce((a, b) => a + b, 0) !== 100 && (
+                <span className="text-destructive ml-2">⚠ Must equal 100%</span>
+              )}
+            </p>
+          </div>
+        </div>
+        <button onClick={saveEmiSettings} className="px-4 py-2 rounded-md bg-gold text-gold-foreground font-body text-[0.85rem] font-medium hover:brightness-110">Save EMI Settings</button>
+      </Section>
 
       {/* Order Notifications */}
       <Section title="Order Notification Number" icon={Bell}>

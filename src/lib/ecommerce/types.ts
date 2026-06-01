@@ -110,6 +110,41 @@ export type OrderStatus = "placed" | "confirmed" | "packed" | "shipped" | "out-f
 export type UserRole = "admin" | "user";
 export type OrderCancellationStatus = "none" | "requested" | "approved" | "rejected";
 
+export interface EmiSettings {
+  enabled: boolean;
+  minAmountInPaise: number;
+  upfrontPercentage: number;
+  installmentPercentages: number[];
+  reminderDaysBefore: number;
+}
+
+export const DEFAULT_EMI_SETTINGS: EmiSettings = {
+  enabled: true,
+  minAmountInPaise: 1200000,
+  upfrontPercentage: 50,
+  installmentPercentages: [25, 25],
+  reminderDaysBefore: 5,
+};
+
+export const normalizeEmiSettings = (data?: Partial<EmiSettings> | null): EmiSettings => ({
+  enabled: data?.enabled ?? DEFAULT_EMI_SETTINGS.enabled,
+  minAmountInPaise: Number(data?.minAmountInPaise) || DEFAULT_EMI_SETTINGS.minAmountInPaise,
+  upfrontPercentage: Number(data?.upfrontPercentage) || DEFAULT_EMI_SETTINGS.upfrontPercentage,
+  installmentPercentages: Array.isArray(data?.installmentPercentages) && data!.installmentPercentages.length > 0
+    ? data!.installmentPercentages.map(Number)
+    : [...DEFAULT_EMI_SETTINGS.installmentPercentages],
+  reminderDaysBefore: Number(data?.reminderDaysBefore) || DEFAULT_EMI_SETTINGS.reminderDaysBefore,
+});
+
+export interface EmiSubscriptionInfo {
+  razorpaySubscriptionId?: string;
+  razorpayPlanId?: string;
+  mandateStatus?: "created" | "authenticated" | "active" | "halted" | "cancelled" | "completed";
+  shortUrl?: string;
+  autopayEnabled?: boolean;
+  createdAt?: unknown;
+}
+
 export interface CourseInstallmentPayment {
   installmentNumber: number;
   label: string;
@@ -241,6 +276,8 @@ export interface PaymentInfo {
   razorpayPaymentId?: string;
   razorpaySignatureVerified?: boolean;
   installmentPlan?: CourseInstallmentPlan;
+  emiSubscription?: EmiSubscriptionInfo;
+  emiSettings?: EmiSettings;
   paidAt?: unknown;
 }
 

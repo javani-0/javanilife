@@ -453,6 +453,60 @@ const sendPaymentMessages = async (orderId: string, order: OrderSnapshot, paymen
   };
 };
 
+export const sendEmiInstallmentNotification = async ({
+  orderId,
+  installmentNumber,
+  status,
+  amountInPaise,
+}: {
+  orderId: string;
+  installmentNumber: number;
+  status: "paid" | "failed";
+  amountInPaise: number;
+}) => {
+  const db = getFirebaseAdminDb();
+  const orderSnapshot = await db.doc(`orders/${orderId}`).get();
+  if (!orderSnapshot.exists) return;
+  const order = orderSnapshot.data() as OrderSnapshot;
+
+  const orderRef = shortOrderRef(orderId);
+  const customerName = order.customerName || "Customer";
+  const amountStr = rupeesFromPaise(amountInPaise);
+
+  const title = status === "paid" ? "EMI Installment Paid" : "EMI Installment Failed";
+  const bodyUser = status === "paid"
+    ? `Your EMI installment ${installmentNumber} of ₹${amountStr} for order ${orderRef} was successfully paid.`
+    : `Your EMI installment ${installmentNumber} of ₹${amountStr} for order ${orderRef} failed to process.`;
+  
+  const bodyAdmin = status === "paid"
+    ? `${customerName}'s EMI installment ${installmentNumber} of ₹${amountStr} for order ${orderRef} was paid.`
+    : `${customerName}'s EMI installment ${installmentNumber} of ₹${amountStr} for order ${orderRef} failed.`;
+
+  const [customerPush, adminPush] = await Promise.allSettled([
+    (async () => order.customerId
+      ? sendWebPush({
+        tokens: await collectUserTokens(order.customerId),
+        title,
+        body: bodyUser,
+        link: `/account/emi`,
+        data: { orderId, type: "emi-installment-status", status, audience: "customer" },
+      })
+      : { status: "skipped", reason: "missing_customer" })(),
+    (async () => sendWebPush({
+      tokens: await collectAdminTokens(),
+      title,
+      body: bodyAdmin,
+      link: `/admin/orders/${orderId}`,
+      data: { orderId, type: "emi-installment-status", status, audience: "admin" },
+    }))(),
+  ]);
+
+  return {
+    customerPush: summarizeSettledResult(customerPush),
+    adminPush: summarizeSettledResult(adminPush),
+  };
+};
+
 export default async function handler(request: ApiRequest, response: ApiResponse) {
   if (!requirePost(request, response)) return;
 

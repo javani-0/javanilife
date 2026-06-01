@@ -24,18 +24,20 @@ import { auth, db } from "@/lib/firebase";
 import {
   calculateCartTotals,
   calculateCouponDiscount,
-  createCourseInstallmentPlan,
+  createEmiInstallmentPlan,
   calculateDeliveryEstimate,
   createRazorpayOrder,
   createRazorpayPrefill,
+  createEmiSubscription,
   createOrderItemFromCartItem,
   DEFAULT_DELIVERY_PROVIDER,
   DELIVERY_SETTINGS_DOCUMENT_ID,
   evaluateCouponEligibility,
   formatCouponBenefit,
   formatPaiseAsRupees,
-  getCourseCheckoutPayNowAmount,
-  getCourseInstallmentEligibility,
+  formatEmiSummary,
+  getEmiPayNowAmount,
+  getEmiEligibility,
   getAllowedPaymentMethodsForCart,
   normalizeCustomerAddress,
   normalizeCouponCode,
@@ -50,6 +52,7 @@ import {
   type DeliveryProfileMap,
   type PaymentMethod,
 } from "@/lib/ecommerce";
+import { normalizeEmiSettings, type EmiSettings } from "@/lib/ecommerce/types";
 import { trackPurchase } from "@/lib/analytics/metaPixel";
 import heroTemple from "@/assets/hero-temple.jpg";
 
@@ -194,6 +197,7 @@ const Checkout = () => {
   const [formError, setFormError] = useState("");
   const [accountWhatsAppDialogOpen, setAccountWhatsAppDialogOpen] = useState(false);
   const [coursePaymentPlan, setCoursePaymentPlan] = useState<CoursePaymentPlanOption>("full");
+  const [emiSettings, setEmiSettings] = useState<EmiSettings>(normalizeEmiSettings());
   const [placedOrder, setPlacedOrder] = useState<{ id: string; orderNumber: string; totalInPaise: number; paidNowInPaise: number; paymentLabel: string; hasShippableItems: boolean; paymentPlan: CoursePaymentPlanOption; deliveryMethod: "shipping" | "store-pickup" } | null>(null);
 
   // Inline signup / login for unauthenticated users
@@ -308,6 +312,14 @@ const Checkout = () => {
     return unsubscribe;
   }, []);
 
+  // Fetch EMI settings
+  useEffect(() => {
+    const unsubscribe = onSnapshot(doc(db, "siteSettings", "emiSettings"), (snapshot) => {
+      setEmiSettings(normalizeEmiSettings(snapshot.exists() ? snapshot.data() as Partial<EmiSettings> : undefined));
+    });
+    return unsubscribe;
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     const shippableItems = items.filter((item) => item.itemType !== "course");
@@ -379,17 +391,17 @@ const Checkout = () => {
   const hasCourseItems = useMemo(() => items.some((item) => item.itemType === "course"), [items]);
   const hasShippableItems = useMemo(() => items.some((item) => item.itemType !== "course"), [items]);
   const courseInstallmentEligibility = useMemo(
-    () => getCourseInstallmentEligibility(items, checkoutTotals.totalInPaise),
-    [checkoutTotals.totalInPaise, items],
+    () => getEmiEligibility(items, checkoutTotals.totalInPaise, emiSettings),
+    [checkoutTotals.totalInPaise, emiSettings, items],
   );
   const selectedCoursePaymentPlan: CoursePaymentPlanOption = coursePaymentPlan === "installment" && courseInstallmentEligibility.eligible ? "installment" : "full";
   const courseInstallmentPreview = useMemo(
-    () => courseInstallmentEligibility.eligible ? createCourseInstallmentPlan({ totalInPaise: checkoutTotals.totalInPaise }) : null,
-    [checkoutTotals.totalInPaise, courseInstallmentEligibility.eligible],
+    () => courseInstallmentEligibility.eligible ? createEmiInstallmentPlan({ totalInPaise: checkoutTotals.totalInPaise, emiSettings }) : null,
+    [checkoutTotals.totalInPaise, courseInstallmentEligibility.eligible, emiSettings],
   );
   const onlinePaymentAmountInPaise = useMemo(
-    () => getCourseCheckoutPayNowAmount({ paymentPlan: selectedCoursePaymentPlan, totalInPaise: checkoutTotals.totalInPaise }),
-    [checkoutTotals.totalInPaise, selectedCoursePaymentPlan],
+    () => getEmiPayNowAmount({ paymentPlan: selectedCoursePaymentPlan, totalInPaise: checkoutTotals.totalInPaise, emiSettings }),
+    [checkoutTotals.totalInPaise, emiSettings, selectedCoursePaymentPlan],
   );
   const codAvailable = paymentEligibility.allowedMethods.includes("cod");
   const onlineAvailable = paymentEligibility.allowedMethods.includes("razorpay");
@@ -529,11 +541,11 @@ const Checkout = () => {
     const paymentPlan = paymentMethod === "razorpay" ? selectedCoursePaymentPlan : "full";
     const payNowAmountInPaise = paymentMethod === "razorpay" ? onlinePaymentAmountInPaise : checkoutTotals.totalInPaise;
     const paymentLabel = paymentMethod === "razorpay"
-      ? paymentPlan === "installment" ? "Razorpay Installment (50%)" : "Razorpay Online"
+      ? paymentPlan === "installment" ? `Razorpay EMI (${emiSettings.upfrontPercentage}%)` : "Razorpay Online"
       : "Cash on Delivery";
     const orderCreatedAt = new Date();
     const installmentPlan = paymentMethod === "razorpay" && paymentPlan === "installment"
-      ? createCourseInstallmentPlan({ totalInPaise: checkoutTotals.totalInPaise, createdAt: orderCreatedAt })
+      ? createEmiInstallmentPlan({ totalInPaise: checkoutTotals.totalInPaise, createdAt: orderCreatedAt, emiSettings })
       : undefined;
 
     setSubmitting(true);
@@ -571,6 +583,7 @@ const Checkout = () => {
             razorpayOrderId: razorpayOrder?.orderId,
             razorpaySignatureVerified: false,
             installmentPlan,
+            ...(paymentPlan === "installment" ? { emiSettings } : {}),
           }
           : {
             method: "cod",
@@ -649,6 +662,29 @@ const Checkout = () => {
 
         if (!verification.verified) {
           throw new Error("Razorpay payment could not be verified.");
+        }
+
+        if (paymentPlan === "installment") {
+          // Open subscription auth modal immediately
+          const subscriptionData = await createEmiSubscription({
+            idToken,
+            orderDocumentId: orderDocument.id,
+          });
+
+          await openRazorpayCheckout({
+            key: subscriptionData.keyId,
+            name: "Javani Spiritual Hub",
+            description: "EMI Autopay Setup",
+            subscription_id: subscriptionData.subscriptionId,
+            prefill: createRazorpayPrefill(normalizedAddress, user.email),
+            notes: {
+              orderDocumentId: orderDocument.id,
+            },
+            theme: { color: "#8B1A1A" },
+          }).catch((err) => {
+            console.error("Subscription setup was cancelled or failed, but order 1st installment was paid", err);
+            // It's okay, they can pay manually or retry autopay later.
+          });
         }
       }
 
@@ -1159,15 +1195,15 @@ const Checkout = () => {
                     <span className="mt-2 block font-body text-xs leading-relaxed text-muted-foreground">{onlineAvailable ? "Pay now using Razorpay test or live credentials configured on the server." : paymentEligibility.onlineUnavailableReason || "Online payment is unavailable for this cart."}</span>
                   </label>
                 </div>
-                {hasCourseItems && !hasShippableItems && onlineAvailable && (
+                {onlineAvailable && (
                   <div className="mt-5 rounded-xl border border-gold/20 bg-gold/10 p-4">
                     <div className="mb-3 flex items-start gap-2">
                       <CalendarDays className="mt-0.5 h-4 w-4 text-gold" />
                       <div>
-                        <p className="font-body text-sm font-bold text-foreground">Course installment option</p>
+                        <p className="font-body text-sm font-bold text-foreground">EMI / Installment option</p>
                         <p className="font-body text-xs leading-relaxed text-muted-foreground">
                           {courseInstallmentEligibility.eligible
-                            ? "Available for this course payment. Pay 50% now, then 25% + 25% on the 5th of the next months."
+                            ? `Available for this order. Pay ${formatEmiSummary(emiSettings)} on the 5th of the next months. Autopay will be set up after the first payment.`
                             : courseInstallmentEligibility.reason}
                         </p>
                       </div>
@@ -1176,13 +1212,13 @@ const Checkout = () => {
                       <div className="grid gap-3 sm:grid-cols-2">
                         <label className={`cursor-pointer rounded-lg border p-3 transition-colors ${selectedCoursePaymentPlan === "full" ? "border-gold bg-card" : "border-border bg-background/70 hover:border-gold/50"}`}>
                           <input type="radio" name="coursePaymentPlan" value="full" checked={selectedCoursePaymentPlan === "full"} onChange={() => setCoursePaymentPlan("full")} className="sr-only" />
-                          <span className="block font-body text-sm font-bold text-foreground">Pay full fee</span>
+                          <span className="block font-body text-sm font-bold text-foreground">Pay full amount</span>
                           <span className="mt-1 block font-body text-xs text-muted-foreground">Pay {formatPaiseAsRupees(checkoutTotals.totalInPaise)} now.</span>
                         </label>
                         <label className={`cursor-pointer rounded-lg border p-3 transition-colors ${selectedCoursePaymentPlan === "installment" ? "border-gold bg-card" : "border-border bg-background/70 hover:border-gold/50"}`}>
                           <input type="radio" name="coursePaymentPlan" value="installment" checked={selectedCoursePaymentPlan === "installment"} onChange={() => setCoursePaymentPlan("installment")} className="sr-only" />
-                          <span className="block font-body text-sm font-bold text-foreground">3 installments</span>
-                          <span className="mt-1 block font-body text-xs text-muted-foreground">Pay {formatPaiseAsRupees(courseInstallmentPreview.initialPaymentInPaise)} now.</span>
+                          <span className="block font-body text-sm font-bold text-foreground">{1 + emiSettings.installmentPercentages.length} installments (EMI)</span>
+                          <span className="mt-1 block font-body text-xs text-muted-foreground">Pay {formatPaiseAsRupees(courseInstallmentPreview.initialPaymentInPaise)} now ({emiSettings.upfrontPercentage}%).</span>
                         </label>
                       </div>
                     )}
@@ -1301,13 +1337,16 @@ const Checkout = () => {
               {paymentMethod === "razorpay" && selectedCoursePaymentPlan === "installment" && courseInstallmentPreview && (
                 <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-3 font-body text-xs leading-relaxed text-emerald-900">
                   <div className="mb-2 flex items-center gap-2 font-semibold">
-                    <CalendarDays className="h-4 w-4 text-emerald-700" /> Installment schedule
+                    <CalendarDays className="h-4 w-4 text-emerald-700" /> EMI Schedule
                   </div>
                   <div className="space-y-1">
-                    <div className="flex justify-between gap-3"><span>Pay now (50%)</span><span className="font-semibold">{formatPaiseAsRupees(courseInstallmentPreview.initialPaymentInPaise)}</span></div>
+                    <div className="flex justify-between gap-3"><span>Pay now ({emiSettings.upfrontPercentage}%)</span><span className="font-semibold">{formatPaiseAsRupees(courseInstallmentPreview.initialPaymentInPaise)}</span></div>
                     {courseInstallmentPreview.installments.slice(1).map((installment) => (
                       <div key={installment.installmentNumber} className="flex justify-between gap-3"><span>{installment.label} on {installment.dueDate}</span><span className="font-semibold">{formatPaiseAsRupees(installment.amountInPaise)}</span></div>
                     ))}
+                  </div>
+                  <div className="mt-2 border-t border-emerald-200 pt-2 text-[0.7rem] text-emerald-700">
+                    ℹ️ Autopay will be set up after your first payment. Remaining installments will be auto-charged via Razorpay.
                   </div>
                 </div>
               )}
@@ -1329,7 +1368,7 @@ const Checkout = () => {
               {paymentMethod === "razorpay" && (
                 <div className="mt-4 rounded-xl border border-gold/20 bg-gold/10 p-3 font-body text-xs leading-relaxed text-foreground">
                   {selectedCoursePaymentPlan === "installment"
-                    ? "Razorpay Checkout will collect the 50% first installment now. The remaining installments are tracked for monthly WhatsApp reminders."
+                    ? `Razorpay Checkout will collect the ${emiSettings.upfrontPercentage}% first installment now. Autopay will be set up for remaining installments. You can also pay manually from your EMI dashboard.`
                     : "Razorpay Checkout will open after your order is saved. The order is marked paid only after server-side signature verification."}
                 </div>
               )}
