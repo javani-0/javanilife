@@ -85,7 +85,7 @@ export default async function handler(request: ApiRequest, response: ApiResponse
         period: "monthly",
         interval: 1,
         item: {
-          name: `Javani EMI — ₹${recurringAmountInPaise / 100}/mo`,
+          name: `Javani EMI - Rs ${recurringAmountInPaise / 100} per mo`,
           amount: recurringAmountInPaise,
           currency: getRazorpayCurrency().toUpperCase(),
           description: `EMI payment plan`,
@@ -110,7 +110,7 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     const subscription = await razorpay.subscriptions.create({
       plan_id: planId,
       total_count: recurringCount,
-      customer_notify: 1,
+      customer_notify: 0,
       notes: { kind: "emi-order", orderDocumentId },
     });
 
@@ -129,12 +129,23 @@ export default async function handler(request: ApiRequest, response: ApiResponse
       keyId,
       shortUrl: subscription.short_url || "",
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Unable to create EMI subscription", error);
     if (isFirebaseAuthError(error)) {
       sendError(response, 401, "Invalid Firebase authentication token.");
       return;
     }
-    sendError(response, 500, error instanceof Error ? error.message : "Unable to create EMI subscription.");
+    
+    // Extract Razorpay SDK errors if present
+    let message = "Unable to create EMI subscription.";
+    if (error?.error?.description) {
+      message = error.error.description;
+    } else if (error?.description) {
+      message = error.description;
+    } else if (error instanceof Error) {
+      message = error.message;
+    }
+    
+    sendError(response, 500, message);
   }
 }
