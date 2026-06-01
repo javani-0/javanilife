@@ -80,12 +80,23 @@ export default async function handler(request: ApiRequest, response: ApiResponse
       receipt: razorpayOrder.receipt,
       status: razorpayOrder.status,
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Unable to create Razorpay order", error);
     if (isFirebaseAuthError(error)) {
       sendError(response, 401, "Invalid Firebase authentication token.");
       return;
     }
-    sendError(response, 500, error instanceof Error ? error.message : "Unable to create Razorpay order.");
+    
+    // Extract Razorpay SDK errors if present
+    let message = "Unable to create Razorpay order.";
+    if (error?.error?.description) {
+      message = error.error.description;
+    } else if (error?.description) {
+      message = error.description;
+    } else if (error instanceof Error) {
+      message = error.message;
+    }
+    
+    sendError(response, 500, message);
   }
 }

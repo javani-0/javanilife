@@ -1,5 +1,5 @@
-import type { CartItem, CourseInstallmentPlan, CourseInstallmentStatus, CoursePaymentPlanOption, EmiSettings } from "./types";
-import { DEFAULT_EMI_SETTINGS } from "./types";
+import type { CartItem, CourseInstallmentPlan, CourseInstallmentStatus, CoursePaymentPlanOption, EmiSettings } from "./types.js";
+import { DEFAULT_EMI_SETTINGS } from "./types.js";
 
 // Backward-compatible export — old code can still import this constant
 export const COURSE_INSTALLMENT_MIN_AMOUNT_IN_PAISE = DEFAULT_EMI_SETTINGS.minAmountInPaise;
