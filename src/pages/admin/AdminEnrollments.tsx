@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import { PauseCircle, PlayCircle, Search, UserCheck, X, XCircle } from "lucide-react";
+import { PauseCircle, PlayCircle, Search, UserCheck, X, XCircle, Trash2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { formatPaiseAsRupees } from "@/lib/ecommerce";
 import {
   cancelEnrollment,
+  deleteEnrollment,
   ENROLLMENT_STATUS_LABELS,
   MANDATE_STATUS_LABELS,
   pauseEnrollment,
@@ -129,6 +130,7 @@ const AdminEnrollments = () => {
                         {enrollment.status !== "cancelled" && (
                           <button onClick={() => { if (confirm(`Cancel enrolment for ${enrollment.student.name}?`)) runAction("Enrollment cancelled", () => cancelEnrollment(enrollment.id)); }} className="p-1.5 rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive" title="Cancel"><XCircle className="h-4 w-4" /></button>
                         )}
+                        <button onClick={() => { if (confirm(`Are you sure you want to completely delete the enrolment for ${enrollment.student.name}? This cannot be undone.`)) runAction("Enrollment deleted", () => deleteEnrollment(enrollment.id)); }} className="p-1.5 rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive" title="Delete"><Trash2 className="h-4 w-4" /></button>
                       </div>
                     </td>
                   </tr>

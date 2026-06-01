@@ -158,21 +158,15 @@ const addressSummary = (address: CheckoutAddress) => [
   address.pincode,
 ].filter(Boolean).join(", ");
 
-const hasManualDeliveryInput = (address: CheckoutAddress, user?: { displayName?: string | null; email?: string | null }, userProfile?: { username?: string; email?: string }) => {
-  const profileName = user?.displayName || userProfile?.username || "";
-  const profileEmail = user?.email || userProfile?.email || "";
-
+const hasManualDeliveryInput = (address: CheckoutAddress) => {
   return Boolean(
-    address.phone.trim()
-    || address.line1.trim()
+    address.line1.trim()
     || address.line2?.trim()
     || address.city.trim()
     || address.state.trim()
     || address.pincode.trim()
     || address.landmark?.trim()
     || address.notes?.trim()
-    || (address.fullName.trim() && address.fullName.trim() !== profileName)
-    || (address.email?.trim() && address.email.trim() !== profileEmail)
   );
 };
 
@@ -273,7 +267,7 @@ const Checkout = () => {
         }
 
         setAddress((currentAddress) => {
-          if (hasManualDeliveryInput(currentAddress, user, userProfile)) return currentAddress;
+          if (hasManualDeliveryInput(currentAddress)) return currentAddress;
 
           return {
             ...currentAddress,

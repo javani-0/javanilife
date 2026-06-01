@@ -11,7 +11,12 @@ import createSubscription from "./_razorpay/create-subscription.js";
 // @ts-ignore
 import verifyPayment from "./_razorpay/verify-payment.js";
 // @ts-ignore
+// @ts-ignore
 import webhook from "./_razorpay/webhook.js";
+// @ts-ignore
+import createEmiSubscription from "./_razorpay/create-emi-subscription.js";
+// @ts-ignore
+import payEmiInstallment from "./_razorpay/pay-emi-installment.js";
 
 export default async function handler(request: ApiRequest, response: ApiResponse) {
   const url = request.url || "";
@@ -28,6 +33,12 @@ export default async function handler(request: ApiRequest, response: ApiResponse
   }
   if (action === "create-subscription" || url.includes("/create-subscription")) {
     return createSubscription(request, response);
+  }
+  if (action === "create-emi-subscription" || url.includes("/create-emi-subscription")) {
+    return createEmiSubscription(request, response);
+  }
+  if (action === "pay-emi-installment" || url.includes("/pay-emi-installment")) {
+    return payEmiInstallment(request, response);
   }
   if (action === "verify-payment" || url.includes("/verify-payment")) {
     return verifyPayment(request, response);

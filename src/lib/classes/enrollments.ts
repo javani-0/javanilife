@@ -1,6 +1,7 @@
 import {
   addDoc,
   collection,
+  deleteDoc,
   doc,
   getDoc,
   getDocs,
@@ -148,3 +149,7 @@ export const setEnrollmentStatus = async (id: string, status: EnrollmentStatus):
 export const pauseEnrollment = (id: string) => setEnrollmentStatus(id, "paused");
 export const resumeEnrollment = (id: string) => setEnrollmentStatus(id, "active");
 export const cancelEnrollment = (id: string) => setEnrollmentStatus(id, "cancelled");
+
+export const deleteEnrollment = async (id: string): Promise<void> => {
+  await deleteDoc(doc(db, ENROLLMENTS_COLLECTION, id));
+};
