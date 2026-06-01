@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { Link, NavLink } from "react-router-dom";
-import { ArrowLeft, Heart, MapPin, PackageCheck, UserRound } from "lucide-react";
+import { ArrowLeft, GraduationCap, Heart, MapPin, PackageCheck, UserRound } from "lucide-react";
 import Footer from "@/components/Footer";
 import PageHero from "@/components/PageHero";
 import SEO from "@/components/SEO";
@@ -9,6 +9,7 @@ import heroTemple from "@/assets/hero-temple.jpg";
 const accountLinks = [
   { label: "Profile", path: "/account/profile", Icon: UserRound },
   { label: "Orders", path: "/account/orders", Icon: PackageCheck },
+  { label: "Classes", path: "/account/classes", Icon: GraduationCap },
   { label: "Wishlist", path: "/account/wishlist", Icon: Heart },
   { label: "Addresses", path: "/account/addresses", Icon: MapPin },
 ];

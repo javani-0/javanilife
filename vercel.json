@@ -22,6 +22,7 @@
   ],
   "crons": [
     { "path": "/api/cron/delivery-tracking", "schedule": "0 2 * * *" },
-    { "path": "/api/cron/course-installments", "schedule": "0 5 5 * *" }
+    { "path": "/api/cron/course-installments", "schedule": "0 5 5 * *" },
+    { "path": "/api/cron/class-fee-reminders", "schedule": "0 4 * * *" }
   ]
 }

@@ -23,6 +23,9 @@ import { trackPageView } from "@/lib/analytics/metaPixel";
 import Index from "./pages/Index";
 import About from "./pages/About";
 import Courses from "./pages/Courses";
+import Classes from "./pages/Classes";
+import ClassDetail from "./pages/ClassDetail";
+import AccountClasses from "./pages/account/Classes";
 import Grading from "./pages/Grading";
 import Gallery from "./pages/Gallery";
 import Products from "./pages/Products";
@@ -47,6 +50,9 @@ const AdminLogin = lazy(() => import("./pages/admin/AdminLogin"));
 const AdminDashboard = lazy(() => import("./pages/admin/AdminDashboard"));
 const AdminEnquiries = lazy(() => import("./pages/admin/AdminEnquiries"));
 const AdminCourses = lazy(() => import("./pages/admin/AdminCourses"));
+const AdminClasses = lazy(() => import("./pages/admin/AdminClasses"));
+const AdminEnrollments = lazy(() => import("./pages/admin/AdminEnrollments"));
+const AdminFeeCollections = lazy(() => import("./pages/admin/AdminFeeCollections"));
 const AdminGallery = lazy(() => import("./pages/admin/AdminGallery"));
 const AdminProducts = lazy(() => import("./pages/admin/AdminProducts"));
 const AdminCoupons = lazy(() => import("./pages/admin/AdminCoupons"));
@@ -149,6 +155,8 @@ const App = () => {
                     <Route path="/" element={<Index />} />
                     <Route path="/about" element={<About />} />
                     <Route path="/courses" element={<Courses />} />
+                    <Route path="/classes" element={<Classes />} />
+                    <Route path="/classes/:id" element={<ClassDetail />} />
                     <Route path="/grading" element={<Grading />} />
                     <Route path="/gallery" element={<Gallery />} />
                     <Route path="/products" element={<Products />} />
@@ -157,6 +165,7 @@ const App = () => {
                     <Route path="/account" element={<AccountRoute><AccountProfile /></AccountRoute>} />
                     <Route path="/account/profile" element={<AccountRoute><AccountProfile /></AccountRoute>} />
                     <Route path="/account/orders" element={<AccountRoute><AccountOrders /></AccountRoute>} />
+                    <Route path="/account/classes" element={<AccountRoute><AccountClasses /></AccountRoute>} />
                     <Route path="/account/orders/:id" element={<AccountRoute><AccountOrderDetail /></AccountRoute>} />
                     <Route path="/account/wishlist" element={<AccountRoute><AccountWishlist /></AccountRoute>} />
                     <Route path="/account/addresses" element={<AccountRoute><AccountAddresses /></AccountRoute>} />
@@ -175,6 +184,9 @@ const App = () => {
                       <Route path="dashboard" element={<AdminDashboard />} />
                       <Route path="enquiries" element={<AdminEnquiries />} />
                       <Route path="courses" element={<AdminCourses />} />
+                      <Route path="classes" element={<AdminClasses />} />
+                      <Route path="enrollments" element={<AdminEnrollments />} />
+                      <Route path="fee-collections" element={<AdminFeeCollections />} />
                       <Route path="gallery" element={<AdminGallery />} />
                       <Route path="products" element={<AdminProducts />} />
                       <Route path="coupons" element={<AdminCoupons />} />

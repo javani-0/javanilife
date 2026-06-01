@@ -6,6 +6,7 @@ import { BellRing, ClipboardList, TrendingUp, Clock, ShoppingBag, Check, Trash2,
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 import { useToast } from "@/hooks/use-toast";
 import { useWebNotifications } from "@/hooks/useWebNotifications";
+import ClassFeeSummaryCards from "@/components/admin/ClassFeeSummaryCards";
 
 interface Enquiry {
   id: string;
@@ -138,6 +139,9 @@ const AdminDashboard = () => {
           </div>
         ))}
       </div>
+
+      {/* Classes — this month */}
+      <ClassFeeSummaryCards />
 
       {/* Chart + Enquiries */}
       <div className="grid xl:grid-cols-[1fr_1.5fr] gap-4 sm:gap-6">

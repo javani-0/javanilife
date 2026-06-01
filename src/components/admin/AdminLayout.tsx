@@ -5,6 +5,7 @@ import {
   LayoutDashboard, ClipboardList, BookOpen, Image, ShoppingBag, Users,
   Handshake, SlidersHorizontal, LogOut, Menu, X, PackageCheck,
   ChevronLeft, ChevronRight, TicketPercent, Truck,
+  GraduationCap, UserCheck, Wallet,
 } from "lucide-react";
 import logoWhite from "@/assets/logo-white.png";
 
@@ -12,6 +13,9 @@ const navItems = [
   { label: "Dashboard", icon: LayoutDashboard, path: "/admin/dashboard" },
   { label: "Enquiries", icon: ClipboardList, path: "/admin/enquiries" },
   { label: "Courses Manager", icon: BookOpen, path: "/admin/courses" },
+  { label: "Classes Manager", icon: GraduationCap, path: "/admin/classes" },
+  { label: "Enrollments", icon: UserCheck, path: "/admin/enrollments" },
+  { label: "Fee Collections", icon: Wallet, path: "/admin/fee-collections" },
   { label: "Gallery Manager", icon: Image, path: "/admin/gallery" },
   { label: "Products Manager", icon: ShoppingBag, path: "/admin/products" },
   { label: "Coupons", icon: TicketPercent, path: "/admin/coupons" },

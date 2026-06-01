@@ -147,5 +147,36 @@ service cloud.firestore {
       allow read: if signedIn() && resource.data.uid == request.auth.uid;
       allow delete: if false;
     }
+
+    // ── Classes (monthly fee + autopay) ──────────────────────────────────
+
+    // Class catalog — public read, admin write.
+    match /classes/{id} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // Enrollments — parent owns their student records; admin has full access.
+    // Money/status/autopay transitions are driven server-side (Admin SDK) or by
+    // an admin; a parent may only keep their own ownership on update.
+    match /enrollments/{id} {
+      allow read: if isAdmin()
+        || (signedIn() && resource.data.parentUserId == request.auth.uid);
+      allow create: if signedIn()
+        && request.resource.data.parentUserId == request.auth.uid;
+      allow update: if isAdmin()
+        || (signedIn()
+            && resource.data.parentUserId == request.auth.uid
+            && request.resource.data.parentUserId == request.auth.uid);
+      allow delete: if isAdmin();
+    }
+
+    // Fee ledger — parent reads own; all money-bearing writes are server-side
+    // (webhook/cron via Admin SDK, which bypasses rules) or an admin console.
+    match /feePayments/{id} {
+      allow read: if isAdmin()
+        || (signedIn() && resource.data.parentUserId == request.auth.uid);
+      allow write: if isAdmin();
+    }
   }
 }

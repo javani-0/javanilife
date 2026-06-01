@@ -38,11 +38,14 @@ export interface RazorpayVerifyPaymentResponse {
 
 export interface RazorpayCheckoutOptions {
   key: string;
-  amount: number;
-  currency: string;
+  // amount/currency/order_id are for one-time orders; subscription_id is used
+  // instead for autopay mandate setup (Razorpay Subscriptions). Hence optional.
+  amount?: number;
+  currency?: string;
   name: string;
   description: string;
-  order_id: string;
+  order_id?: string;
+  subscription_id?: string;
   prefill?: {
     name?: string;
     email?: string;

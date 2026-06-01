@@ -1,29 +1,53 @@
 import crypto from "node:crypto";
 import { getFirebaseAdminDb, FieldValue } from "../_lib/firebase-admin.js";
 import { requirePost, sendError, sendJson, type ApiRequest, type ApiResponse } from "../_lib/http.js";
+import { monthKeyFor } from "../_lib/class-fees.js";
+import {
+  ensureFeePayment,
+  ENROLLMENTS_COLLECTION,
+  FEE_PAYMENTS_COLLECTION,
+  notificationContextFromFee,
+  type EnrollmentRecord,
+} from "../_lib/fee-store.js";
+import { sendClassFeeNotifications } from "../_lib/notify.js";
 
 // ---------------------------------------------------------------------------
 // Razorpay Webhook Handler
 // ---------------------------------------------------------------------------
-// Razorpay sends a POST to this endpoint whenever a payment event occurs.
-// We handle `payment.captured` to mark orders paid even if the user's browser
-// closed before our client-side verify-payment flow could run.
+// Handles:
+//   • payment.captured  → mark order paid (existing) OR mark a class fee paid
+//                          when notes.kind === "class-fee".
+//   • payment.failed    → mark a class fee failed (notes.kind === "class-fee").
+//   • subscription.*     → drive class autopay mandate + monthly charges.
 //
-// Env var required: RAZORPAY_WEBHOOK_SECRET  (set in Vercel + Razorpay dashboard)
+// Env var required: RAZORPAY_WEBHOOK_SECRET (set in Vercel + Razorpay dashboard)
 // ---------------------------------------------------------------------------
+
+interface RazorpayPaymentEntity {
+  id?: string;
+  order_id?: string;
+  amount?: number;
+  currency?: string;
+  status?: string;
+  notes?: Record<string, string>;
+}
+
+interface RazorpaySubscriptionEntity {
+  id?: string;
+  status?: string;
+  plan_id?: string;
+  customer_id?: string;
+  current_start?: number;
+  current_end?: number;
+  charge_at?: number;
+  notes?: Record<string, string>;
+}
 
 interface RazorpayWebhookPayload {
   event?: string;
   payload?: {
-    payment?: {
-      entity?: {
-        id?: string;
-        order_id?: string;
-        amount?: number;
-        currency?: string;
-        status?: string;
-      };
-    };
+    payment?: { entity?: RazorpayPaymentEntity };
+    subscription?: { entity?: RazorpaySubscriptionEntity };
   };
 }
 
@@ -75,21 +99,193 @@ const markInitialInstallmentPaid = (orderData: StoredOrderData, razorpayPaymentI
   return installments.map((installment) => {
     const installmentNumber = Number(installment.installmentNumber || 0);
     if (installmentNumber !== 1) return installment;
-    return {
-      ...installment,
-      status: "paid",
-      paidAt: paidAtIso,
-      razorpayPaymentId,
-    };
+    return { ...installment, status: "paid", paidAt: paidAtIso, razorpayPaymentId };
   });
 };
+
+// --- Existing order flow ----------------------------------------------------
+
+async function handleOrderCaptured(payment: RazorpayPaymentEntity) {
+  const razorpayOrderId = payment.order_id || "";
+  const razorpayPaymentId = payment.id || "";
+  if (!razorpayOrderId) return;
+
+  const db = getFirebaseAdminDb();
+  const ordersQuery = await db
+    .collection("orders")
+    .where("payment.razorpayOrderId", "==", razorpayOrderId)
+    .limit(1)
+    .get();
+
+  if (ordersQuery.empty) return;
+
+  const orderDoc = ordersQuery.docs[0];
+  const orderData = (orderDoc.data() || {}) as StoredOrderData;
+  const expectedOnlineAmount = getExpectedOnlineAmount(orderData);
+  const capturedAmount = Number(payment.amount || 0);
+  const currentPaymentStatus = orderData.payment?.status || "pending";
+  const isInstallmentPayment = orderData.payment?.plan === "installment";
+
+  if (capturedAmount !== expectedOnlineAmount) {
+    console.warn("Webhook: captured amount does not match stored expected amount", { razorpayOrderId, capturedAmount, expectedOnlineAmount });
+    return;
+  }
+
+  if (!(["paid", "partially-paid"].includes(currentPaymentStatus))) {
+    const paidAtIso = new Date().toISOString();
+    const paidInstallments = isInstallmentPayment ? markInitialInstallmentPaid(orderData, razorpayPaymentId, paidAtIso) : undefined;
+    const updatePayload: Record<string, unknown> = {
+      "payment.status": isInstallmentPayment ? "partially-paid" : "paid",
+      "payment.razorpayPaymentId": razorpayPaymentId,
+      "payment.paidAt": FieldValue.serverTimestamp(),
+      "payment.verifiedVia": "webhook",
+      updatedAt: FieldValue.serverTimestamp(),
+    };
+    if (isInstallmentPayment) {
+      updatePayload["payment.installmentPlan.status"] = "active";
+      if (paidInstallments) updatePayload["payment.installmentPlan.installments"] = paidInstallments;
+    }
+    await orderDoc.ref.update(updatePayload);
+  }
+}
+
+// --- Class fee (manual) flow ------------------------------------------------
+
+async function markClassFeePaid(feePaymentId: string, razorpayPaymentId: string, method: "manual" | "autopay", subscriptionId?: string) {
+  const db = getFirebaseAdminDb();
+  const feeRef = db.collection(FEE_PAYMENTS_COLLECTION).doc(feePaymentId);
+  const snapshot = await feeRef.get();
+  if (!snapshot.exists) return;
+
+  const fee = snapshot.data() || {};
+  if (fee.status === "paid") return; // idempotent
+
+  await feeRef.update({
+    status: "paid",
+    paymentMethod: method,
+    razorpayPaymentId,
+    ...(subscriptionId ? { razorpaySubscriptionId: subscriptionId } : {}),
+    paidAt: FieldValue.serverTimestamp(),
+    notifiedParentAt: FieldValue.serverTimestamp(),
+    updatedAt: FieldValue.serverTimestamp(),
+  });
+
+  await sendClassFeeNotifications("paid", notificationContextFromFee(feePaymentId, { ...fee, status: "paid" }))
+    .catch((error) => console.error("Class fee paid notification failed", { feePaymentId, error }));
+}
+
+async function markClassFeeFailed(feePaymentId: string) {
+  const db = getFirebaseAdminDb();
+  const feeRef = db.collection(FEE_PAYMENTS_COLLECTION).doc(feePaymentId);
+  const snapshot = await feeRef.get();
+  if (!snapshot.exists) return;
+
+  const fee = snapshot.data() || {};
+  if (fee.status === "paid" || fee.status === "waived") return;
+
+  await feeRef.update({ status: "failed", updatedAt: FieldValue.serverTimestamp() });
+  await sendClassFeeNotifications("failed", notificationContextFromFee(feePaymentId, fee))
+    .catch((error) => console.error("Class fee failed notification failed", { feePaymentId, error }));
+}
+
+// --- Subscription (autopay) flow --------------------------------------------
+
+async function loadEnrollmentForSubscription(notesEnrollmentId: string, subscriptionId: string) {
+  const db = getFirebaseAdminDb();
+  if (notesEnrollmentId) {
+    const byId = await db.collection(ENROLLMENTS_COLLECTION).doc(notesEnrollmentId).get();
+    if (byId.exists) return byId;
+  }
+  const bySub = await db
+    .collection(ENROLLMENTS_COLLECTION)
+    .where("autopay.razorpaySubscriptionId", "==", subscriptionId)
+    .limit(1)
+    .get();
+  return bySub.empty ? null : bySub.docs[0];
+}
+
+async function handleSubscriptionEvent(event: string, subscription: RazorpaySubscriptionEntity, payment?: RazorpayPaymentEntity) {
+  const subscriptionId = subscription.id || "";
+  if (!subscriptionId) return;
+
+  const enrollmentDoc = await loadEnrollmentForSubscription(subscription.notes?.enrollmentId || "", subscriptionId);
+  if (!enrollmentDoc) {
+    console.warn("Webhook: no enrollment for subscription", { subscriptionId, event });
+    return;
+  }
+
+  const enrollment = { id: enrollmentDoc.id, ...(enrollmentDoc.data() as Omit<EnrollmentRecord, "id">) };
+  const db = getFirebaseAdminDb();
+
+  if (event === "subscription.authenticated") {
+    await enrollmentDoc.ref.update({
+      "autopay.enabled": true,
+      "autopay.mandateStatus": "authenticated",
+      "autopay.authorizedAt": FieldValue.serverTimestamp(),
+      status: "active",
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+    return;
+  }
+
+  if (event === "subscription.activated") {
+    await enrollmentDoc.ref.update({
+      "autopay.enabled": true,
+      "autopay.mandateStatus": "active",
+      status: "active",
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+    return;
+  }
+
+  if (event === "subscription.charged") {
+    const cycleStart = subscription.current_start ? new Date(subscription.current_start * 1000) : new Date();
+    const monthKey = monthKeyFor(cycleStart);
+    const { id: feeId, data: feeData } = await ensureFeePayment(db, enrollment, monthKey);
+
+    if (feeData.status !== "paid") {
+      await markClassFeePaid(feeId, payment?.id || "", "autopay", subscriptionId);
+    }
+
+    await enrollmentDoc.ref.update({
+      "autopay.enabled": true,
+      "autopay.mandateStatus": "active",
+      "autopay.nextChargeAt": subscription.charge_at ? new Date(subscription.charge_at * 1000).toISOString() : "",
+      status: "active",
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+    return;
+  }
+
+  if (event === "subscription.pending" || event === "subscription.halted") {
+    await enrollmentDoc.ref.update({
+      "autopay.mandateStatus": "halted",
+      "autopay.enabled": false,
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+
+    const monthKey = monthKeyFor(new Date());
+    const { id: feeId, data: feeData } = await ensureFeePayment(db, enrollment, monthKey);
+    if (feeData.status === "pending" || feeData.status === "processing") {
+      await markClassFeeFailed(feeId);
+    }
+    return;
+  }
+
+  if (event === "subscription.cancelled" || event === "subscription.completed") {
+    await enrollmentDoc.ref.update({
+      "autopay.mandateStatus": "cancelled",
+      "autopay.enabled": false,
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+  }
+}
 
 export default async function handler(request: ApiRequest, response: ApiResponse) {
   if (!requirePost(request, response)) return;
 
   const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET?.trim() || "";
   if (!webhookSecret) {
-    // If the secret isn't configured, reject all webhook requests for security.
     sendError(response, 500, "Webhook secret is not configured.");
     return;
   }
@@ -112,64 +308,24 @@ export default async function handler(request: ApiRequest, response: ApiResponse
 
   const event = payload.event || "";
   const payment = payload.payload?.payment?.entity;
+  const subscription = payload.payload?.subscription?.entity;
 
-  // Only act on payment.captured (money successfully received)
-  if (event === "payment.captured" && payment) {
-    const razorpayOrderId = payment.order_id || "";
-    const razorpayPaymentId = payment.id || "";
-
-    if (razorpayOrderId) {
-      try {
-        const db = getFirebaseAdminDb();
-
-        // Find the order by its Razorpay order ID
-        const ordersQuery = await db
-          .collection("orders")
-          .where("payment.razorpayOrderId", "==", razorpayOrderId)
-          .limit(1)
-          .get();
-
-        if (!ordersQuery.empty) {
-          const orderDoc = ordersQuery.docs[0];
-          const orderData = (orderDoc.data() || {}) as StoredOrderData;
-          const expectedOnlineAmount = getExpectedOnlineAmount(orderData);
-          const capturedAmount = Number(payment.amount || 0);
-          const currentPaymentStatus = orderData.payment?.status || "pending";
-          const isInstallmentPayment = orderData.payment?.plan === "installment";
-
-          if (capturedAmount !== expectedOnlineAmount) {
-            console.warn("Webhook: captured amount does not match stored expected amount", { razorpayOrderId, capturedAmount, expectedOnlineAmount });
-            sendJson(response, 200, { received: true });
-            return;
-          }
-
-          // Only update if not already marked paid or partially paid (idempotency)
-          if (!(["paid", "partially-paid"].includes(currentPaymentStatus))) {
-            const paidAtIso = new Date().toISOString();
-            const paidInstallments = isInstallmentPayment ? markInitialInstallmentPaid(orderData, razorpayPaymentId, paidAtIso) : undefined;
-            const updatePayload: Record<string, unknown> = {
-              "payment.status": isInstallmentPayment ? "partially-paid" : "paid",
-              "payment.razorpayPaymentId": razorpayPaymentId,
-              "payment.paidAt": FieldValue.serverTimestamp(),
-              "payment.verifiedVia": "webhook",
-              updatedAt: FieldValue.serverTimestamp(),
-            };
-
-            if (isInstallmentPayment) {
-              updatePayload["payment.installmentPlan.status"] = "active";
-              if (paidInstallments) updatePayload["payment.installmentPlan.installments"] = paidInstallments;
-            }
-
-            await orderDoc.ref.update(updatePayload);
-          }
-        }
-      } catch (error) {
-        // Log the error but still return 200 so Razorpay doesn't retry endlessly
-        console.error("Webhook: error updating order", { razorpayOrderId, error });
+  try {
+    if (event === "payment.captured" && payment) {
+      if (payment.notes?.kind === "class-fee" && payment.notes.feePaymentId) {
+        await markClassFeePaid(payment.notes.feePaymentId, payment.id || "", "manual");
+      } else {
+        await handleOrderCaptured(payment);
       }
+    } else if (event === "payment.failed" && payment?.notes?.kind === "class-fee" && payment.notes.feePaymentId) {
+      await markClassFeeFailed(payment.notes.feePaymentId);
+    } else if (event.startsWith("subscription.") && subscription) {
+      await handleSubscriptionEvent(event, subscription, payment);
     }
+  } catch (error) {
+    // Log but still ACK so Razorpay does not retry endlessly.
+    console.error("Webhook: error handling event", { event, error });
   }
 
-  // Always return 200 to acknowledge receipt (even for events we don't handle)
   sendJson(response, 200, { received: true });
 }
