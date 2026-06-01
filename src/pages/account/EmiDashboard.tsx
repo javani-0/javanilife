@@ -133,9 +133,6 @@ export default function EmiDashboard() {
       <div className="space-y-6">
         {orders.map((order) => {
           const isCompleted = order.paymentPlan.status === "completed";
-          const mandateStatus = order.emiSubscription?.mandateStatus || "none";
-          const autopayActive = mandateStatus === "authenticated" || mandateStatus === "active";
-          const autopaySetupPending = mandateStatus === "created";
 
           return (
             <div key={order.id} className="overflow-hidden rounded-2xl border border-gold/15 bg-card shadow-sm">
@@ -165,43 +162,7 @@ export default function EmiDashboard() {
                 </div>
               </div>
 
-              {/* Autopay Status */}
-              {!isCompleted && (
-                <div className="border-b border-border bg-background px-5 py-3 sm:px-6">
-                  {autopayActive ? (
-                    <div className="flex items-start gap-2">
-                      <CheckCircle2 className="mt-0.5 h-4 w-4 text-emerald-600" />
-                      <div>
-                        <p className="font-body text-sm font-semibold text-emerald-900">Autopay is Active</p>
-                        <p className="font-body text-xs text-emerald-700">Your upcoming installments will be automatically charged via Razorpay.</p>
-                      </div>
-                    </div>
-                  ) : autopaySetupPending ? (
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                      <div className="flex items-start gap-2">
-                        <AlertCircle className="mt-0.5 h-4 w-4 text-amber-600" />
-                        <div>
-                          <p className="font-body text-sm font-semibold text-amber-900">Autopay Setup Pending</p>
-                          <p className="font-body text-xs text-amber-800">You haven't authorized automatic payments yet. You can pay manually below or set up autopay.</p>
-                        </div>
-                      </div>
-                      {order.emiSubscription?.shortUrl && (
-                        <a href={order.emiSubscription.shortUrl} target="_blank" rel="noreferrer" className="inline-flex items-center justify-center gap-1 rounded-md bg-amber-600 px-3 py-1.5 font-body text-xs font-semibold text-white hover:bg-amber-700">
-                          <PlayCircle className="h-3.5 w-3.5" /> Set Up Autopay
-                        </a>
-                      )}
-                    </div>
-                  ) : (
-                    <div className="flex items-start gap-2">
-                      <AlertCircle className="mt-0.5 h-4 w-4 text-muted-foreground" />
-                      <div>
-                        <p className="font-body text-sm font-semibold text-foreground">Manual Payments</p>
-                        <p className="font-body text-xs text-muted-foreground">Autopay is not active for this order. Please pay your installments manually below before their due dates.</p>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
+              {/* Autopay Status removed - EMI is now purely manual */}
 
               {/* Installments List */}
               <div className="divide-y divide-border">
@@ -234,10 +195,10 @@ export default function EmiDashboard() {
                         <div className="shrink-0 sm:self-center">
                           <button
                             onClick={() => handlePayInstallment(order.id, inst.installmentNumber)}
-                            disabled={isPayingThis || autopayActive}
+                            disabled={isPayingThis}
                             className="w-full sm:w-auto inline-flex items-center justify-center rounded-md bg-gold px-4 py-2 font-body text-xs font-semibold text-charcoal hover:bg-gold-light disabled:opacity-50 transition-colors"
                           >
-                            {isPayingThis ? "Processing..." : autopayActive ? "Will Auto-Charge" : "Pay Now"}
+                            {isPayingThis ? "Processing..." : "Pay Now"}
                           </button>
                         </div>
                       )}

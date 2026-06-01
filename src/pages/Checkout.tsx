@@ -658,28 +658,7 @@ const Checkout = () => {
           throw new Error("Razorpay payment could not be verified.");
         }
 
-        if (paymentPlan === "installment") {
-          // Open subscription auth modal immediately
-          const subscriptionData = await createEmiSubscription({
-            idToken,
-            orderDocumentId: orderDocument.id,
-          });
-
-          await openRazorpayCheckout({
-            key: subscriptionData.keyId,
-            name: "Javani Spiritual Hub",
-            description: "EMI Autopay Setup",
-            subscription_id: subscriptionData.subscriptionId,
-            prefill: createRazorpayPrefill(normalizedAddress, user.email),
-            notes: {
-              orderDocumentId: orderDocument.id,
-            },
-            theme: { color: "#8B1A1A" },
-          }).catch((err) => {
-            console.error("Subscription setup was cancelled or failed, but order 1st installment was paid", err);
-            // It's okay, they can pay manually or retry autopay later.
-          });
-        }
+        // Autopay subscription setup has been disabled; installments are now fully manual.
       }
 
       const notificationIdToken = idToken || await user.getIdToken();
@@ -1197,7 +1176,7 @@ const Checkout = () => {
                         <p className="font-body text-sm font-bold text-foreground">EMI / Installment option</p>
                         <p className="font-body text-xs leading-relaxed text-muted-foreground">
                           {courseInstallmentEligibility.eligible
-                            ? `Available for this order. Pay ${formatEmiSummary(emiSettings)} on the 5th of the next months. Autopay will be set up after the first payment.`
+                            ? `Available for this order. Pay ${emiSettings.upfrontPercentage}% upfront + ${emiSettings.installmentPercentages.join("% + ")}% on the ${emiSettings.reminderDaysBefore}th of the next months.`
                             : courseInstallmentEligibility.reason}
                         </p>
                       </div>
@@ -1339,8 +1318,10 @@ const Checkout = () => {
                       <div key={installment.installmentNumber} className="flex justify-between gap-3"><span>{installment.label} on {installment.dueDate}</span><span className="font-semibold">{formatPaiseAsRupees(installment.amountInPaise)}</span></div>
                     ))}
                   </div>
-                  <div className="mt-2 border-t border-emerald-200 pt-2 text-[0.7rem] text-emerald-700">
-                    ℹ️ Autopay will be set up after your first payment. Remaining installments will be auto-charged via Razorpay.
+                  <div className="mt-3 flex items-start gap-2 rounded-lg bg-[#E8F3F1] p-2.5">
+                    <p className="font-body text-xs text-[#2A7B6F]">
+                      Remaining installments can be paid manually from your EMI dashboard before their due dates.
+                    </p>
                   </div>
                 </div>
               )}
@@ -1362,7 +1343,7 @@ const Checkout = () => {
               {paymentMethod === "razorpay" && (
                 <div className="mt-4 rounded-xl border border-gold/20 bg-gold/10 p-3 font-body text-xs leading-relaxed text-foreground">
                   {selectedCoursePaymentPlan === "installment"
-                    ? `Razorpay Checkout will collect the ${emiSettings.upfrontPercentage}% first installment now. Autopay will be set up for remaining installments. You can also pay manually from your EMI dashboard.`
+                    ? `Razorpay Checkout will collect the ${emiSettings.upfrontPercentage}% first installment now. You can pay remaining installments manually from your EMI dashboard.`
                     : "Razorpay Checkout will open after your order is saved. The order is marked paid only after server-side signature verification."}
                 </div>
               )}
