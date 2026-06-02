@@ -290,22 +290,30 @@ const ClassDetail = () => {
               {slots.length > 0 && (
                 <>
                   <h3 className="mt-7 font-display text-lg text-foreground">Choose a time slot</h3>
+                  <p className="mt-1 font-body text-[0.8rem] text-muted-foreground">Pick the batch you'd like to join.</p>
                   <div className="mt-3 grid gap-3 sm:grid-cols-2">
                     {slots.map((slot) => {
                       const left = seatsLeft(slot);
                       const full = left !== null && left <= 0;
                       const active = selectedSlotId === slot.id;
+                      const [dayPart, timePart] = (slot.label || "").split(" · ");
                       return (
                         <button
                           type="button"
                           key={slot.id}
                           disabled={full}
                           onClick={() => setSelectedSlotId(slot.id)}
-                          className={`flex flex-col gap-1 rounded-xl border p-4 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${active ? "border-gold bg-gold/10" : "border-border hover:border-gold/40"}`}
+                          className={`relative flex min-h-[5.5rem] flex-col justify-between gap-3 rounded-xl border p-4 text-left transition-all disabled:cursor-not-allowed disabled:opacity-60 ${active ? "border-gold bg-gold/10 ring-1 ring-gold" : "border-border hover:border-gold/50 hover:bg-gold/5"}`}
                         >
-                          <span className="flex items-center gap-2 font-body font-semibold text-foreground"><CalendarDays className="h-4 w-4 text-gold" /> {slot.label}</span>
-                          <span className="font-body text-[0.75rem] text-muted-foreground">
-                            {left === null ? "Open seats" : full ? "Full" : `${left} seat${left === 1 ? "" : "s"} left`}
+                          <span className="flex items-start justify-between gap-2">
+                            <span className={`flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full ${active ? "bg-gold text-white" : "bg-gold/15 text-gold"}`}><CalendarDays className="h-4 w-4" /></span>
+                            <span className={`rounded-full px-2 py-0.5 font-body text-[0.68rem] font-semibold ${full ? "bg-red-100 text-red-700" : left === null ? "bg-muted text-muted-foreground" : "bg-green-100 text-green-700"}`}>
+                              {left === null ? "Open" : full ? "Full" : `${left} seat${left === 1 ? "" : "s"} left`}
+                            </span>
+                          </span>
+                          <span className="block">
+                            <span className="block font-body text-[0.92rem] font-semibold leading-snug text-foreground">{dayPart || "Slot"}</span>
+                            {timePart && <span className="mt-0.5 block font-body text-[0.8rem] text-muted-foreground">{timePart}</span>}
                           </span>
                         </button>
                       );

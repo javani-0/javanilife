@@ -567,13 +567,19 @@ const AdminClasses = () => {
                   <p className="font-body text-[0.72rem] text-muted-foreground">No slots. Add slots to let parents choose a batch (with its own seats). Otherwise the general schedule above is shown.</p>
                 ) : (
                   <div className="space-y-3">
-                    {form.timeSlots.map((slot, index) => (
-                      <div key={slot.id} className="rounded-md border border-border bg-background/60 p-3">
-                        <div className="mb-2 flex items-center justify-between">
-                          <span className="font-body text-[0.78rem] font-semibold text-muted-foreground">Slot {index + 1}{slot.days.length || slot.start ? ` — ${composeSchedule(slot.days, slot.start, slot.end)}` : ""}</span>
-                          <button type="button" onClick={() => removeSlot(slot.id)} className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive" aria-label={`Remove slot ${index + 1}`}><Trash2 className="h-3.5 w-3.5" /></button>
+                    {form.timeSlots.map((slot, index) => {
+                      const slotLabel = composeSchedule(slot.days, slot.start, slot.end);
+                      return (
+                      <div key={slot.id} className="rounded-lg border border-border bg-background/60 p-3.5">
+                        <div className="mb-2.5 flex items-center justify-between gap-2">
+                          <span className="flex min-w-0 items-center gap-2 font-body text-[0.8rem] font-semibold text-foreground">
+                            <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-gold/15 text-[0.7rem] text-gold">{index + 1}</span>
+                            <span className="truncate text-muted-foreground">{slotLabel || `Slot ${index + 1}`}</span>
+                          </span>
+                          <button type="button" onClick={() => removeSlot(slot.id)} className="flex-shrink-0 rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive" aria-label={`Remove slot ${index + 1}`}><Trash2 className="h-4 w-4" /></button>
                         </div>
-                        <div className="mb-2 flex flex-wrap gap-1.5">
+                        <label className="mb-1.5 block font-body text-[0.72rem] font-medium text-muted-foreground">Days</label>
+                        <div className="mb-3 flex flex-wrap gap-1.5">
                           {WEEKDAYS.map((day) => {
                             const selected = slot.days.includes(day.value);
                             return (
@@ -581,7 +587,7 @@ const AdminClasses = () => {
                             );
                           })}
                         </div>
-                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                           <div>
                             <label className={labelClass}>From</label>
                             <TimePicker value={slot.start} onChange={(val) => updateSlot(slot.id, { start: val })} />
@@ -590,13 +596,14 @@ const AdminClasses = () => {
                             <label className={labelClass}>To</label>
                             <TimePicker value={slot.end} onChange={(val) => updateSlot(slot.id, { end: val })} />
                           </div>
-                          <div>
-                            <label className={labelClass}>Seats</label>
-                            <input value={slot.seats} onChange={(event) => updateSlot(slot.id, { seats: event.target.value })} className={inputClass} inputMode="numeric" placeholder="Unlimited" />
-                          </div>
+                        </div>
+                        <div className="mt-3 sm:max-w-[200px]">
+                          <label className={labelClass}>Seats (capacity)</label>
+                          <input value={slot.seats} onChange={(event) => updateSlot(slot.id, { seats: event.target.value })} className={inputClass} inputMode="numeric" placeholder="Leave blank = unlimited" />
                         </div>
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>
