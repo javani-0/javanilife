@@ -5,6 +5,7 @@ import {
   ensureFeePayment,
   ENROLLMENTS_COLLECTION,
   FEE_PAYMENTS_COLLECTION,
+  isTermEnrollment,
   notificationContextFromFee,
   type EnrollmentRecord,
 } from "../_lib/fee-store.js";
@@ -63,6 +64,8 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     for (const enrollmentDoc of activeEnrollments.docs) {
       const enrollment = { id: enrollmentDoc.id, ...(enrollmentDoc.data() as Omit<EnrollmentRecord, "id">) };
       if (!enrollment.classId || !enrollment.parentUserId) continue;
+      // Term courses have a fixed installment/full schedule — never roll a monthly fee.
+      if (isTermEnrollment(enrollment)) continue;
       await ensureFeePayment(db, enrollment, monthKey);
       rolledForward += 1;
     }

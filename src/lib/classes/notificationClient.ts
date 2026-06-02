@@ -33,8 +33,11 @@ export interface CreateFeeOrderResponse {
 }
 
 // Target an existing fee doc (subsequent months / "Pay Now") OR an enrollment
-// (server creates the current-month fee doc on the fly for the first payment).
-export type FeeOrderTarget = { feePaymentId: string } | { enrollmentId: string };
+// (server creates the fee doc on the fly for the first payment). For term
+// courses, `kind` chooses pay-full vs an EMI installment.
+export type FeeOrderTarget =
+  | { feePaymentId: string }
+  | { enrollmentId: string; kind?: "monthly" | "full" | "emi"; installmentNumber?: number };
 
 /** Create a one-time Razorpay order for a single month's fee (manual pay). */
 export const createFeeOrder = (idToken: string, target: FeeOrderTarget) =>

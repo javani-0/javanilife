@@ -2,11 +2,23 @@ import { getFirebaseAdminAuth, getFirebaseAdminDb, FieldValue } from "../_lib/fi
 import { getBearerToken, readJsonBody, requirePost, sendError, sendJson, type ApiRequest, type ApiResponse } from "../_lib/http.js";
 import { createRazorpayClient, getRazorpayCredentials, getRazorpayCurrency } from "../_lib/razorpay.js";
 import { monthKeyFor } from "../_lib/class-fees.js";
-import { ensureFeePayment, ENROLLMENTS_COLLECTION, FEE_PAYMENTS_COLLECTION, type EnrollmentRecord } from "../_lib/fee-store.js";
+import {
+  countSlotSeatOnce,
+  ensureCustomFeePayment,
+  ensureFeePayment,
+  ensureTermInstallmentFees,
+  ENROLLMENTS_COLLECTION,
+  FEE_PAYMENTS_COLLECTION,
+  isTermEnrollment,
+  type EnrollmentRecord,
+} from "../_lib/fee-store.js";
 
 interface CreateFeeOrderBody {
   feePaymentId?: string;
   enrollmentId?: string;
+  // Term-course only: which payment to bill ("full" or an EMI installment).
+  kind?: "monthly" | "full" | "emi";
+  installmentNumber?: number;
 }
 
 const isFirebaseAuthError = (error: unknown) => {
@@ -37,7 +49,7 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     let feePaymentId = (body.feePaymentId || "").trim();
     const enrollmentId = (body.enrollmentId || "").trim();
 
-    // Bootstrap path: create / reuse the current-month fee doc for an enrollment.
+    // Bootstrap path: create / reuse the fee doc for an enrollment.
     if (!feePaymentId && enrollmentId) {
       const enrollmentSnapshot = await db.collection(ENROLLMENTS_COLLECTION).doc(enrollmentId).get();
       if (!enrollmentSnapshot.exists) {
@@ -50,14 +62,40 @@ export default async function handler(request: ApiRequest, response: ApiResponse
         return;
       }
 
-      const monthKey = monthKeyFor(new Date());
-      const { id } = await ensureFeePayment(db, enrollment, monthKey);
-      feePaymentId = id;
+      if (isTermEnrollment(enrollment)) {
+        // Term course: bill the full fee or a specific EMI installment.
+        const kind = body.kind === "emi" ? "emi" : "full";
+        if (kind === "full") {
+          const { id } = await ensureCustomFeePayment(db, enrollment, {
+            suffix: "full",
+            amountInPaise: Math.max(0, Math.round(Number(enrollment.termFeeInPaise || 0))),
+            periodLabel: "Full course fee",
+            dueDate: monthKeyFor(new Date()) + "-01",
+          });
+          feePaymentId = id;
+        } else {
+          // Materialize every installment doc, then target the requested one (default 1).
+          const created = await ensureTermInstallmentFees(db, enrollment);
+          const wanted = Math.max(1, Math.round(Number(body.installmentNumber || 1)));
+          const match = created.find((entry) => entry.installmentNumber === wanted) || created[0];
+          if (!match) {
+            sendError(response, 400, "This course has no EMI installment schedule.");
+            return;
+          }
+          feePaymentId = match.id;
+        }
+      } else {
+        const monthKey = monthKeyFor(new Date());
+        const { id } = await ensureFeePayment(db, enrollment, monthKey);
+        feePaymentId = id;
+      }
 
-      // Manual enrolment becomes active once the parent starts paying.
+      // Manual / term enrolment becomes active once the parent starts paying.
       if (enrollment.status === "pending") {
         await enrollmentSnapshot.ref.update({ status: "active", updatedAt: FieldValue.serverTimestamp() });
       }
+      // Book the chosen slot's seat (idempotent — guarded by seatCounted).
+      await countSlotSeatOnce(db, enrollment.id);
     }
 
     if (!feePaymentId) {

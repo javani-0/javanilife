@@ -171,6 +171,33 @@ async function markClassFeePaid(feePaymentId: string, razorpayPaymentId: string,
     updatedAt: FieldValue.serverTimestamp(),
   });
 
+  // For term-course EMI, also flip the matching installment on the enrollment
+  // plan so the parent's schedule view stays accurate.
+  const emiMatch = /_emi-(\d+)$/.exec(feePaymentId);
+  if (emiMatch && fee.enrollmentId) {
+    const installmentNumber = Number(emiMatch[1]);
+    try {
+      const enrollmentRef = db.collection(ENROLLMENTS_COLLECTION).doc(String(fee.enrollmentId));
+      const enrollmentSnap = await enrollmentRef.get();
+      const installments = enrollmentSnap.data()?.installmentPlan?.installments;
+      if (Array.isArray(installments)) {
+        const updated = installments.map((inst: Record<string, unknown>) =>
+          Number(inst.installmentNumber) === installmentNumber
+            ? { ...inst, status: "paid", paidAt: new Date().toISOString(), razorpayPaymentId }
+            : inst,
+        );
+        const allPaid = updated.every((inst: Record<string, unknown>) => inst.status === "paid");
+        await enrollmentRef.update({
+          "installmentPlan.installments": updated,
+          "installmentPlan.status": allPaid ? "completed" : "active",
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+      }
+    } catch (error) {
+      console.error("EMI installment plan update failed", { feePaymentId, error });
+    }
+  }
+
   await sendClassFeeNotifications("paid", notificationContextFromFee(feePaymentId, { ...fee, status: "paid" }))
     .catch((error) => console.error("Class fee paid notification failed", { feePaymentId, error }));
 }

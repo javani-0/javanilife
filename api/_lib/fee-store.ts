@@ -17,6 +17,15 @@ const toNumber = (value: unknown, fallback = 0) => {
   return Number.isFinite(parsed) ? parsed : fallback;
 };
 
+export interface TermInstallment {
+  installmentNumber: number;
+  label?: string;
+  percentage?: number;
+  amountInPaise?: number;
+  status?: string;
+  dueDate?: string;
+}
+
 export interface EnrollmentRecord {
   id: string;
   parentUserId?: string;
@@ -28,7 +37,64 @@ export interface EnrollmentRecord {
   student?: { name?: string };
   parent?: { name?: string; phone?: string; whatsappNumber?: string; address?: string };
   autopay?: { razorpaySubscriptionId?: string };
+  // Term-course fields.
+  feeType?: string;
+  termFeeInPaise?: number;
+  paymentPlan?: string;
+  installmentPlan?: { installments?: TermInstallment[] };
+  // Slot booking.
+  slotId?: string;
+  seatCounted?: boolean;
 }
+
+export const CLASSES_COLLECTION = "classes";
+
+/** True when this enrollment is a one-off term course (not a recurring monthly class). */
+export const isTermEnrollment = (enrollment: EnrollmentRecord): boolean => enrollment.feeType === "term";
+
+/**
+ * Count one seat for an enrolment exactly once (guarded by `seatCounted`).
+ * Transactionally bumps the class-level seatsTaken and, when a slot was chosen,
+ * that slot's seatsTaken. Best-effort: never throws into the caller.
+ */
+export const countSlotSeatOnce = async (db: Firestore, enrollmentId: string): Promise<void> => {
+  try {
+    await db.runTransaction(async (tx) => {
+      const enrollmentRef = db.collection(ENROLLMENTS_COLLECTION).doc(enrollmentId);
+      const enrollmentSnap = await tx.get(enrollmentRef);
+      if (!enrollmentSnap.exists) return;
+      const enrollment = enrollmentSnap.data() || {};
+      if (enrollment.seatCounted === true) return; // already counted
+
+      const classId = getString(enrollment.classId);
+      const slotId = getString(enrollment.slotId);
+      const updates: Record<string, unknown> = { seatCounted: true, updatedAt: FieldValue.serverTimestamp() };
+
+      if (classId) {
+        const classRef = db.collection(CLASSES_COLLECTION).doc(classId);
+        const classSnap = await tx.get(classRef);
+        if (classSnap.exists) {
+          const classData = classSnap.data() || {};
+          const classUpdates: Record<string, unknown> = {
+            seatsTaken: Math.max(0, Math.round(toNumber(classData.seatsTaken))) + 1,
+            updatedAt: FieldValue.serverTimestamp(),
+          };
+          if (slotId && Array.isArray(classData.timeSlots)) {
+            classUpdates.timeSlots = classData.timeSlots.map((slot: Record<string, unknown>) =>
+              getString(slot.id) === slotId
+                ? { ...slot, seatsTaken: Math.max(0, Math.round(toNumber(slot.seatsTaken))) + 1 }
+                : slot,
+            );
+          }
+          tx.update(classRef, classUpdates);
+        }
+      }
+      tx.update(enrollmentRef, updates);
+    });
+  } catch (error) {
+    console.error("Seat count update failed", { enrollmentId, error });
+  }
+};
 
 export interface FeePaymentRecord {
   id: string;
@@ -95,6 +161,71 @@ export const ensureFeePayment = async (
   };
   await ref.set(seed, { merge: true });
   return { id, data: seed, created: true };
+};
+
+/** Denormalized identity fields shared by every fee doc for an enrollment. */
+const feeIdentity = (enrollment: EnrollmentRecord) => ({
+  enrollmentId: enrollment.id,
+  classId: getString(enrollment.classId),
+  className: getString(enrollment.className),
+  parentUserId: getString(enrollment.parentUserId),
+  studentName: getString(enrollment.student?.name),
+  parentName: getString(enrollment.parent?.name),
+  parentPhone: getString(enrollment.parent?.whatsappNumber) || getString(enrollment.parent?.phone),
+});
+
+/**
+ * Ensure a single non-monthly fee doc (deterministic id `${enrollmentId}_${suffix}`).
+ * Used for term-course "pay full" and EMI installment docs. Idempotent.
+ */
+export const ensureCustomFeePayment = async (
+  db: Firestore,
+  enrollment: EnrollmentRecord,
+  params: { suffix: string; amountInPaise: number; periodLabel: string; dueDate: string },
+): Promise<{ id: string; data: FirebaseFirestore.DocumentData; created: boolean }> => {
+  const id = `${enrollment.id}_${params.suffix}`;
+  const ref = db.collection(FEE_PAYMENTS_COLLECTION).doc(id);
+  const snapshot = await ref.get();
+  if (snapshot.exists) return { id, data: snapshot.data() || {}, created: false };
+
+  const monthKey = (params.dueDate || "").slice(0, 7);
+  const seed = {
+    ...feeIdentity(enrollment),
+    monthKey,
+    periodLabel: params.periodLabel,
+    amountInPaise: Math.max(0, Math.round(toNumber(params.amountInPaise))),
+    dueDate: params.dueDate,
+    status: "pending",
+    createdAt: FieldValue.serverTimestamp(),
+    updatedAt: FieldValue.serverTimestamp(),
+  };
+  await ref.set(seed, { merge: true });
+  return { id, data: seed, created: true };
+};
+
+/**
+ * For an EMI term enrollment, ensure one fee doc per installment exists (pending).
+ * Returns them ordered by installment number. Reads the schedule from the
+ * enrollment's stored installmentPlan.
+ */
+export const ensureTermInstallmentFees = async (
+  db: Firestore,
+  enrollment: EnrollmentRecord,
+): Promise<Array<{ installmentNumber: number; id: string }>> => {
+  const installments = enrollment.installmentPlan?.installments || [];
+  const results: Array<{ installmentNumber: number; id: string }> = [];
+  for (const installment of installments) {
+    const number = Math.round(toNumber(installment.installmentNumber, 0));
+    if (number <= 0) continue;
+    const { id } = await ensureCustomFeePayment(db, enrollment, {
+      suffix: `emi-${number}`,
+      amountInPaise: Math.max(0, Math.round(toNumber(installment.amountInPaise))),
+      periodLabel: getString(installment.label) || `Installment ${number}`,
+      dueDate: getString(installment.dueDate),
+    });
+    results.push({ installmentNumber: number, id });
+  }
+  return results;
 };
 
 /** Build the notification context from a stored fee doc. */

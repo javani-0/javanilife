@@ -14,7 +14,19 @@ import {
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { formatPaiseAsRupees } from "@/lib/ecommerce";
-import { clampBillingDay, type ClassDoc } from "./types";
+import { createEmiInstallmentPlan } from "@/lib/ecommerce/installments";
+import type { CourseInstallmentPlan, EmiSettings } from "@/lib/ecommerce/types";
+import {
+  clampBillingDay,
+  DEFAULT_CLASS_EMI_CONFIG,
+  DEFAULT_CLASS_PAYMENT_OPTIONS,
+  type ClassDoc,
+  type ClassEmiConfig,
+  type ClassFeeType,
+  type ClassPaymentMethod,
+  type ClassPaymentOptions,
+  type ClassTimeSlot,
+} from "./types";
 
 export const CLASSES_COLLECTION = "classes";
 
@@ -73,6 +85,72 @@ export const composeAgeGroup = (from?: number, to?: number): string => {
   return "";
 };
 
+/** Whole calendar months between two "YYYY-MM-DD" dates (min 1). 0 if unparseable. */
+export const monthsBetween = (startDate?: string, endDate?: string): number => {
+  const start = startDate ? new Date(startDate) : null;
+  const end = endDate ? new Date(endDate) : null;
+  if (!start || !end || Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return 0;
+  const months = (end.getFullYear() - start.getFullYear()) * 12 + (end.getMonth() - start.getMonth());
+  return Math.max(1, months);
+};
+
+/** Normalize one stored/draft time slot, recomposing its display label. */
+export const normalizeTimeSlot = (raw: Partial<ClassTimeSlot> & { id?: string }, index = 0): ClassTimeSlot => {
+  const days = Array.isArray(raw.days) ? raw.days.filter((day): day is string => typeof day === "string") : [];
+  const start = typeof raw.start === "string" ? raw.start : "";
+  const end = typeof raw.end === "string" ? raw.end : "";
+  return {
+    id: raw.id || `slot-${index + 1}`,
+    days,
+    start,
+    end,
+    label: composeSchedule(days, start, end) || `Slot ${index + 1}`,
+    seatsTotal: raw.seatsTotal != null ? Math.max(0, Math.round(toNumber(raw.seatsTotal))) : undefined,
+    seatsTaken: raw.seatsTaken != null ? Math.max(0, Math.round(toNumber(raw.seatsTaken))) : undefined,
+  };
+};
+
+const normalizePaymentOptions = (raw: unknown): ClassPaymentOptions => {
+  if (!raw || typeof raw !== "object") return { ...DEFAULT_CLASS_PAYMENT_OPTIONS };
+  const data = raw as Record<string, unknown>;
+  return {
+    autopay: data.autopay === true,
+    manual: data.manual === true,
+    full: data.full === true,
+    emi: data.emi === true,
+  };
+};
+
+const normalizeEmiConfig = (raw: unknown): ClassEmiConfig | undefined => {
+  if (!raw || typeof raw !== "object") return undefined;
+  const data = raw as Record<string, unknown>;
+  const upfront = Math.round(toNumber(data.upfrontPercentage, DEFAULT_CLASS_EMI_CONFIG.upfrontPercentage));
+  const pcts = Array.isArray(data.installmentPercentages)
+    ? data.installmentPercentages.map((value) => Math.round(toNumber(value))).filter((value) => value > 0)
+    : [];
+  return {
+    upfrontPercentage: Math.min(100, Math.max(1, upfront)),
+    installmentPercentages: pcts.length > 0 ? pcts : [...DEFAULT_CLASS_EMI_CONFIG.installmentPercentages],
+  };
+};
+
+/** Adapt a per-class EMI split into the ecommerce EmiSettings shape (for the math helpers). */
+export const classEmiToSettings = (emi: ClassEmiConfig): EmiSettings => ({
+  enabled: true,
+  minAmountInPaise: 0,
+  upfrontPercentage: emi.upfrontPercentage,
+  installmentPercentages: emi.installmentPercentages,
+  reminderDaysBefore: 5,
+});
+
+/** Build the installment schedule for a term class, reusing the course EMI math. */
+export const buildClassEmiPlan = (
+  termFeeInPaise: number,
+  emi: ClassEmiConfig,
+  createdAt: Date = new Date(),
+): CourseInstallmentPlan =>
+  createEmiInstallmentPlan({ totalInPaise: termFeeInPaise, createdAt, emiSettings: classEmiToSettings(emi) });
+
 export const normalizeClass = (id: string, data: DocumentData = {}): ClassDoc => ({
   id,
   name: typeof data.name === "string" ? data.name : "Untitled Class",
@@ -94,20 +172,61 @@ export const normalizeClass = (id: string, data: DocumentData = {}): ClassDoc =>
   razorpayPlanId: typeof data.razorpayPlanId === "string" ? data.razorpayPlanId : "",
   seatsTotal: data.seatsTotal != null ? Math.max(0, Math.round(toNumber(data.seatsTotal))) : undefined,
   seatsTaken: data.seatsTaken != null ? Math.max(0, Math.round(toNumber(data.seatsTaken))) : undefined,
+  // New: fee type, term fields, payment options, EMI split, time slots.
+  // Legacy docs (no feeType) read as "monthly" with autopay+manual enabled.
+  feeType: data.feeType === "term" ? "term" : "monthly",
+  termFeeInPaise: data.termFeeInPaise != null ? Math.max(0, Math.round(toNumber(data.termFeeInPaise))) : undefined,
+  startDate: typeof data.startDate === "string" ? data.startDate : "",
+  endDate: typeof data.endDate === "string" ? data.endDate : "",
+  durationMonths: data.durationMonths != null ? Math.max(0, Math.round(toNumber(data.durationMonths))) : undefined,
+  payment: data.payment ? normalizePaymentOptions(data.payment) : { ...DEFAULT_CLASS_PAYMENT_OPTIONS },
+  emi: normalizeEmiConfig(data.emi),
+  timeSlots: Array.isArray(data.timeSlots)
+    ? data.timeSlots.map((slot: Record<string, unknown>, index: number) => normalizeTimeSlot(slot, index))
+    : [],
   createdAt: data.createdAt,
   updatedAt: data.updatedAt,
 });
 
-/** "₹2,500 / month" for the monthly fee. */
-export const getClassFeeLabel = (classDoc: Pick<ClassDoc, "monthlyFeeInPaise">): string => (
-  classDoc.monthlyFeeInPaise > 0
-    ? `${formatPaiseAsRupees(classDoc.monthlyFeeInPaise)} / month`
-    : "Fee to be updated"
+type ClassFeeShape = { monthlyFeeInPaise?: number; feeType?: ClassFeeType; termFeeInPaise?: number };
+
+/** The headline price label: "₹2,500 / month" (monthly) or "₹30,000 · term" (term). */
+export const getClassFeeLabel = (classDoc: ClassFeeShape): string => {
+  if (classDoc.feeType === "term") {
+    return (classDoc.termFeeInPaise || 0) > 0
+      ? `${formatPaiseAsRupees(classDoc.termFeeInPaise || 0)} · full course`
+      : "Fee to be updated";
+  }
+  return (classDoc.monthlyFeeInPaise || 0) > 0
+    ? `${formatPaiseAsRupees(classDoc.monthlyFeeInPaise || 0)} / month`
+    : "Fee to be updated";
+};
+
+/** The effective fee amount in paise for a class, regardless of type. */
+export const getClassFeeInPaise = (classDoc: ClassFeeShape): number => (
+  classDoc.feeType === "term" ? classDoc.termFeeInPaise || 0 : classDoc.monthlyFeeInPaise || 0
 );
 
-export const isClassEnrollable = (classDoc: Pick<ClassDoc, "active" | "monthlyFeeInPaise">): boolean => (
-  classDoc.active && classDoc.monthlyFeeInPaise > 0
-);
+export const isClassEnrollable = (
+  classDoc: { active?: boolean } & ClassFeeShape,
+): boolean => Boolean(classDoc.active) && getClassFeeInPaise(classDoc) > 0;
+
+/** Which payment rails a parent may actually use for this class. */
+export const getEnabledPaymentMethods = (
+  classDoc: { feeType?: ClassFeeType; payment?: ClassPaymentOptions },
+): ClassPaymentMethod[] => {
+  const payment = classDoc.payment || DEFAULT_CLASS_PAYMENT_OPTIONS;
+  if (classDoc.feeType === "term") {
+    return ([
+      payment.full ? "full" : null,
+      payment.emi ? "emi" : null,
+    ].filter(Boolean) as ClassPaymentMethod[]);
+  }
+  return ([
+    payment.autopay ? "autopay" : null,
+    payment.manual ? "manual" : null,
+  ].filter(Boolean) as ClassPaymentMethod[]);
+};
 
 /** Live subscription to every class (admin). Returns the unsubscribe fn. */
 export const subscribeToClasses = (
@@ -154,7 +273,29 @@ export interface ClassWritePayload {
   billingDayOfMonth: number;
   active: boolean;
   seatsTotal?: number;
+  // New fields
+  feeType?: ClassFeeType;
+  termFeeInPaise?: number;
+  startDate?: string;
+  endDate?: string;
+  payment?: ClassPaymentOptions;
+  emi?: ClassEmiConfig | null;
+  timeSlots?: ClassTimeSlot[];
 }
+
+const sanitizeTimeSlot = (slot: ClassTimeSlot, index: number) => {
+  const normalized = normalizeTimeSlot(slot, index);
+  return {
+    id: normalized.id,
+    days: normalized.days,
+    start: normalized.start,
+    end: normalized.end,
+    label: normalized.label,
+    // Firestore rejects undefined — store null when unset.
+    seatsTotal: normalized.seatsTotal != null ? normalized.seatsTotal : null,
+    seatsTaken: normalized.seatsTaken != null ? normalized.seatsTaken : 0,
+  };
+};
 
 const buildClassPayload = (payload: ClassWritePayload) => {
   const scheduleDays = (payload.scheduleDays || []).filter(Boolean);
@@ -162,6 +303,12 @@ const buildClassPayload = (payload: ClassWritePayload) => {
   const scheduleEnd = (payload.scheduleEnd || "").trim();
   const ageFrom = payload.ageFrom != null && Number.isFinite(payload.ageFrom) ? Math.max(0, Math.round(payload.ageFrom)) : null;
   const ageTo = payload.ageTo != null && Number.isFinite(payload.ageTo) ? Math.max(0, Math.round(payload.ageTo)) : null;
+
+  const feeType: ClassFeeType = payload.feeType === "term" ? "term" : "monthly";
+  const startDate = (payload.startDate || "").trim();
+  const endDate = (payload.endDate || "").trim();
+  const timeSlots = (payload.timeSlots || []).map(sanitizeTimeSlot);
+  const payment = payload.payment || DEFAULT_CLASS_PAYMENT_OPTIONS;
 
   return {
     name: payload.name.trim(),
@@ -181,6 +328,23 @@ const buildClassPayload = (payload: ClassWritePayload) => {
     billingDayOfMonth: clampBillingDay(payload.billingDayOfMonth),
     active: payload.active,
     seatsTotal: payload.seatsTotal != null ? Math.max(0, Math.round(payload.seatsTotal)) : null,
+    // New persisted fields.
+    feeType,
+    termFeeInPaise: feeType === "term" ? Math.max(0, Math.round(payload.termFeeInPaise || 0)) : null,
+    startDate: feeType === "term" ? startDate : "",
+    endDate: feeType === "term" ? endDate : "",
+    durationMonths: feeType === "term" ? monthsBetween(startDate, endDate) : null,
+    payment: {
+      autopay: payment.autopay === true,
+      manual: payment.manual === true,
+      full: payment.full === true,
+      emi: payment.emi === true,
+    },
+    emi: payload.emi ? {
+      upfrontPercentage: payload.emi.upfrontPercentage,
+      installmentPercentages: payload.emi.installmentPercentages,
+    } : null,
+    timeSlots,
     updatedAt: serverTimestamp(),
   };
 };

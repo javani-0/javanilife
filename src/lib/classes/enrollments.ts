@@ -16,10 +16,14 @@ import { db } from "@/lib/firebase";
 import {
   clampBillingDay,
   monthKeyFor,
+  type ClassEmiConfig,
+  type ClassFeeType,
+  type ClassPaymentMethod,
   type EnrollmentDoc,
   type EnrollmentStatus,
   type Gender,
 } from "./types";
+import type { CourseInstallmentPlan } from "@/lib/ecommerce/types";
 
 export const ENROLLMENTS_COLLECTION = "enrollments";
 
@@ -68,6 +72,15 @@ export const normalizeEnrollment = (id: string, data: DocumentData = {}): Enroll
       authorizedAt: autopay.authorizedAt,
       shortUrl: autopay.shortUrl,
     },
+    paymentPlan: typeof data.paymentPlan === "string" ? (data.paymentPlan as ClassPaymentMethod) : undefined,
+    slotId: typeof data.slotId === "string" ? data.slotId : undefined,
+    slotLabel: typeof data.slotLabel === "string" ? data.slotLabel : undefined,
+    feeType: data.feeType === "term" ? "term" : (data.feeType === "monthly" ? "monthly" : undefined),
+    termFeeInPaise: data.termFeeInPaise != null ? Math.max(0, Math.round(toNumber(data.termFeeInPaise))) : undefined,
+    emi: data.emi && typeof data.emi === "object" ? (data.emi as ClassEmiConfig) : undefined,
+    installmentPlan: data.installmentPlan && typeof data.installmentPlan === "object"
+      ? (data.installmentPlan as CourseInstallmentPlan)
+      : undefined,
     createdAt: data.createdAt,
     updatedAt: data.updatedAt,
   };
@@ -82,11 +95,25 @@ export interface CreateEnrollmentInput {
   student: { name: string; age: number; gender: Gender };
   parent: { name: string; phone: string; whatsappNumber?: string; address: string };
   autopayRequested: boolean;
+  // The chosen payment rail (autopay/manual/full/emi). Defaults derived from autopayRequested.
+  paymentPlan?: ClassPaymentMethod;
+  // Chosen time slot (when the class offers slots).
+  slotId?: string;
+  slotLabel?: string;
+  // Term-course fields.
+  feeType?: ClassFeeType;
+  termFeeInPaise?: number;
+  emi?: ClassEmiConfig;
+  installmentPlan?: CourseInstallmentPlan;
 }
 
 /** Create a pending enrollment owned by the signed-in parent. Returns the doc id. */
 export const createEnrollment = async (input: CreateEnrollmentInput): Promise<string> => {
-  const created = await addDoc(collection(db, ENROLLMENTS_COLLECTION), {
+  const paymentPlan: ClassPaymentMethod = input.paymentPlan || (input.autopayRequested ? "autopay" : "manual");
+  const isTerm = input.feeType === "term";
+
+  // Firestore rejects undefined — build the doc conditionally.
+  const docData: Record<string, unknown> = {
     student: {
       name: input.student.name.trim(),
       age: Math.max(0, Math.round(input.student.age)),
@@ -105,11 +132,22 @@ export const createEnrollment = async (input: CreateEnrollmentInput): Promise<st
     billingDayOfMonth: clampBillingDay(input.billingDayOfMonth),
     startMonthKey: monthKeyFor(new Date()),
     status: "pending",
-    // Firestore rejects undefined — only include `method` when autopay is wanted.
-    autopay: input.autopayRequested ? { enabled: false, method: "upi" } : { enabled: false },
+    autopay: paymentPlan === "autopay" ? { enabled: false, method: "upi" } : { enabled: false },
+    paymentPlan,
+    feeType: isTerm ? "term" : "monthly",
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
-  });
+  };
+
+  if (input.slotId) docData.slotId = input.slotId;
+  if (input.slotLabel) docData.slotLabel = input.slotLabel;
+  if (isTerm) {
+    docData.termFeeInPaise = Math.max(0, Math.round(input.termFeeInPaise || 0));
+    if (input.emi) docData.emi = input.emi;
+    if (input.installmentPlan) docData.installmentPlan = input.installmentPlan;
+  }
+
+  const created = await addDoc(collection(db, ENROLLMENTS_COLLECTION), docData);
   return created.id;
 };
 

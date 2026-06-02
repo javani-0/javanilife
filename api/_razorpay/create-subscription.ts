@@ -2,7 +2,7 @@ import { getFirebaseAdminAuth, getFirebaseAdminDb, FieldValue } from "../_lib/fi
 import { getBearerToken, readJsonBody, requirePost, sendError, sendJson, type ApiRequest, type ApiResponse } from "../_lib/http.js";
 import { createRazorpayClient, getRazorpayCredentials } from "../_lib/razorpay.js";
 import { createSubscription, ensureClassPlan } from "../_lib/razorpay-subscriptions.js";
-import { ENROLLMENTS_COLLECTION, type EnrollmentRecord } from "../_lib/fee-store.js";
+import { countSlotSeatOnce, ENROLLMENTS_COLLECTION, type EnrollmentRecord } from "../_lib/fee-store.js";
 
 interface CreateSubscriptionBody {
   enrollmentId?: string;
@@ -67,6 +67,9 @@ export default async function handler(request: ApiRequest, response: ApiResponse
       "autopay.shortUrl": subscription.short_url || "",
       updatedAt: FieldValue.serverTimestamp(),
     });
+
+    // Book the chosen slot's seat (idempotent — guarded by seatCounted).
+    await countSlotSeatOnce(db, enrollment.id);
 
     sendJson(response, 200, {
       subscriptionId: subscription.id,

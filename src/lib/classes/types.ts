@@ -1,4 +1,5 @@
 import type { Timestamp } from "firebase/firestore";
+import type { CourseInstallmentPlan } from "@/lib/ecommerce/types";
 
 // Re-export the pure fee-math helpers so consumers can import everything from
 // "@/lib/classes" in one place.
@@ -10,6 +11,51 @@ export type FeeStatus = "pending" | "processing" | "paid" | "overdue" | "failed"
 export type FeePaymentMethod = "autopay" | "manual" | "cash";
 export type AutopayMethod = "upi" | "card" | "emandate";
 export type MandateStatus = "created" | "authenticated" | "active" | "halted" | "cancelled";
+
+// A class is either a recurring **monthly** fee (autopay / pay-monthly) or a
+// one-off **term** course (pay-full / EMI installments). Admin picks at creation.
+export type ClassFeeType = "monthly" | "term";
+
+// The four payment rails a parent can use. Which appear is admin-controlled per
+// class and constrained by feeType (monthly → autopay/manual, term → full/emi).
+export type ClassPaymentMethod = "autopay" | "manual" | "full" | "emi";
+
+// Admin toggles for which payment rails a class offers parents.
+export interface ClassPaymentOptions {
+  autopay: boolean; // monthly: recurring auto-debit
+  manual: boolean;  // monthly: pay each month yourself
+  full: boolean;    // term: pay the whole term fee once
+  emi: boolean;     // term: split the term fee into installments
+}
+
+// Per-class EMI split. Mirrors EmiSettings (ecommerce) but scoped to one class.
+export interface ClassEmiConfig {
+  upfrontPercentage: number;        // e.g. 50 (paid now)
+  installmentPercentages: number[]; // e.g. [25, 25] (each later)
+}
+
+// One bookable time slot. Admin can create several per class; parent picks one.
+export interface ClassTimeSlot {
+  id: string;
+  days: string[];      // ["Mon","Wed","Fri"]
+  start: string;       // "18:00" (24h)
+  end: string;         // "19:00" (24h)
+  label: string;       // composed display, e.g. "Mon–Fri · 6:00 PM – 7:00 PM"
+  seatsTotal?: number; // capacity for this slot (optional = unlimited)
+  seatsTaken?: number;
+}
+
+export const DEFAULT_CLASS_PAYMENT_OPTIONS: ClassPaymentOptions = {
+  autopay: true,
+  manual: true,
+  full: false,
+  emi: false,
+};
+
+export const DEFAULT_CLASS_EMI_CONFIG: ClassEmiConfig = {
+  upfrontPercentage: 50,
+  installmentPercentages: [25, 25],
+};
 
 // 4.1 — class catalog (admin-managed). All money fields are paise (integer).
 export interface ClassDoc {
@@ -33,6 +79,16 @@ export interface ClassDoc {
   razorpayPlanId?: string;
   seatsTotal?: number;
   seatsTaken?: number;
+  // 4.1b — fee type + term-course fields. Legacy docs without `feeType` are
+  // treated as "monthly" for backward compatibility.
+  feeType: ClassFeeType;
+  termFeeInPaise?: number;   // total fee for a term course (term only)
+  startDate?: string;        // "YYYY-MM-DD" (term only)
+  endDate?: string;          // "YYYY-MM-DD" (term only)
+  durationMonths?: number;   // derived from start/end (term only)
+  payment: ClassPaymentOptions;
+  emi?: ClassEmiConfig;      // per-class EMI split (term + emi enabled)
+  timeSlots?: ClassTimeSlot[];
   createdAt?: Timestamp;
   updatedAt?: Timestamp;
 }
@@ -74,6 +130,16 @@ export interface EnrollmentDoc {
   startMonthKey: string;
   status: EnrollmentStatus;
   autopay: EnrollmentAutopay;
+  // The payment rail the parent chose at enrolment.
+  paymentPlan?: ClassPaymentMethod;
+  // Chosen time slot (when the class defines slots).
+  slotId?: string;
+  slotLabel?: string;
+  // Term-course enrolment fields (feeType === "term").
+  feeType?: ClassFeeType;
+  termFeeInPaise?: number;
+  emi?: ClassEmiConfig;
+  installmentPlan?: CourseInstallmentPlan; // when paymentPlan === "emi"
   createdAt?: Timestamp;
   updatedAt?: Timestamp;
 }

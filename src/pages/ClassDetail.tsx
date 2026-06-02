@@ -3,25 +3,41 @@ import { useNavigate, useParams, Link } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { ArrowLeft, CalendarDays, GraduationCap, Loader2, Repeat, Users, Wallet } from "lucide-react";
+import { ArrowLeft, CalendarDays, CreditCard, GraduationCap, Loader2, Repeat, Users, Wallet } from "lucide-react";
 import Footer from "@/components/Footer";
 import PageHero from "@/components/PageHero";
 import SEO from "@/components/SEO";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
+import { formatPaiseAsRupees } from "@/lib/ecommerce";
 import {
   AUTOPAY_AFA_CAP_IN_PAISE,
+  buildClassEmiPlan,
   createEnrollment,
   createSubscription,
+  DEFAULT_CLASS_EMI_CONFIG,
   getClass,
+  getClassFeeInPaise,
   getClassFeeLabel,
+  getEnabledPaymentMethods,
   openSubscriptionCheckout,
   payFeeNow,
   type ClassDoc,
+  type ClassPaymentMethod,
+  type ClassTimeSlot,
 } from "@/lib/classes";
 import heroTemple from "@/assets/hero-temple.jpg";
 
-type PaymentMode = "autopay" | "manual";
+const PAYMENT_METHOD_META: Record<ClassPaymentMethod, { title: string; blurb: string; icon: typeof Repeat; recommended?: boolean }> = {
+  autopay: { title: "Autopay", blurb: "Authorise once; the fee is auto-debited each month. We notify you on every debit.", icon: Repeat, recommended: true },
+  manual: { title: "Pay monthly", blurb: "Pay each month yourself from your account. We'll remind you before the due date.", icon: Wallet },
+  full: { title: "Pay Full", blurb: "Pay the entire course fee once. No further payments.", icon: Wallet },
+  emi: { title: "EMI", blurb: "Pay a part upfront now, then the rest in installments. We'll remind you before each due date.", icon: CreditCard },
+};
+
+const seatsLeft = (slot: ClassTimeSlot): number | null => (
+  slot.seatsTotal != null ? Math.max(0, slot.seatsTotal - (slot.seatsTaken || 0)) : null
+);
 
 const enrollSchema = z.object({
   studentName: z.string().trim().min(2, "Student name is required"),
@@ -48,8 +64,23 @@ const ClassDetail = () => {
   const [classDoc, setClassDoc] = useState<ClassDoc | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
-  const [paymentMode, setPaymentMode] = useState<PaymentMode>("autopay");
+  const [paymentMethod, setPaymentMethod] = useState<ClassPaymentMethod | null>(null);
+  const [selectedSlotId, setSelectedSlotId] = useState<string>("");
   const [submitting, setSubmitting] = useState(false);
+
+  const enabledMethods = useMemo(() => (classDoc ? getEnabledPaymentMethods(classDoc) : []), [classDoc]);
+  const slots = useMemo(() => classDoc?.timeSlots || [], [classDoc]);
+  const isTerm = classDoc?.feeType === "term";
+  const emiConfig = classDoc?.emi || DEFAULT_CLASS_EMI_CONFIG;
+  const emiPlan = useMemo(
+    () => (classDoc && isTerm ? buildClassEmiPlan(getClassFeeInPaise(classDoc), emiConfig) : null),
+    [classDoc, isTerm, emiConfig],
+  );
+
+  // Default the payment method to the first enabled one once the class loads.
+  useEffect(() => {
+    if (enabledMethods.length > 0) setPaymentMethod((current) => (current && enabledMethods.includes(current) ? current : enabledMethods[0]));
+  }, [enabledMethods]);
 
   const { register, handleSubmit, reset, formState: { errors } } = useForm<EnrollFormValues>({
     resolver: zodResolver(enrollSchema),
@@ -92,8 +123,31 @@ const ClassDetail = () => {
       return;
     }
 
+    const method = paymentMethod;
+    if (!method) {
+      toast({ title: "No payment option available", description: "This class has no payment method enabled. Please contact us.", variant: "destructive" });
+      return;
+    }
+
+    // Slot selection (when the class offers slots).
+    let chosenSlot: ClassTimeSlot | undefined;
+    if (slots.length > 0) {
+      chosenSlot = slots.find((slot) => slot.id === selectedSlotId);
+      if (!chosenSlot) {
+        toast({ title: "Pick a time slot", description: "Please choose a batch to enrol in.", variant: "destructive" });
+        return;
+      }
+      const left = seatsLeft(chosenSlot);
+      if (left !== null && left <= 0) {
+        toast({ title: "Slot full", description: "That batch is full. Please pick another slot.", variant: "destructive" });
+        return;
+      }
+    }
+
     setSubmitting(true);
     try {
+      const installmentPlan = method === "emi" ? buildClassEmiPlan(getClassFeeInPaise(classDoc), emiConfig) : undefined;
+
       const enrollmentId = await createEnrollment({
         parentUserId: user.uid,
         classId: id,
@@ -107,13 +161,20 @@ const ClassDetail = () => {
           whatsappNumber: values.parentWhatsapp || values.parentPhone,
           address: values.parentAddress,
         },
-        autopayRequested: paymentMode === "autopay",
+        autopayRequested: method === "autopay",
+        paymentPlan: method,
+        slotId: chosenSlot?.id,
+        slotLabel: chosenSlot?.label,
+        feeType: classDoc.feeType,
+        termFeeInPaise: isTerm ? classDoc.termFeeInPaise : undefined,
+        emi: method === "emi" ? emiConfig : undefined,
+        installmentPlan,
       });
 
       const idToken = await user.getIdToken();
       const prefill = { name: values.parentName, email: user.email || "", contact: values.parentPhone };
 
-      if (paymentMode === "autopay") {
+      if (method === "autopay") {
         const subscription = await createSubscription(idToken, enrollmentId);
         await openSubscriptionCheckout({
           subscriptionId: subscription.subscriptionId,
@@ -123,8 +184,14 @@ const ClassDetail = () => {
           prefill,
         });
         toast({ title: "Autopay set up", description: "We'll auto-debit the monthly fee and notify you each time." });
+      } else if (method === "full") {
+        await payFeeNow({ idToken, feePaymentIdOrEnrollment: { enrollmentId, kind: "full" }, name: "Javani Spiritual Hub", description: `${classDoc.name} — full course fee`, prefill });
+        toast({ title: "Payment received", description: "Your course fee is being confirmed." });
+      } else if (method === "emi") {
+        await payFeeNow({ idToken, feePaymentIdOrEnrollment: { enrollmentId, kind: "emi", installmentNumber: 1 }, name: "Javani Spiritual Hub", description: `${classDoc.name} — EMI first installment`, prefill });
+        toast({ title: "First installment received", description: "Pay the remaining installments from My Classes before their due dates." });
       } else {
-        await payFeeNow({ idToken, feePaymentIdOrEnrollment: { enrollmentId }, name: "Javani Spiritual Hub", description: `${classDoc.name} — first month fee`, prefill });
+        await payFeeNow({ idToken, feePaymentIdOrEnrollment: { enrollmentId, kind: "monthly" }, name: "Javani Spiritual Hub", description: `${classDoc.name} — first month fee`, prefill });
         toast({ title: "Payment received", description: "Your first month's fee is being confirmed." });
       }
 
@@ -219,27 +286,83 @@ const ClassDetail = () => {
                 </div>
               </div>
 
-              {/* Payment mode */}
-              <h3 className="mt-7 font-display text-lg text-foreground">How would you like to pay?</h3>
-              <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                <button type="button" onClick={() => setPaymentMode("autopay")} className={`flex flex-col gap-1 rounded-xl border p-4 text-left transition-colors ${paymentMode === "autopay" ? "border-gold bg-gold/10" : "border-border hover:border-gold/40"}`}>
-                  <span className="flex items-center gap-2 font-body font-semibold text-foreground"><Repeat className="h-4 w-4 text-gold" /> Autopay <span className="rounded-full bg-gold/20 px-2 py-0.5 text-[0.6rem] font-bold uppercase text-gold">Recommended</span></span>
-                  <span className="font-body text-[0.78rem] text-muted-foreground">Authorise once; the fee is auto-debited each month. We notify you on every debit.</span>
-                </button>
-                <button type="button" onClick={() => setPaymentMode("manual")} className={`flex flex-col gap-1 rounded-xl border p-4 text-left transition-colors ${paymentMode === "manual" ? "border-gold bg-gold/10" : "border-border hover:border-gold/40"}`}>
-                  <span className="flex items-center gap-2 font-body font-semibold text-foreground"><Wallet className="h-4 w-4 text-gold" /> Pay manually</span>
-                  <span className="font-body text-[0.78rem] text-muted-foreground">Pay each month yourself from your account. We'll remind you before the due date.</span>
-                </button>
-              </div>
+              {/* Time slot selection */}
+              {slots.length > 0 && (
+                <>
+                  <h3 className="mt-7 font-display text-lg text-foreground">Choose a time slot</h3>
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                    {slots.map((slot) => {
+                      const left = seatsLeft(slot);
+                      const full = left !== null && left <= 0;
+                      const active = selectedSlotId === slot.id;
+                      return (
+                        <button
+                          type="button"
+                          key={slot.id}
+                          disabled={full}
+                          onClick={() => setSelectedSlotId(slot.id)}
+                          className={`flex flex-col gap-1 rounded-xl border p-4 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${active ? "border-gold bg-gold/10" : "border-border hover:border-gold/40"}`}
+                        >
+                          <span className="flex items-center gap-2 font-body font-semibold text-foreground"><CalendarDays className="h-4 w-4 text-gold" /> {slot.label}</span>
+                          <span className="font-body text-[0.75rem] text-muted-foreground">
+                            {left === null ? "Open seats" : full ? "Full" : `${left} seat${left === 1 ? "" : "s"} left`}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
 
-              {paymentMode === "autopay" && overAfaCap && (
+              {/* Payment method */}
+              <h3 className="mt-7 font-display text-lg text-foreground">How would you like to pay?</h3>
+              {enabledMethods.length === 0 ? (
+                <p className="mt-3 rounded-md border border-amber-300 bg-amber-50 p-3 font-body text-[0.78rem] text-amber-800">No payment option is set up for this class yet. Please contact us to enrol.</p>
+              ) : (
+                <div className={`mt-3 grid gap-3 ${enabledMethods.length > 1 ? "sm:grid-cols-2" : ""}`}>
+                  {enabledMethods.map((method) => {
+                    const meta = PAYMENT_METHOD_META[method];
+                    const Icon = meta.icon;
+                    const active = paymentMethod === method;
+                    return (
+                      <button type="button" key={method} onClick={() => setPaymentMethod(method)} className={`flex flex-col gap-1 rounded-xl border p-4 text-left transition-colors ${active ? "border-gold bg-gold/10" : "border-border hover:border-gold/40"}`}>
+                        <span className="flex items-center gap-2 font-body font-semibold text-foreground">
+                          <Icon className="h-4 w-4 text-gold" /> {meta.title}
+                          {meta.recommended && <span className="rounded-full bg-gold/20 px-2 py-0.5 text-[0.6rem] font-bold uppercase text-gold">Recommended</span>}
+                        </span>
+                        <span className="font-body text-[0.78rem] text-muted-foreground">{meta.blurb}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* EMI schedule preview */}
+              {paymentMethod === "emi" && emiPlan && (
+                <div className="mt-3 rounded-xl border border-gold/20 bg-gold/5 p-4">
+                  <p className="font-body text-[0.82rem] font-semibold text-foreground">EMI schedule</p>
+                  <div className="mt-2 space-y-1 font-body text-[0.78rem] text-muted-foreground">
+                    <div className="flex justify-between gap-3"><span>Pay now ({emiConfig.upfrontPercentage}%)</span><span className="font-semibold text-gold">{formatPaiseAsRupees(emiPlan.initialPaymentInPaise)}</span></div>
+                    {emiPlan.installments.slice(1).map((inst) => (
+                      <div key={inst.installmentNumber} className="flex justify-between gap-3"><span>{inst.label} on {inst.dueDate}</span><span className="font-semibold">{formatPaiseAsRupees(inst.amountInPaise)}</span></div>
+                    ))}
+                  </div>
+                  <p className="mt-2 font-body text-[0.72rem] text-muted-foreground">Remaining installments can be paid from <span className="font-semibold">My Classes</span> before each due date.</p>
+                </div>
+              )}
+
+              {paymentMethod === "autopay" && overAfaCap && (
                 <p className="mt-3 rounded-md border border-amber-300 bg-amber-50 p-3 font-body text-[0.78rem] text-amber-800">
-                  This fee is above ₹15,000, so each auto-debit needs an OTP confirmation (RBI rule). You may prefer "Pay manually".
+                  This fee is above ₹15,000, so each auto-debit needs an OTP confirmation (RBI rule). You may prefer "Pay monthly".
                 </p>
               )}
 
-              <button type="submit" disabled={submitting} className="mt-6 flex min-h-11 w-full items-center justify-center gap-2 rounded-sm bg-gradient-primary px-4 py-3 font-body text-[0.9rem] font-semibold text-primary-foreground transition-all hover:brightness-110 disabled:opacity-60">
-                {submitting ? <><Loader2 className="h-4 w-4 animate-spin" /> Processing…</> : paymentMode === "autopay" ? "Enrol & Set Up Autopay" : "Enrol & Pay First Month"}
+              <button type="submit" disabled={submitting || enabledMethods.length === 0} className="mt-6 flex min-h-11 w-full items-center justify-center gap-2 rounded-sm bg-gradient-primary px-4 py-3 font-body text-[0.9rem] font-semibold text-primary-foreground transition-all hover:brightness-110 disabled:opacity-60">
+                {submitting ? <><Loader2 className="h-4 w-4 animate-spin" /> Processing…</>
+                  : paymentMethod === "autopay" ? "Enrol & Set Up Autopay"
+                  : paymentMethod === "full" ? "Enrol & Pay Full Fee"
+                  : paymentMethod === "emi" ? "Enrol & Pay First Installment"
+                  : "Enrol & Pay First Month"}
               </button>
               {!user && <p className="mt-2 text-center font-body text-[0.78rem] text-muted-foreground">You'll be asked to sign in to complete enrolment.</p>}
             </form>
@@ -253,10 +376,12 @@ const ClassDetail = () => {
                 {classDoc.schedule && <p className="flex items-center gap-2"><CalendarDays className="h-4 w-4 text-gold" /> {classDoc.schedule}</p>}
                 {classDoc.ageGroup && <p className="flex items-center gap-2"><Users className="h-4 w-4 text-gold" /> {classDoc.ageGroup}</p>}
                 {classDoc.facultyName && <p className="flex items-center gap-2"><GraduationCap className="h-4 w-4 text-gold" /> {classDoc.facultyName}</p>}
-                <p className="flex items-center gap-2"><CalendarDays className="h-4 w-4 text-gold" /> Billed on day {classDoc.billingDayOfMonth} each month</p>
+                {isTerm
+                  ? <p className="flex items-center gap-2"><CalendarDays className="h-4 w-4 text-gold" /> {classDoc.startDate || "?"} → {classDoc.endDate || "?"}{classDoc.durationMonths ? ` · ${classDoc.durationMonths} mo` : ""}</p>
+                  : <p className="flex items-center gap-2"><CalendarDays className="h-4 w-4 text-gold" /> Billed on day {classDoc.billingDayOfMonth} each month</p>}
               </div>
               <div className="mt-4 rounded-xl bg-gold/10 p-4">
-                <p className="font-body text-xs uppercase tracking-wider text-muted-foreground">Monthly fee</p>
+                <p className="font-body text-xs uppercase tracking-wider text-muted-foreground">{isTerm ? "Course fee" : "Monthly fee"}</p>
                 <p className="font-display text-2xl font-bold text-primary">{getClassFeeLabel(classDoc)}</p>
               </div>
             </aside>

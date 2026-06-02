@@ -127,16 +127,24 @@ const Classes = () => {
                       <span className="rounded-full bg-gold/10 px-2.5 py-1 font-body text-xs font-semibold text-gold">{enrollment.className}</span>
                       <span className="rounded-full bg-muted px-2.5 py-1 font-body text-xs text-muted-foreground">{ENROLLMENT_STATUS_LABELS[enrollment.status]}</span>
                     </div>
-                    <p className="mt-1 font-body text-sm text-muted-foreground">{getClassFeeLabel({ monthlyFeeInPaise: enrollment.monthlyFeeInPaise })}</p>
+                    <p className="mt-1 font-body text-sm text-muted-foreground">{getClassFeeLabel({ monthlyFeeInPaise: enrollment.monthlyFeeInPaise, feeType: enrollment.feeType, termFeeInPaise: enrollment.termFeeInPaise })}</p>
                   </div>
                   <div className="flex flex-col items-start gap-2 sm:items-end">
-                    <span className={`flex items-center gap-1.5 rounded-full px-3 py-1 font-body text-xs font-semibold ${autopayOn ? "bg-green-100 text-green-700" : "bg-muted text-muted-foreground"}`}>
-                      <Repeat className="h-3.5 w-3.5" /> Autopay {autopayOn ? "On" : "Off"}
-                    </span>
-                    {autopayOn && (
-                      <button onClick={() => handleCancelAutopay(enrollment)} disabled={busyId === enrollment.id} className="flex items-center gap-1 font-body text-xs font-semibold text-destructive hover:underline disabled:opacity-50">
-                        <XCircle className="h-3.5 w-3.5" /> Cancel autopay
-                      </button>
+                    {enrollment.feeType === "term" ? (
+                      <span className="flex items-center gap-1.5 rounded-full bg-gold/15 px-3 py-1 font-body text-xs font-semibold text-gold">
+                        <Repeat className="h-3.5 w-3.5" /> {enrollment.paymentPlan === "emi" ? "EMI plan" : "Course"}
+                      </span>
+                    ) : (
+                      <>
+                        <span className={`flex items-center gap-1.5 rounded-full px-3 py-1 font-body text-xs font-semibold ${autopayOn ? "bg-green-100 text-green-700" : "bg-muted text-muted-foreground"}`}>
+                          <Repeat className="h-3.5 w-3.5" /> Autopay {autopayOn ? "On" : "Off"}
+                        </span>
+                        {autopayOn && (
+                          <button onClick={() => handleCancelAutopay(enrollment)} disabled={busyId === enrollment.id} className="flex items-center gap-1 font-body text-xs font-semibold text-destructive hover:underline disabled:opacity-50">
+                            <XCircle className="h-3.5 w-3.5" /> Cancel autopay
+                          </button>
+                        )}
+                      </>
                     )}
                   </div>
                 </div>
