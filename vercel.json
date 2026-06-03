@@ -21,6 +21,7 @@
     { "source": "/api/(.*)", "destination": "/api/$1" },
     { "source": "/share/products/:id", "destination": "/api/share-page?type=product&id=:id" },
     { "source": "/share/courses/:id", "destination": "/api/share-page?type=course&id=:id" },
+    { "source": "/share/classes/:id", "destination": "/api/share-page?type=class&id=:id" },
     { "source": "/((?!api/|@vite/|@react-refresh|.*\\..*).*)", "destination": "/" }
   ],
   "crons": [

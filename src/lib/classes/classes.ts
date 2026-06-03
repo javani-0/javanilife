@@ -310,6 +310,12 @@ const buildClassPayload = (payload: ClassWritePayload) => {
   const timeSlots = (payload.timeSlots || []).map(sanitizeTimeSlot);
   const payment = payload.payment || DEFAULT_CLASS_PAYMENT_OPTIONS;
 
+  // Display schedule string: prefer an explicit day/time (legacy), else derive
+  // from the time slots so public cards still show a schedule.
+  const explicitSchedule = composeSchedule(scheduleDays, scheduleStart, scheduleEnd);
+  const schedule = explicitSchedule
+    || (timeSlots.length === 1 ? timeSlots[0].label : timeSlots.length > 1 ? `${timeSlots.length} time slots` : "");
+
   return {
     name: payload.name.trim(),
     description: (payload.description || "").trim(),
@@ -320,7 +326,7 @@ const buildClassPayload = (payload: ClassWritePayload) => {
     scheduleDays,
     scheduleStart,
     scheduleEnd,
-    schedule: composeSchedule(scheduleDays, scheduleStart, scheduleEnd),
+    schedule,
     ageFrom,
     ageTo,
     ageGroup: composeAgeGroup(ageFrom ?? undefined, ageTo ?? undefined),

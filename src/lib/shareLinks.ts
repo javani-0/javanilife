@@ -6,6 +6,7 @@ interface CreateShareUrlOptions {
 const sharePreviewRoutes: Array<{ source: RegExp; destination: string }> = [
   { source: /^\/products\/([^/?#]+)\/?$/i, destination: "/share/products" },
   { source: /^\/courses\/([^/?#]+)\/?$/i, destination: "/share/courses" },
+  { source: /^\/classes\/([^/?#]+)\/?$/i, destination: "/share/classes" },
 ];
 
 export const getSharePreviewPath = (url: string) => {

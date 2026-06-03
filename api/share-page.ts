@@ -5,6 +5,7 @@ import {
   getSharePageCollection,
   getSharePageDescription,
   getSharePageImage,
+  getSharePageSlug,
   getSharePageTargetPath,
   getSharePageTitle,
   resolveShareImageUrl,
@@ -55,7 +56,7 @@ const getQueryValue = (request: SharePageRequest, key: string) => {
   return requestUrl.searchParams.get(key) || "";
 };
 
-const isSharePageType = (type: string): type is SharePageType => type === "product" || type === "course";
+const isSharePageType = (type: string): type is SharePageType => type === "product" || type === "course" || type === "class";
 
 const sendHtml = (response: HtmlApiResponse, html: string) => {
   response.setHeader?.("Content-Type", "text/html; charset=utf-8");
@@ -128,7 +129,7 @@ export default async function handler(request: SharePageRequest, response: HtmlA
     }
 
     // Social crawler — serve the full OG meta HTML for the preview card.
-    const previewUrl = new URL(`/share/${type === "product" ? "products" : "courses"}/${encodeURIComponent(id)}`, origin).toString();
+    const previewUrl = new URL(`/share/${getSharePageSlug(type)}/${encodeURIComponent(id)}`, origin).toString();
     const snapshot = await getFirebaseAdminDb().collection(getSharePageCollection(type)).doc(id).get();
 
     if (!snapshot.exists) {

@@ -18,7 +18,7 @@ export interface ShareDocumentData {
   coverImage?: unknown;
 }
 
-export type SharePageType = "product" | "course";
+export type SharePageType = "product" | "course" | "class";
 
 export const defaultSocialShareImageUrl = "https://storage.googleapis.com/gpt-engineer-file-uploads/ZMQ3Ng6WbiRxr5JyCkn0LjomTk12/social-images/social-1771669806007-ChatGPT_Image_Feb_21,_2026,_03_59_53_PM.webp";
 
@@ -53,15 +53,26 @@ export const resolveShareImageUrl = (imageUrl: string | undefined, origin: strin
   }
 };
 
-export const getSharePageCollection = (type: SharePageType) => (type === "product" ? "products" : "courses");
+export const getSharePageCollection = (type: SharePageType) => {
+  if (type === "product") return "products";
+  if (type === "class") return "classes";
+  return "courses";
+};
+
+export const getSharePageSlug = (type: SharePageType) => {
+  if (type === "product") return "products";
+  if (type === "class") return "classes";
+  return "courses";
+};
 
 export const getSharePageTargetPath = (type: SharePageType, id: string) => {
   const encodedId = encodeURIComponent(id);
-  return type === "product" ? `/products/${encodedId}` : `/courses/${encodedId}`;
+  return `/${getSharePageSlug(type)}/${encodedId}`;
 };
 
 export const getSharePageTitle = (type: SharePageType, data: ShareDocumentData) => {
-  const title = type === "product" ? getTextValue(data.name) : getTextValue(data.title);
+  // Products and classes are keyed by `name`; courses by `title`.
+  const title = type === "course" ? getTextValue(data.title) : getTextValue(data.name);
   return title || "Javani Spiritual Hub";
 };
 

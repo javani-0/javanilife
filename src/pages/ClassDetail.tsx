@@ -7,6 +7,7 @@ import { ArrowLeft, CalendarDays, CreditCard, GraduationCap, Loader2, Repeat, Us
 import Footer from "@/components/Footer";
 import PageHero from "@/components/PageHero";
 import SEO from "@/components/SEO";
+import ShareButton from "@/components/ShareButton";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { formatPaiseAsRupees } from "@/lib/ecommerce";
@@ -378,7 +379,15 @@ const ClassDetail = () => {
             {/* Class summary */}
             <aside className="h-fit rounded-2xl border border-gold/15 bg-card p-5 shadow-card lg:sticky lg:top-28">
               {classDoc.image && <img src={classDoc.image} alt={classDoc.name} className="mb-4 h-40 w-full rounded-lg object-cover" />}
-              <h3 className="font-display text-xl text-foreground">{classDoc.name}</h3>
+              <div className="flex items-start justify-between gap-2">
+                <h3 className="font-display text-xl text-foreground">{classDoc.name}</h3>
+                <ShareButton
+                  title={classDoc.name}
+                  text={`Check out *${classDoc.name}* at Javani Spiritual Hub — *${getClassFeeLabel(classDoc)}*`}
+                  url={`/classes/${classDoc.id}`}
+                  imageUrl={classDoc.image}
+                />
+              </div>
               {classDoc.description && <p className="mt-2 font-body text-sm text-muted-foreground">{classDoc.description}</p>}
               <div className="mt-4 space-y-2 font-body text-sm text-muted-foreground">
                 {classDoc.schedule && <p className="flex items-center gap-2"><CalendarDays className="h-4 w-4 text-gold" /> {classDoc.schedule}</p>}

@@ -4,6 +4,7 @@ import { CalendarDays, GraduationCap, Search, Users } from "lucide-react";
 import Footer from "@/components/Footer";
 import PageHero from "@/components/PageHero";
 import SEO from "@/components/SEO";
+import ShareButton from "@/components/ShareButton";
 import { getClassFeeLabel, isClassEnrollable, subscribeToActiveClasses, type ClassDoc } from "@/lib/classes";
 import heroDancer1 from "@/assets/hero-dancer-1.jpg";
 import heroDancer2 from "@/assets/hero-dancer-2.jpg";
@@ -32,6 +33,15 @@ const ClassCard = ({ classDoc }: { classDoc: ClassDoc }) => (
           <GraduationCap className="h-12 w-12 text-gold/50" />
         </div>
       )}
+      <div className="absolute inset-x-0 top-0 flex items-start justify-end p-2.5 sm:p-3">
+        <ShareButton
+          title={classDoc.name}
+          text={`Check out *${classDoc.name}* at Javani Spiritual Hub — *${getClassFeeLabel(classDoc)}*`}
+          url={`/classes/${classDoc.id}`}
+          imageUrl={classDoc.image}
+          className="h-8 w-8 rounded-full bg-black/45 text-white hover:bg-black/65 hover:text-white"
+        />
+      </div>
     </div>
     <div className="flex flex-1 flex-col p-5">
       <h3 className="font-display text-[1.1rem] font-semibold leading-snug text-foreground transition-colors group-hover:text-primary">{classDoc.name}</h3>

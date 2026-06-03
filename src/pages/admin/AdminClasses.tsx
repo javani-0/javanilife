@@ -522,49 +522,14 @@ const AdminClasses = () => {
                   )}
                 </>
               )}
-              <div className="sm:col-span-2">
-                <label className={labelClass}>Schedule — Days</label>
-                <div className="flex flex-wrap gap-2">
-                  {WEEKDAYS.map((day) => {
-                    const selected = form.scheduleDays.includes(day.value);
-                    return (
-                      <button
-                        type="button"
-                        key={day.value}
-                        onClick={() => setForm((currentForm) => ({
-                          ...currentForm,
-                          scheduleDays: selected
-                            ? currentForm.scheduleDays.filter((value) => value !== day.value)
-                            : [...currentForm.scheduleDays, day.value],
-                        }))}
-                        className={`px-3 py-1.5 rounded-md border font-body text-[0.8rem] transition-colors ${selected ? "border-gold bg-gold/15 font-semibold text-gold" : "border-border text-muted-foreground hover:border-gold/40"}`}
-                      >
-                        {day.label}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-              <div>
-                <label className={labelClass}>Class Time — From</label>
-                <TimePicker value={form.scheduleStart} onChange={(val) => setForm({ ...form, scheduleStart: val })} />
-              </div>
-              <div>
-                <label className={labelClass}>Class Time — To</label>
-                <TimePicker value={form.scheduleEnd} onChange={(val) => setForm({ ...form, scheduleEnd: val })} />
-              </div>
-              {(form.scheduleDays.length > 0 || form.scheduleStart) && (
-                <p className="sm:col-span-2 -mt-2 font-body text-[0.72rem] text-muted-foreground">Schedule preview: <span className="font-semibold text-gold">{composeSchedule(form.scheduleDays, form.scheduleStart, form.scheduleEnd) || "—"}</span></p>
-              )}
-
               {/* Time slot builder — parents pick one of these at enrolment */}
               <div className="sm:col-span-2 rounded-md border border-border/70 p-3">
                 <div className="mb-2 flex items-center justify-between">
-                  <span className="flex items-center gap-2 font-body text-[0.85rem] font-semibold text-foreground"><Clock className="h-4 w-4 text-gold" /> Time Slots <span className="font-normal text-muted-foreground">(optional — parents pick one)</span></span>
+                  <span className="flex items-center gap-2 font-body text-[0.85rem] font-semibold text-foreground"><Clock className="h-4 w-4 text-gold" /> Time Slots <span className="font-normal text-muted-foreground">(days, time & seats — parents pick one)</span></span>
                   <button type="button" onClick={addSlot} className="flex items-center gap-1 rounded-md border border-gold/40 px-2.5 py-1.5 font-body text-[0.75rem] font-semibold text-gold hover:bg-gold/10"><Plus className="h-3.5 w-3.5" /> Add slot</button>
                 </div>
                 {form.timeSlots.length === 0 ? (
-                  <p className="font-body text-[0.72rem] text-muted-foreground">No slots. Add slots to let parents choose a batch (with its own seats). Otherwise the general schedule above is shown.</p>
+                  <p className="font-body text-[0.72rem] text-muted-foreground">No slots yet. Add at least one slot with its days, time and seats so parents can choose a batch.</p>
                 ) : (
                   <div className="space-y-3">
                     {form.timeSlots.map((slot, index) => {
