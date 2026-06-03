@@ -5,6 +5,7 @@ import { CalendarDays, PackageCheck, AlertCircle, ArrowRight, CheckCircle2, Cloc
 import AccountLayout from "@/components/account/AccountLayout";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
+import { useScrollHighlight } from "@/hooks/useScrollHighlight";
 import { db } from "@/lib/firebase";
 import { formatPaiseAsRupees, type CourseInstallmentPlan, openRazorpayCheckout } from "@/lib/ecommerce";
 
@@ -27,6 +28,9 @@ export default function EmiDashboard() {
   const [orders, setOrders] = useState<EmiOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [payingInstallment, setPayingInstallment] = useState<string | null>(null);
+
+  // Deep link from WhatsApp installment reminders: /account/emi?order=<orderId>
+  useScrollHighlight("order", !loading);
 
   useEffect(() => {
     if (!user) return;
@@ -135,7 +139,7 @@ export default function EmiDashboard() {
           const isCompleted = order.paymentPlan.status === "completed";
 
           return (
-            <div key={order.id} className="overflow-hidden rounded-2xl border border-gold/15 bg-card shadow-sm">
+            <div key={order.id} id={`order-${order.id}`} className="overflow-hidden rounded-2xl border border-gold/15 bg-card shadow-sm scroll-mt-28">
               {/* Header */}
               <div className="border-b border-border bg-muted/30 px-5 py-4 sm:px-6">
                 <div className="flex flex-wrap items-center justify-between gap-4">

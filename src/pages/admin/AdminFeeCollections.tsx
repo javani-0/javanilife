@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { BellRing, Banknote, Download, IndianRupee, Search, XCircle } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
+import { useScrollHighlight } from "@/hooks/useScrollHighlight";
 import { formatPaiseAsRupees } from "@/lib/ecommerce";
 import {
   deriveDisplayFeeStatus,
@@ -44,7 +46,12 @@ const Tile = ({ label, value, sub, accent }: { label: string; value: string; sub
 const AdminFeeCollections = () => {
   const { user } = useAuth();
   const { toast } = useToast();
-  const [monthKey, setMonthKey] = useState(() => monthKeyFor(new Date()));
+  const [searchParams] = useSearchParams();
+  // A deep-linked fee id (`<enrollmentId>_<YYYY-MM>`) carries its month — open it.
+  const [monthKey, setMonthKey] = useState(() => {
+    const monthMatch = searchParams.get("fee")?.match(/_(\d{4}-\d{2})$/);
+    return monthMatch ? monthMatch[1] : monthKeyFor(new Date());
+  });
   const [fees, setFees] = useState<FeePaymentDoc[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -56,6 +63,9 @@ const AdminFeeCollections = () => {
     setLoading(true);
     return subscribeToFeesAdmin(monthKey, (items) => { setFees(items); setLoading(false); }, () => setLoading(false));
   }, [monthKey]);
+
+  // Deep link from WhatsApp admin fee notifications: /admin/fee-collections?fee=<feePaymentId>
+  useScrollHighlight("fee", !loading);
 
   const classOptions = useMemo(() => {
     const map = new Map<string, string>();
@@ -188,7 +198,7 @@ const AdminFeeCollections = () => {
                   const displayStatus = deriveDisplayFeeStatus(fee);
                   const settled = displayStatus === "paid" || displayStatus === "waived";
                   return (
-                    <tr key={fee.id} className="border-b border-border/50 hover:bg-muted/20">
+                    <tr key={fee.id} id={`fee-${fee.id}`} className="border-b border-border/50 hover:bg-muted/20 scroll-mt-28">
                       <td className="px-4 py-3 font-body text-sm font-medium text-foreground">{fee.studentName}</td>
                       <td className="px-4 py-3 font-body text-sm text-foreground">{fee.className}</td>
                       <td className="px-4 py-3">

@@ -4,6 +4,7 @@ import { CalendarClock, GraduationCap, Loader2, Repeat, Wallet, XCircle } from "
 import AccountLayout from "@/components/account/AccountLayout";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
+import { useScrollHighlight } from "@/hooks/useScrollHighlight";
 import {
   cancelSubscription,
   deriveDisplayFeeStatus,
@@ -91,6 +92,9 @@ const Classes = () => {
 
   const loading = loadingEnrollments || loadingFees;
 
+  // Deep link from WhatsApp fee notifications: /account/classes?fee=<feePaymentId>
+  useScrollHighlight("fee", !loading);
+
   return (
     <AccountLayout title="My Classes" description="Manage enrolments, autopay, and monthly fee payments.">
       <div className="space-y-4">
@@ -177,7 +181,7 @@ const Classes = () => {
                       {enrollmentFees.map((fee) => {
                         const displayStatus = deriveDisplayFeeStatus(fee);
                         return (
-                          <div key={fee.id} className="flex items-center justify-between rounded-lg border border-border/60 bg-background/70 px-3 py-2">
+                          <div key={fee.id} id={`fee-${fee.id}`} className="flex items-center justify-between rounded-lg border border-border/60 bg-background/70 px-3 py-2 scroll-mt-28">
                             <div>
                               <p className="font-body text-sm font-medium text-foreground">{fee.periodLabel}</p>
                               <p className="font-body text-xs text-muted-foreground">{formatFeeAmount(fee)}{fee.paymentMethod ? ` · ${fee.paymentMethod}` : ""}</p>
