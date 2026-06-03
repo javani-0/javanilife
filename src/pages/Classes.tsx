@@ -5,7 +5,7 @@ import Footer from "@/components/Footer";
 import PageHero from "@/components/PageHero";
 import SEO from "@/components/SEO";
 import ShareButton from "@/components/ShareButton";
-import { getClassFeeLabel, isClassEnrollable, subscribeToActiveClasses, type ClassDoc } from "@/lib/classes";
+import { getAutopayFeeLabel, getClassFeeLabel, hasAutopayDiscount, isClassEnrollable, subscribeToActiveClasses, type ClassDoc } from "@/lib/classes";
 import heroDancer1 from "@/assets/hero-dancer-1.jpg";
 import heroDancer2 from "@/assets/hero-dancer-2.jpg";
 import heroDancer3 from "@/assets/hero-dancer-3.jpg";
@@ -51,6 +51,12 @@ const ClassCard = ({ classDoc }: { classDoc: ClassDoc }) => (
         {classDoc.ageGroup && <p className="flex items-center gap-2"><Users className="h-3.5 w-3.5 text-gold" /> {classDoc.ageGroup}</p>}
       </div>
       <p className="mt-3 font-display text-[1.2rem] font-bold text-primary">{getClassFeeLabel(classDoc)}</p>
+      {hasAutopayDiscount(classDoc) && (
+        <p className="mt-1 flex items-center gap-1 font-body text-[0.78rem] text-green-700">
+          <span className="inline-block h-1.5 w-1.5 rounded-full bg-green-500" />
+          Autopay: <span className="font-semibold">{getAutopayFeeLabel(classDoc)}</span>
+        </p>
+      )}
       <div className="mt-auto pt-4">
         <Link
           to={`/classes/${classDoc.id}`}

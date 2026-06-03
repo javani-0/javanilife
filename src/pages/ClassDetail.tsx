@@ -17,10 +17,13 @@ import {
   createEnrollment,
   createSubscription,
   DEFAULT_CLASS_EMI_CONFIG,
+  getAutopayFeeInPaise,
+  getAutopayFeeLabel,
   getClass,
   getClassFeeInPaise,
   getClassFeeLabel,
   getEnabledPaymentMethods,
+  hasAutopayDiscount,
   openSubscriptionCheckout,
   payFeeNow,
   type ClassDoc,
@@ -149,11 +152,15 @@ const ClassDetail = () => {
     try {
       const installmentPlan = method === "emi" ? buildClassEmiPlan(getClassFeeInPaise(classDoc), emiConfig) : undefined;
 
+      const enrollmentMonthlyFee = method === "autopay" && classDoc && hasAutopayDiscount(classDoc)
+        ? getAutopayFeeInPaise(classDoc)
+        : classDoc.monthlyFeeInPaise;
+
       const enrollmentId = await createEnrollment({
         parentUserId: user.uid,
         classId: id,
         className: classDoc.name,
-        monthlyFeeInPaise: classDoc.monthlyFeeInPaise,
+        monthlyFeeInPaise: enrollmentMonthlyFee,
         billingDayOfMonth: classDoc.billingDayOfMonth,
         student: { name: values.studentName, age: values.studentAge, gender: values.studentGender },
         parent: {
@@ -346,6 +353,18 @@ const ClassDetail = () => {
                 </div>
               )}
 
+              {/* Autopay discount banner */}
+              {paymentMethod === "autopay" && classDoc && hasAutopayDiscount(classDoc) && (
+                <div className="mt-3 rounded-xl border border-green-200 bg-green-50 p-4">
+                  <p className="font-body text-[0.82rem] font-semibold text-green-800">🎉 Autopay discount applied!</p>
+                  <div className="mt-1 flex items-baseline gap-2">
+                    <span className="font-body text-[0.78rem] text-muted-foreground line-through">{getClassFeeLabel(classDoc)}</span>
+                    <span className="font-display text-lg font-bold text-green-700">{getAutopayFeeLabel(classDoc)}</span>
+                  </div>
+                  <p className="mt-1 font-body text-[0.72rem] text-green-700">You save ₹{((classDoc.autopayDiscountInPaise || 0) / 100).toLocaleString("en-IN")} every month with autopay.</p>
+                </div>
+              )}
+
               {/* EMI schedule preview */}
               {paymentMethod === "emi" && emiPlan && (
                 <div className="mt-3 rounded-xl border border-gold/20 bg-gold/5 p-4">
@@ -400,6 +419,13 @@ const ClassDetail = () => {
               <div className="mt-4 rounded-xl bg-gold/10 p-4">
                 <p className="font-body text-xs uppercase tracking-wider text-muted-foreground">{isTerm ? "Course fee" : "Monthly fee"}</p>
                 <p className="font-display text-2xl font-bold text-primary">{getClassFeeLabel(classDoc)}</p>
+                {hasAutopayDiscount(classDoc) && (
+                  <div className="mt-2 rounded-lg bg-green-100/70 px-3 py-2">
+                    <p className="font-body text-xs uppercase tracking-wider text-green-800">With Autopay</p>
+                    <p className="font-display text-lg font-bold text-green-700">{getAutopayFeeLabel(classDoc)}</p>
+                    <p className="font-body text-[0.7rem] text-green-700">Save ₹{((classDoc.autopayDiscountInPaise || 0) / 100).toLocaleString("en-IN")}/mo</p>
+                  </div>
+                )}
               </div>
             </aside>
           </div>

@@ -74,6 +74,7 @@ export interface ClassDoc {
   ageFrom?: number;
   ageTo?: number;
   monthlyFeeInPaise: number;
+  autopayDiscountInPaise?: number; // flat ₹ discount for autopay (paise). 0 or undefined = no discount.
   billingDayOfMonth: number;
   active: boolean;
   razorpayPlanId?: string;

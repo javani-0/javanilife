@@ -39,28 +39,44 @@ const DEFAULT_TOTAL_COUNT = 120;
 /**
  * Return the class's monthly Razorpay plan id, creating it lazily on first use
  * and persisting it back onto the class doc.
+ *
+ * When `useAutopayDiscount` is true and the class has a non-zero
+ * `autopayDiscountInPaise`, a separate discounted plan is created/reused
+ * (stored as `razorpayAutopayPlanId` / `razorpayAutopayPlanAmountInPaise`).
  */
 export const ensureClassPlan = async (
   razorpay: RazorpayClient,
   db: Firestore,
   classId: string,
+  useAutopayDiscount = false,
 ): Promise<{ planId: string; amountInPaise: number; className: string }> => {
   const classRef = db.collection(CLASSES_COLLECTION).doc(classId);
   const snapshot = await classRef.get();
   if (!snapshot.exists) throw new Error("Class was not found.");
 
   const data = snapshot.data() || {};
-  const amountInPaise = Math.round(Number(data.monthlyFeeInPaise || 0));
+  const baseAmountInPaise = Math.round(Number(data.monthlyFeeInPaise || 0));
   const className = String(data.name || "Class");
-  if (!Number.isInteger(amountInPaise) || amountInPaise < 100) {
+  if (!Number.isInteger(baseAmountInPaise) || baseAmountInPaise < 100) {
     throw new Error("Class monthly fee is not configured.");
   }
+
+  // Compute effective amount — apply autopay discount when requested.
+  const discountInPaise = useAutopayDiscount ? Math.round(Number(data.autopayDiscountInPaise || 0)) : 0;
+  const amountInPaise = discountInPaise > 0
+    ? Math.max(100, baseAmountInPaise - discountInPaise)
+    : baseAmountInPaise;
+
+  // Choose which plan fields to read/write based on whether we're using the
+  // discounted autopay variant.
+  const planIdField = discountInPaise > 0 ? "razorpayAutopayPlanId" : "razorpayPlanId";
+  const planAmountField = discountInPaise > 0 ? "razorpayAutopayPlanAmountInPaise" : "razorpayPlanAmountInPaise";
 
   // Reuse the stored plan only when its amount still matches the current fee.
   // A Razorpay plan's amount is immutable, so a fee change requires a new plan
   // (existing subscriptions keep charging their original amount, by design).
-  const existingPlanId = typeof data.razorpayPlanId === "string" ? data.razorpayPlanId.trim() : "";
-  const existingPlanAmount = Math.round(Number(data.razorpayPlanAmountInPaise || 0));
+  const existingPlanId = typeof data[planIdField] === "string" ? data[planIdField].trim() : "";
+  const existingPlanAmount = Math.round(Number(data[planAmountField] || 0));
   if (existingPlanId && existingPlanAmount === amountInPaise) {
     return { planId: existingPlanId, amountInPaise, className };
   }
@@ -69,17 +85,21 @@ export const ensureClassPlan = async (
     period: "monthly",
     interval: 1,
     item: {
-      name: `${className} — Monthly Fee`,
+      name: discountInPaise > 0
+        ? `${className} — Monthly Fee (Autopay)`
+        : `${className} — Monthly Fee`,
       amount: amountInPaise,
       currency: getRazorpayCurrency().toUpperCase(),
-      description: `Monthly tuition for ${className}`,
+      description: discountInPaise > 0
+        ? `Monthly tuition for ${className} (autopay discounted)`
+        : `Monthly tuition for ${className}`,
     },
     notes: { classId },
   });
 
   await classRef.update({
-    razorpayPlanId: plan.id,
-    razorpayPlanAmountInPaise: amountInPaise,
+    [planIdField]: plan.id,
+    [planAmountField]: amountInPaise,
     updatedAt: FieldValue.serverTimestamp(),
   });
   return { planId: plan.id, amountInPaise, className };

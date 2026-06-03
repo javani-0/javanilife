@@ -52,7 +52,7 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     const razorpay = createRazorpayClient() as unknown as Parameters<typeof ensureClassPlan>[0];
     const { keyId } = getRazorpayCredentials();
 
-    const { planId } = await ensureClassPlan(razorpay, db, enrollment.classId);
+    const { planId } = await ensureClassPlan(razorpay, db, enrollment.classId, true);
     const subscription = await createSubscription(razorpay, {
       planId,
       enrollmentId,

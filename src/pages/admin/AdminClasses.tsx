@@ -13,7 +13,9 @@ import {
   clampBillingDay,
   composeSchedule,
   DEFAULT_CLASS_EMI_CONFIG,
+  getAutopayFeeLabel,
   getClassFeeLabel,
+  hasAutopayDiscount,
   monthsBetween,
   subscribeToClasses,
   upsertClass,
@@ -43,6 +45,7 @@ interface ClassFormState {
   ageTo: string;
   facultyName: string;
   feeRupees: string;
+  autopayDiscountRupees: string;
   billingDayOfMonth: string;
   seatsTotal: string;
   active: boolean;
@@ -71,6 +74,7 @@ const defaultForm: ClassFormState = {
   ageTo: "",
   facultyName: "",
   feeRupees: "",
+  autopayDiscountRupees: "",
   billingDayOfMonth: "5",
   seatsTotal: "",
   active: true,
@@ -186,6 +190,7 @@ const AdminClasses = () => {
       ageTo: classDoc.ageTo != null ? String(classDoc.ageTo) : "",
       facultyName: classDoc.facultyName || "",
       feeRupees: classDoc.monthlyFeeInPaise > 0 ? String(classDoc.monthlyFeeInPaise / 100) : "",
+      autopayDiscountRupees: (classDoc.autopayDiscountInPaise || 0) > 0 ? String((classDoc.autopayDiscountInPaise || 0) / 100) : "",
       billingDayOfMonth: String(classDoc.billingDayOfMonth || 5),
       seatsTotal: classDoc.seatsTotal != null ? String(classDoc.seatsTotal) : "",
       active: classDoc.active,
@@ -294,6 +299,9 @@ const AdminClasses = () => {
         ageTo: form.ageTo.trim() ? Number(form.ageTo) : undefined,
         facultyName: form.facultyName,
         monthlyFeeInPaise,
+        autopayDiscountInPaise: !isTerm && form.payAutopay && form.autopayDiscountRupees.trim()
+          ? (parsePriceToPaise(form.autopayDiscountRupees) || 0)
+          : undefined,
         billingDayOfMonth: clampBillingDay(Number(form.billingDayOfMonth)),
         seatsTotal: form.seatsTotal.trim() ? Number(form.seatsTotal) : undefined,
         active: form.active,
@@ -378,7 +386,10 @@ const AdminClasses = () => {
                     : [classDoc.payment?.autopay && "Autopay", classDoc.payment?.manual && "Pay monthly"]
                   ).filter(Boolean).join(" · ") || "No payment options"}</p>
                 </div>
-                <p className="font-display text-[1.05rem] font-bold text-primary mb-3">{getClassFeeLabel(classDoc)}</p>
+                <p className="font-display text-[1.05rem] font-bold text-primary mb-1">{getClassFeeLabel(classDoc)}</p>
+                {hasAutopayDiscount(classDoc) && (
+                  <p className="font-body text-[0.78rem] text-green-700 mb-3">Autopay: <span className="font-semibold">{getAutopayFeeLabel(classDoc)}</span> <span className="text-muted-foreground">(₹{((classDoc.autopayDiscountInPaise || 0) / 100).toLocaleString("en-IN")} off)</span></p>
+                )}
                 <div className="flex items-center justify-end gap-1 pt-3 border-t border-border/50">
                   <button onClick={() => openEdit(classDoc)} className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-gold" aria-label={`Edit ${classDoc.name}`}><Pencil className="w-4 h-4" /></button>
                   <button onClick={() => deleteClass(classDoc.id, classDoc.name)} className="p-1.5 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive" aria-label={`Delete ${classDoc.name}`}><Trash2 className="w-4 h-4" /></button>
@@ -431,6 +442,26 @@ const AdminClasses = () => {
                     </div>
                     <p className="mt-1 font-body text-[0.72rem] text-muted-foreground">Preview: <span className="font-semibold text-gold">{feePreviewInPaise ? formatPaiseAsRupees(feePreviewInPaise) : "Enter fee"}</span></p>
                   </div>
+                  {form.payAutopay && (
+                    <div>
+                      <label className={labelClass}>Autopay Discount (₹)</label>
+                      <div className="relative">
+                        <BadgeIndianRupee className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                        <input value={form.autopayDiscountRupees} onChange={(event) => setForm({ ...form, autopayDiscountRupees: event.target.value })} className={`${inputClass} pl-10`} inputMode="decimal" placeholder="0 (no discount)" />
+                      </div>
+                      {(() => {
+                        const discountPaise = parsePriceToPaise(form.autopayDiscountRupees) || 0;
+                        const autopayFee = feePreviewInPaise - discountPaise;
+                        if (discountPaise > 0 && feePreviewInPaise > 0) {
+                          if (autopayFee < 100) {
+                            return <p className="mt-1 font-body text-[0.72rem] text-destructive">Discount too high — autopay fee must be at least ₹1.</p>;
+                          }
+                          return <p className="mt-1 font-body text-[0.72rem] text-muted-foreground">Autopay price: <span className="font-semibold text-green-700">{formatPaiseAsRupees(autopayFee)}/mo</span> <span className="text-muted-foreground">(₹{(discountPaise / 100).toLocaleString("en-IN")} off)</span></p>;
+                        }
+                        return <p className="mt-1 font-body text-[0.72rem] text-muted-foreground">Leave blank or 0 for no autopay discount.</p>;
+                      })()}
+                    </div>
+                  )}
                   <div>
                     <label className={labelClass}>Billing Day (1–28)</label>
                     <input value={form.billingDayOfMonth} onChange={(event) => setForm({ ...form, billingDayOfMonth: event.target.value })} className={inputClass} inputMode="numeric" placeholder="5" />

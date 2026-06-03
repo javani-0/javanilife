@@ -167,6 +167,7 @@ export const normalizeClass = (id: string, data: DocumentData = {}): ClassDoc =>
   ageFrom: data.ageFrom != null ? Math.max(0, Math.round(toNumber(data.ageFrom))) : undefined,
   ageTo: data.ageTo != null ? Math.max(0, Math.round(toNumber(data.ageTo))) : undefined,
   monthlyFeeInPaise: Math.max(0, Math.round(toNumber(data.monthlyFeeInPaise))),
+  autopayDiscountInPaise: data.autopayDiscountInPaise != null ? Math.max(0, Math.round(toNumber(data.autopayDiscountInPaise))) : undefined,
   billingDayOfMonth: clampBillingDay(toNumber(data.billingDayOfMonth, 5)),
   active: data.active !== false,
   razorpayPlanId: typeof data.razorpayPlanId === "string" ? data.razorpayPlanId : "",
@@ -188,7 +189,7 @@ export const normalizeClass = (id: string, data: DocumentData = {}): ClassDoc =>
   updatedAt: data.updatedAt,
 });
 
-type ClassFeeShape = { monthlyFeeInPaise?: number; feeType?: ClassFeeType; termFeeInPaise?: number };
+type ClassFeeShape = { monthlyFeeInPaise?: number; feeType?: ClassFeeType; termFeeInPaise?: number; autopayDiscountInPaise?: number };
 
 /** The headline price label: "₹2,500 / month" (monthly) or "₹30,000 · term" (term). */
 export const getClassFeeLabel = (classDoc: ClassFeeShape): string => {
@@ -206,6 +207,23 @@ export const getClassFeeLabel = (classDoc: ClassFeeShape): string => {
 export const getClassFeeInPaise = (classDoc: ClassFeeShape): number => (
   classDoc.feeType === "term" ? classDoc.termFeeInPaise || 0 : classDoc.monthlyFeeInPaise || 0
 );
+
+/** The monthly fee in paise after autopay discount (clamped ≥ 100 paise i.e. ₹1). */
+export const getAutopayFeeInPaise = (classDoc: ClassFeeShape): number => {
+  const monthly = classDoc.monthlyFeeInPaise || 0;
+  const discount = classDoc.autopayDiscountInPaise || 0;
+  return Math.max(100, monthly - discount);
+};
+
+/** Whether this class has a non-zero autopay discount. */
+export const hasAutopayDiscount = (classDoc: ClassFeeShape): boolean =>
+  (classDoc.autopayDiscountInPaise || 0) > 0 && (classDoc.monthlyFeeInPaise || 0) > (classDoc.autopayDiscountInPaise || 0);
+
+/** Formatted autopay fee label: "₹2,300 / month" */
+export const getAutopayFeeLabel = (classDoc: ClassFeeShape): string => {
+  if (!hasAutopayDiscount(classDoc)) return getClassFeeLabel(classDoc);
+  return `${formatPaiseAsRupees(getAutopayFeeInPaise(classDoc))} / month`;
+};
 
 export const isClassEnrollable = (
   classDoc: { active?: boolean } & ClassFeeShape,
@@ -270,6 +288,7 @@ export interface ClassWritePayload {
   ageFrom?: number;
   ageTo?: number;
   monthlyFeeInPaise: number;
+  autopayDiscountInPaise?: number;
   billingDayOfMonth: number;
   active: boolean;
   seatsTotal?: number;
@@ -331,6 +350,9 @@ const buildClassPayload = (payload: ClassWritePayload) => {
     ageTo,
     ageGroup: composeAgeGroup(ageFrom ?? undefined, ageTo ?? undefined),
     monthlyFeeInPaise: Math.max(0, Math.round(payload.monthlyFeeInPaise)),
+    autopayDiscountInPaise: feeType === "monthly" && payload.autopayDiscountInPaise
+      ? Math.min(Math.max(0, Math.round(payload.autopayDiscountInPaise)), Math.max(0, Math.round(payload.monthlyFeeInPaise)) - 100)
+      : null,
     billingDayOfMonth: clampBillingDay(payload.billingDayOfMonth),
     active: payload.active,
     seatsTotal: payload.seatsTotal != null ? Math.max(0, Math.round(payload.seatsTotal)) : null,
