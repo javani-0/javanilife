@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, type KeyboardEvent, type MouseEvent } from "react";
 import { collection, onSnapshot } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 
 import Footer from "@/components/Footer";
 import PageHero from "@/components/PageHero";
@@ -298,7 +298,10 @@ const ProductCard = ({
 };
 
 const Products = () => {
-  const [activeFilter, setActiveFilter] = useState<ProductCategoryFilter>("all");
+  const [searchParams, setSearchParams] = useSearchParams();
+  // Initialise the category filter from the URL so a shared /products?category=…
+  // link opens on that category.
+  const [activeFilter, setActiveFilter] = useState<ProductCategoryFilter>(() => (searchParams.get("category") as ProductCategoryFilter) || "all");
   const [products, setProducts] = useState<Product[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [sortMode, setSortMode] = useState<SortMode>("featured");
@@ -311,6 +314,35 @@ const Products = () => {
     { label: "All Products", value: "all" },
     ...getActiveCategories(productCategories).map((category) => ({ label: category.label, value: category.id })),
   ], [productCategories]);
+
+  // Select a category and reflect it in the URL (so it can be shared / restored).
+  const selectCategory = (value: ProductCategoryFilter) => {
+    setActiveFilter(value);
+    setSearchParams((previous) => {
+      const next = new URLSearchParams(previous);
+      if (value && value !== "all") next.set("category", value);
+      else next.delete("category");
+      return next;
+    });
+  };
+
+  // If a shared URL names a category that no longer exists once categories load,
+  // fall back to "all" and clean the URL.
+  useEffect(() => {
+    if (activeFilter === "all" || filters.length <= 1) return;
+    if (!filters.some((filter) => filter.value === activeFilter)) selectCategory("all");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters]);
+
+  // Keep state in sync if the URL changes externally (back/forward navigation).
+  useEffect(() => {
+    const urlCategory = (searchParams.get("category") as ProductCategoryFilter) || "all";
+    if (urlCategory !== activeFilter) setActiveFilter(urlCategory);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
+
+  const activeCategoryLabel = filters.find((filter) => filter.value === activeFilter)?.label || "All Products";
+  const categoryShareUrl = activeFilter && activeFilter !== "all" ? `/products?category=${encodeURIComponent(activeFilter)}` : "/products";
 
   useEffect(() => {
     const unsub = onSnapshot(
@@ -370,18 +402,26 @@ const Products = () => {
                 className={`${fieldControlClass} pl-10`}
               />
             </label>
-            <label className="relative block">
-              <Tag className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <select
-                value={activeFilter}
-                onChange={(event) => setActiveFilter(event.target.value as ProductCategoryFilter)}
-                className={`${fieldControlClass} appearance-none pl-10 pr-10`}
-                aria-label="Filter products by category"
-              >
-                {filters.map((filter) => <option key={filter.value} value={filter.value}>{filter.label}</option>)}
-              </select>
-              <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            </label>
+            <div className="flex items-center gap-2">
+              <label className="relative block flex-1">
+                <Tag className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <select
+                  value={activeFilter}
+                  onChange={(event) => selectCategory(event.target.value as ProductCategoryFilter)}
+                  className={`${fieldControlClass} appearance-none pl-10 pr-10`}
+                  aria-label="Filter products by category"
+                >
+                  {filters.map((filter) => <option key={filter.value} value={filter.value}>{filter.label}</option>)}
+                </select>
+                <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              </label>
+              <ShareButton
+                title={`${activeCategoryLabel} — Javani Spiritual Hub`}
+                text={activeFilter === "all" ? "Browse products at Javani Spiritual Hub" : `Browse *${activeCategoryLabel}* at Javani Spiritual Hub`}
+                url={categoryShareUrl}
+                className="h-10 w-10 flex-shrink-0 rounded-md border border-gold/20 bg-card sm:h-12 sm:w-12"
+              />
+            </div>
             <label className="relative block">
               <SlidersHorizontal className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <select

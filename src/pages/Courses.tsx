@@ -8,7 +8,7 @@ import PageHero from "@/components/PageHero";
 import SectionLabel from "@/components/SectionLabel";
 import PrimaryButton from "@/components/PrimaryButton";
 import SEO from "@/components/SEO";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useScrollAnimation } from "@/hooks/useScrollAnimation";
 import { MessageCircle, Search, ShoppingBag, SlidersHorizontal } from "lucide-react";
 import ShareButton from "@/components/ShareButton";
@@ -230,7 +230,10 @@ const ComparisonTable = () => {
 };
 
 const Courses = () => {
-  const [activeFilter, setActiveFilter] = useState<CourseCategory>("all");
+  const [searchParams, setSearchParams] = useSearchParams();
+  // Initialise the category filter from the URL so a shared /courses?category=…
+  // link opens on that category.
+  const [activeFilter, setActiveFilter] = useState<CourseCategory>(() => searchParams.get("category") || "all");
   const [searchTerm, setSearchTerm] = useState("");
   const [sortMode, setSortMode] = useState<CourseSortMode>("featured");
   const [courses, setCourses] = useState<Course[]>([]);
@@ -241,6 +244,34 @@ const Courses = () => {
     { label: "All Courses", value: "all" },
     ...activeCourseCategories.map((category) => ({ label: category.label, value: category.id })),
   ], [activeCourseCategories]);
+
+  // Select a category and reflect it in the URL (so it can be shared / restored).
+  const selectCategory = (value: CourseCategory) => {
+    setActiveFilter(value);
+    setSearchParams((previous) => {
+      const next = new URLSearchParams(previous);
+      if (value && value !== "all") next.set("category", value);
+      else next.delete("category");
+      return next;
+    });
+  };
+
+  // Drop an unknown category from a shared URL once categories have loaded.
+  useEffect(() => {
+    if (activeFilter === "all" || filters.length <= 1) return;
+    if (!filters.some((filter) => filter.value === activeFilter)) selectCategory("all");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters]);
+
+  // Keep state in sync with back/forward navigation.
+  useEffect(() => {
+    const urlCategory = searchParams.get("category") || "all";
+    if (urlCategory !== activeFilter) setActiveFilter(urlCategory);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
+
+  const activeCategoryLabel = filters.find((filter) => filter.value === activeFilter)?.label || "All Courses";
+  const categoryShareUrl = activeFilter && activeFilter !== "all" ? `/courses?category=${encodeURIComponent(activeFilter)}` : "/courses";
 
   useEffect(() => {
     const q = query(collection(db, "courses"));
@@ -306,12 +337,20 @@ const Courses = () => {
                 </select>
               </label>
             </div>
-            <div className="flex gap-2 overflow-x-auto pb-1 lg:max-w-[560px] lg:flex-wrap lg:justify-end lg:overflow-visible lg:pb-0">
-              {filters.map((filter) => (
-                <button key={filter.value} type="button" onClick={() => setActiveFilter(filter.value)} className={`shrink-0 rounded-full px-4 py-2 font-body text-[0.78rem] font-semibold transition-all duration-300 sm:text-[0.85rem] ${activeFilter === filter.value ? "bg-gradient-primary text-primary-foreground shadow-sm" : "border border-gold/20 bg-card text-muted-foreground hover:border-gold/50 hover:text-foreground"}`}>
-                  {filter.label}
-                </button>
-              ))}
+            <div className="flex items-center gap-2 lg:max-w-[600px]">
+              <div className="flex gap-2 overflow-x-auto pb-1 lg:flex-wrap lg:justify-end lg:overflow-visible lg:pb-0">
+                {filters.map((filter) => (
+                  <button key={filter.value} type="button" onClick={() => selectCategory(filter.value)} className={`shrink-0 rounded-full px-4 py-2 font-body text-[0.78rem] font-semibold transition-all duration-300 sm:text-[0.85rem] ${activeFilter === filter.value ? "bg-gradient-primary text-primary-foreground shadow-sm" : "border border-gold/20 bg-card text-muted-foreground hover:border-gold/50 hover:text-foreground"}`}>
+                    {filter.label}
+                  </button>
+                ))}
+              </div>
+              <ShareButton
+                title={`${activeCategoryLabel} — Javani Spiritual Hub`}
+                text={activeFilter === "all" ? "Browse courses at Javani Spiritual Hub" : `Browse *${activeCategoryLabel}* courses at Javani Spiritual Hub`}
+                url={categoryShareUrl}
+                className="h-9 w-9 flex-shrink-0 self-start rounded-full border border-gold/20 bg-card"
+              />
             </div>
           </div>
         </div>
