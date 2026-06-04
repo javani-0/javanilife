@@ -9,6 +9,8 @@ import createOrder from "./_razorpay/create-order.js";
 // @ts-ignore
 import createSubscription from "./_razorpay/create-subscription.js";
 // @ts-ignore
+import confirmSubscription from "./_razorpay/confirm-subscription.js";
+// @ts-ignore
 import verifyPayment from "./_razorpay/verify-payment.js";
 // @ts-ignore
 // @ts-ignore
@@ -33,6 +35,9 @@ export default async function handler(request: ApiRequest, response: ApiResponse
   }
   if (action === "create-subscription" || url.includes("/create-subscription")) {
     return createSubscription(request, response);
+  }
+  if (action === "confirm-subscription" || url.includes("/confirm-subscription")) {
+    return confirmSubscription(request, response);
   }
   if (action === "create-emi-subscription" || url.includes("/create-emi-subscription")) {
     return createEmiSubscription(request, response);

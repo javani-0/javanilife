@@ -14,6 +14,7 @@ import { formatPaiseAsRupees } from "@/lib/ecommerce";
 import {
   AUTOPAY_AFA_CAP_IN_PAISE,
   buildClassEmiPlan,
+  confirmSubscription,
   createEnrollment,
   createSubscription,
   DEFAULT_CLASS_EMI_CONFIG,
@@ -194,13 +195,27 @@ const ClassDetail = () => {
 
       if (method === "autopay") {
         const subscription = await createSubscription(idToken, enrollmentId);
-        await openSubscriptionCheckout({
+        const mandate = await openSubscriptionCheckout({
           subscriptionId: subscription.subscriptionId,
           keyId: subscription.keyId,
           name: "Javani Spiritual Hub",
           description: `${classDoc.name} — monthly autopay`,
           prefill,
         });
+        // Confirm the mandate with the server right away so the enrolment's
+        // autopay status reflects immediately instead of waiting on the webhook
+        // (which can lag or be missed). Best-effort: the webhook reconciles if
+        // this fails, so never block or roll back the enrolment on its error.
+        try {
+          await confirmSubscription(idToken, {
+            enrollmentId,
+            razorpay_payment_id: mandate.razorpay_payment_id,
+            razorpay_subscription_id: mandate.razorpay_subscription_id,
+            razorpay_signature: mandate.razorpay_signature,
+          });
+        } catch (confirmError) {
+          console.error("Autopay confirmation sync failed (webhook will reconcile)", confirmError);
+        }
         toast({ title: "Autopay set up", description: "We'll auto-debit the monthly fee and notify you each time." });
       } else if (method === "full") {
         await payFeeNow({ idToken, feePaymentIdOrEnrollment: { enrollmentId, kind: "full" }, name: "Javani Spiritual Hub", description: `${classDoc.name} — full course fee`, prefill });

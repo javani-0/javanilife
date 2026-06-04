@@ -44,3 +44,27 @@ export const verifyRazorpaySignature = ({
 
   return actualBuffer.length === expectedBuffer.length && crypto.timingSafeEqual(actualBuffer, expectedBuffer);
 };
+
+// Subscription (autopay mandate) checkout returns a different signature payload:
+// HMAC( razorpay_payment_id + "|" + razorpay_subscription_id ).
+export const verifyRazorpaySubscriptionSignature = ({
+  razorpayPaymentId,
+  razorpaySubscriptionId,
+  razorpaySignature,
+}: {
+  razorpayPaymentId: string;
+  razorpaySubscriptionId: string;
+  razorpaySignature: string;
+}) => {
+  if (!razorpayPaymentId || !razorpaySubscriptionId || !razorpaySignature) return false;
+  const { keySecret } = getRazorpayCredentials();
+  const expectedSignature = crypto
+    .createHmac("sha256", keySecret)
+    .update(`${razorpayPaymentId}|${razorpaySubscriptionId}`)
+    .digest("hex");
+
+  const actualBuffer = Buffer.from(razorpaySignature, "hex");
+  const expectedBuffer = Buffer.from(expectedSignature, "hex");
+
+  return actualBuffer.length === expectedBuffer.length && crypto.timingSafeEqual(actualBuffer, expectedBuffer);
+};

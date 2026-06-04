@@ -41,6 +41,21 @@ const postJson = async <T>(url: string, idToken: string, payload: unknown): Prom
 export const createSubscription = (idToken: string, enrollmentId: string) =>
   postJson<CreateSubscriptionResponse>("/api/razorpay/create-subscription", idToken, { enrollmentId });
 
+export interface ConfirmSubscriptionResult {
+  enabled: boolean;
+  mandateStatus: string;
+}
+
+/**
+ * Tell the server the mandate authorisation finished so the enrolment's autopay
+ * status updates immediately (the server re-checks the live status with
+ * Razorpay). Safe to call even if the webhook also fires — both are idempotent.
+ */
+export const confirmSubscription = (
+  idToken: string,
+  payload: { enrollmentId: string } & RazorpaySubscriptionSuccess,
+) => postJson<ConfirmSubscriptionResult>("/api/razorpay/confirm-subscription", idToken, payload);
+
 /** Ask the server to cancel/pause an existing mandate. */
 export const cancelSubscription = (idToken: string, enrollmentId: string, cancelAtCycleEnd = false) =>
   postJson<{ ok: boolean }>("/api/razorpay/cancel-subscription", idToken, { enrollmentId, cancelAtCycleEnd });

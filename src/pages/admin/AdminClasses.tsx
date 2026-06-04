@@ -479,21 +479,23 @@ const AdminClasses = () => {
                   )}
                   <div className="sm:col-span-2">
                     <label className={labelClass}>Payment options offered to parents *</label>
-                    <div className="flex flex-col gap-2 sm:flex-row">
-                      <label className={`flex flex-1 cursor-pointer items-start gap-2 rounded-md border p-3 font-body text-[0.8rem] ${form.payAutopay ? "border-gold bg-gold/5" : "border-border"}`}>
-                        <input type="checkbox" className="mt-0.5" checked={form.payAutopay} onChange={(event) => setForm({ ...form, payAutopay: event.target.checked })} />
-                        <span><span className="font-semibold text-foreground">Autopay</span><br /><span className="text-muted-foreground">Auto-debit the fee every month.</span></span>
-                      </label>
-                      <label className={`flex flex-1 cursor-pointer items-start gap-2 rounded-md border p-3 font-body text-[0.8rem] ${form.payManual ? "border-gold bg-gold/5" : "border-border"}`}>
-                        <input type="checkbox" className="mt-0.5" checked={form.payManual} onChange={(event) => setForm({ ...form, payManual: event.target.checked })} />
-                        <span><span className="font-semibold text-foreground">Pay monthly</span><br /><span className="text-muted-foreground">Parent pays each month manually.</span></span>
-                      </label>
-                    </div>
-                    <div className="flex flex-col gap-2 sm:flex-row">
-                      <label className={`flex flex-1 cursor-pointer items-start gap-2 rounded-md border p-3 font-body text-[0.8rem] ${form.payCash ? "border-gold bg-gold/5" : "border-border"}`}>
-                        <input type="checkbox" className="mt-0.5" checked={form.payCash} onChange={(event) => setForm({ ...form, payCash: event.target.checked })} />
-                        <span><span className="font-semibold text-foreground">Cash</span><br /><span className="text-muted-foreground">Parent pays cash, admin collects offline.</span></span>
-                      </label>
+                    <div className="flex flex-col gap-2">
+                      <div className="flex flex-col gap-2 sm:flex-row">
+                        <label className={`flex flex-1 cursor-pointer items-start gap-2 rounded-md border p-3 font-body text-[0.8rem] ${form.payAutopay ? "border-gold bg-gold/5" : "border-border"}`}>
+                          <input type="checkbox" className="mt-0.5" checked={form.payAutopay} onChange={(event) => setForm({ ...form, payAutopay: event.target.checked })} />
+                          <span><span className="font-semibold text-foreground">Autopay</span><br /><span className="text-muted-foreground">Auto-debit the fee every month.</span></span>
+                        </label>
+                        <label className={`flex flex-1 cursor-pointer items-start gap-2 rounded-md border p-3 font-body text-[0.8rem] ${form.payManual ? "border-gold bg-gold/5" : "border-border"}`}>
+                          <input type="checkbox" className="mt-0.5" checked={form.payManual} onChange={(event) => setForm({ ...form, payManual: event.target.checked })} />
+                          <span><span className="font-semibold text-foreground">Pay monthly</span><br /><span className="text-muted-foreground">Parent pays each month manually.</span></span>
+                        </label>
+                      </div>
+                      <div className="flex flex-col gap-2 sm:flex-row">
+                        <label className={`flex flex-1 cursor-pointer items-start gap-2 rounded-md border p-3 font-body text-[0.8rem] ${form.payCash ? "border-gold bg-gold/5" : "border-border"}`}>
+                          <input type="checkbox" className="mt-0.5" checked={form.payCash} onChange={(event) => setForm({ ...form, payCash: event.target.checked })} />
+                          <span><span className="font-semibold text-foreground">Cash</span><br /><span className="text-muted-foreground">Parent pays cash, admin collects offline.</span></span>
+                        </label>
+                      </div>
                     </div>
                   </div>
                 </>

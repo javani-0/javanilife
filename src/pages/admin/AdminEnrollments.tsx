@@ -3,6 +3,16 @@ import { createPortal } from "react-dom";
 import { Banknote, PauseCircle, PlayCircle, Search, UserCheck, X, XCircle, Trash2, LayoutGrid, List } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { formatPaiseAsRupees } from "@/lib/ecommerce";
 import {
   cancelEnrollment,
@@ -24,6 +34,13 @@ const statusStyles: Record<EnrollmentStatus, string> = {
   cancelled: "bg-muted text-muted-foreground",
 };
 
+// Firestore Timestamps expose toMillis(); fall back to 0 when missing so
+// enrolments without a createdAt sort to the bottom.
+const createdAtMillis = (enrollment: EnrollmentDoc): number => {
+  const createdAt = enrollment.createdAt as { toMillis?: () => number } | undefined;
+  return typeof createdAt?.toMillis === "function" ? createdAt.toMillis() : 0;
+};
+
 const AdminEnrollments = () => {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -33,6 +50,13 @@ const AdminEnrollments = () => {
   const [statusFilter, setStatusFilter] = useState<"all" | EnrollmentStatus>("all");
   const [view, setView] = useState<"table" | "grid">("grid");
   const [selected, setSelected] = useState<EnrollmentDoc | null>(null);
+  const [confirmState, setConfirmState] = useState<{
+    title: string;
+    description: string;
+    confirmLabel: string;
+    destructive?: boolean;
+    onConfirm: () => void | Promise<void>;
+  } | null>(null);
 
   useEffect(() => subscribeToEnrollmentsAdmin(setEnrollments, (error) => console.error("Unable to load enrollments", error)), []);
 
@@ -50,7 +74,8 @@ const AdminEnrollments = () => {
       .filter((enrollment) => !normalizedSearch || [enrollment.student.name, enrollment.parent.name, enrollment.parent.phone, enrollment.className]
         .filter(Boolean)
         .some((value) => value.toLowerCase().includes(normalizedSearch)))
-      .sort((a, b) => a.student.name.localeCompare(b.student.name));
+      // Newest enrolments first so fresh sign-ups surface at the top.
+      .sort((a, b) => createdAtMillis(b) - createdAtMillis(a));
   }, [enrollments, classFilter, statusFilter, search]);
 
   const runAction = async (label: string, action: () => Promise<void>) => {
@@ -63,9 +88,8 @@ const AdminEnrollments = () => {
     }
   };
 
-  const handleCollectCash = async (enrollment: EnrollmentDoc) => {
+  const collectCash = async (enrollment: EnrollmentDoc) => {
     if (!user) return;
-    if (!confirm(`Collect cash and activate enrolment for ${enrollment.student.name}? A WhatsApp confirmation will be sent to the parent.`)) return;
     try {
       const idToken = await user.getIdToken();
       await collectCashPayment(idToken, enrollment.id);
@@ -75,6 +99,29 @@ const AdminEnrollments = () => {
       toast({ title: "Cash collection failed", description: error instanceof Error ? error.message : undefined, variant: "destructive" });
     }
   };
+
+  const askCollectCash = (enrollment: EnrollmentDoc) => setConfirmState({
+    title: "Collect cash?",
+    description: `Collect cash and activate enrolment for ${enrollment.student.name}. A WhatsApp confirmation will be sent to the parent.`,
+    confirmLabel: "Collect & activate",
+    onConfirm: () => collectCash(enrollment),
+  });
+
+  const askCancel = (enrollment: EnrollmentDoc) => setConfirmState({
+    title: "Cancel enrolment?",
+    description: `Cancel the enrolment for ${enrollment.student.name}. Autopay, if set up, will stop charging.`,
+    confirmLabel: "Cancel enrolment",
+    destructive: true,
+    onConfirm: () => runAction("Enrollment cancelled", () => cancelEnrollment(enrollment.id)),
+  });
+
+  const askDelete = (enrollment: EnrollmentDoc) => setConfirmState({
+    title: "Delete enrolment?",
+    description: `Permanently delete the enrolment for ${enrollment.student.name}. This cannot be undone.`,
+    confirmLabel: "Delete",
+    destructive: true,
+    onConfirm: () => runAction("Enrollment deleted", () => deleteEnrollment(enrollment.id)),
+  });
 
   return (
     <div className="space-y-6">
@@ -147,7 +194,7 @@ const AdminEnrollments = () => {
                     <td className="px-4 py-3" onClick={(event) => event.stopPropagation()}>
                       <div className="flex gap-1">
                         {enrollment.status === "pending" && enrollment.paymentPlan === "cash" && (
-                          <button onClick={() => handleCollectCash(enrollment)} className="flex items-center gap-1 rounded border border-green-300 px-2 py-1 font-body text-[0.7rem] text-green-700 hover:bg-green-50" title="Collect Cash">
+                          <button onClick={() => askCollectCash(enrollment)} className="flex items-center gap-1 rounded border border-green-300 px-2 py-1 font-body text-[0.7rem] text-green-700 hover:bg-green-50" title="Collect Cash">
                             <Banknote className="h-3.5 w-3.5" /> Cash
                           </button>
                         )}
@@ -158,9 +205,9 @@ const AdminEnrollments = () => {
                           <button onClick={() => runAction("Enrollment resumed", () => resumeEnrollment(enrollment.id))} className="p-1.5 rounded text-muted-foreground hover:bg-muted hover:text-green-600" title="Resume"><PlayCircle className="h-4 w-4" /></button>
                         )}
                         {enrollment.status !== "cancelled" && (
-                          <button onClick={() => { if (confirm(`Cancel enrolment for ${enrollment.student.name}?`)) runAction("Enrollment cancelled", () => cancelEnrollment(enrollment.id)); }} className="p-1.5 rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive" title="Cancel"><XCircle className="h-4 w-4" /></button>
+                          <button onClick={() => askCancel(enrollment)} className="p-1.5 rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive" title="Cancel"><XCircle className="h-4 w-4" /></button>
                         )}
-                        <button onClick={() => { if (confirm(`Are you sure you want to completely delete the enrolment for ${enrollment.student.name}? This cannot be undone.`)) runAction("Enrollment deleted", () => deleteEnrollment(enrollment.id)); }} className="p-1.5 rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive" title="Delete"><Trash2 className="h-4 w-4" /></button>
+                        <button onClick={() => askDelete(enrollment)} className="p-1.5 rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive" title="Delete"><Trash2 className="h-4 w-4" /></button>
                       </div>
                     </td>
                   </tr>
@@ -205,7 +252,7 @@ const AdminEnrollments = () => {
               </div>
               <div className="mt-4 flex flex-wrap gap-2" onClick={(event) => event.stopPropagation()}>
                 {enrollment.status === "pending" && enrollment.paymentPlan === "cash" && (
-                  <button onClick={() => handleCollectCash(enrollment)} className="flex flex-1 items-center justify-center gap-1 rounded border border-green-300 px-2 py-1.5 font-body text-[0.75rem] font-semibold text-green-700 hover:bg-green-50">
+                  <button onClick={() => askCollectCash(enrollment)} className="flex flex-1 items-center justify-center gap-1 rounded border border-green-300 px-2 py-1.5 font-body text-[0.75rem] font-semibold text-green-700 hover:bg-green-50">
                     <Banknote className="h-3.5 w-3.5" /> Cash
                   </button>
                 )}
@@ -220,11 +267,11 @@ const AdminEnrollments = () => {
                   </button>
                 )}
                 {enrollment.status !== "cancelled" && (
-                  <button onClick={() => { if (confirm(`Cancel enrolment for ${enrollment.student.name}?`)) runAction("Enrollment cancelled", () => cancelEnrollment(enrollment.id)); }} className="flex flex-1 items-center justify-center gap-1 rounded border border-border px-2 py-1.5 font-body text-[0.75rem] font-semibold text-muted-foreground hover:bg-destructive/10 hover:text-destructive">
+                  <button onClick={() => askCancel(enrollment)} className="flex flex-1 items-center justify-center gap-1 rounded border border-border px-2 py-1.5 font-body text-[0.75rem] font-semibold text-muted-foreground hover:bg-destructive/10 hover:text-destructive">
                     <XCircle className="h-3.5 w-3.5" /> Cancel
                   </button>
                 )}
-                <button onClick={() => { if (confirm(`Are you sure you want to completely delete the enrolment for ${enrollment.student.name}? This cannot be undone.`)) runAction("Enrollment deleted", () => deleteEnrollment(enrollment.id)); }} className="flex flex-1 items-center justify-center gap-1 rounded border border-border px-2 py-1.5 font-body text-[0.75rem] font-semibold text-muted-foreground hover:bg-destructive/10 hover:text-destructive">
+                <button onClick={() => askDelete(enrollment)} className="flex flex-1 items-center justify-center gap-1 rounded border border-border px-2 py-1.5 font-body text-[0.75rem] font-semibold text-muted-foreground hover:bg-destructive/10 hover:text-destructive">
                   <Trash2 className="h-3.5 w-3.5" /> Delete
                 </button>
               </div>
@@ -267,6 +314,24 @@ const AdminEnrollments = () => {
         </div>,
         document.body
       )}
+
+      <AlertDialog open={!!confirmState} onOpenChange={(open) => { if (!open) setConfirmState(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{confirmState?.title}</AlertDialogTitle>
+            <AlertDialogDescription>{confirmState?.description}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => { const action = confirmState?.onConfirm; setConfirmState(null); void action?.(); }}
+              className={confirmState?.destructive ? "bg-destructive text-destructive-foreground hover:bg-destructive/90" : ""}
+            >
+              {confirmState?.confirmLabel}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };
