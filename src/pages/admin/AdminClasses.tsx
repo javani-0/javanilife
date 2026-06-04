@@ -11,18 +11,22 @@ import {
   CLASSES_COLLECTION,
   buildClassEmiPlan,
   clampBillingDay,
+  classOffersMonthly,
+  classOffersTerm,
   composeSchedule,
   DEFAULT_CLASS_EMI_CONFIG,
   getAutopayFeeLabel,
   getClassFeeLabel,
+  getTermPayFullOfferLabel,
+  getTermPayFullPriceInPaise,
   hasAutopayDiscount,
+  hasTermPayFullOffer,
   monthsBetween,
   subscribeToClasses,
   upsertClass,
   WEEKDAYS,
   type ClassDoc,
   type ClassEmiConfig,
-  type ClassFeeType,
   type ClassTimeSlot,
 } from "@/lib/classes";
 
@@ -49,11 +53,14 @@ interface ClassFormState {
   billingDayOfMonth: string;
   seatsTotal: string;
   active: boolean;
-  // New: fee type + term fields + payment options + EMI split + time slots.
-  feeType: ClassFeeType;
+  // New: track capabilities (a class can offer monthly, term, or both) + term
+  // fields + pay-full offer + payment options + EMI split + time slots.
+  offersMonthly: boolean;
+  offersTerm: boolean;
   termFeeRupees: string;
   startDate: string;
   endDate: string;
+  termFreeMonths: string;
   payAutopay: boolean;
   payManual: boolean;
   payFull: boolean;
@@ -79,10 +86,12 @@ const defaultForm: ClassFormState = {
   billingDayOfMonth: "5",
   seatsTotal: "",
   active: true,
-  feeType: "monthly",
+  offersMonthly: true,
+  offersTerm: false,
   termFeeRupees: "",
   startDate: "",
   endDate: "",
+  termFreeMonths: "",
   payAutopay: true,
   payManual: true,
   payFull: true,
@@ -167,17 +176,27 @@ const AdminClasses = () => {
 
   const sortedClasses = useMemo(() => [...classes].sort((a, b) => a.name.localeCompare(b.name)), [classes]);
 
-  const feePreviewInPaise = form.feeType === "term"
-    ? (parsePriceToPaise(form.termFeeRupees) || 0)
-    : (parsePriceToPaise(form.feeRupees) || 0);
-  const overAfaCap = form.feeType === "monthly" && feePreviewInPaise > AUTOPAY_AFA_CAP_IN_PAISE;
+  const monthlyFeePreviewInPaise = parsePriceToPaise(form.feeRupees) || 0;
+  const termFeePreviewInPaise = parsePriceToPaise(form.termFeeRupees) || 0;
+  const overAfaCap = form.offersMonthly && monthlyFeePreviewInPaise > AUTOPAY_AFA_CAP_IN_PAISE;
 
   const emiParsed = useMemo(() => parseEmiConfig(form.emiUpfront, form.emiInstallments), [form.emiUpfront, form.emiInstallments]);
   const emiPreview = useMemo(() => {
-    if (form.feeType !== "term" || !form.payEmi || !emiParsed.config || feePreviewInPaise <= 0) return null;
-    return buildClassEmiPlan(feePreviewInPaise, emiParsed.config);
-  }, [form.feeType, form.payEmi, emiParsed.config, feePreviewInPaise]);
+    if (!form.offersTerm || !form.payEmi || !emiParsed.config || termFeePreviewInPaise <= 0) return null;
+    return buildClassEmiPlan(termFeePreviewInPaise, emiParsed.config);
+  }, [form.offersTerm, form.payEmi, emiParsed.config, termFeePreviewInPaise]);
   const durationMonths = useMemo(() => monthsBetween(form.startDate, form.endDate), [form.startDate, form.endDate]);
+
+  // Pay-full offer preview: discounted full price after the free months.
+  const freeMonthsNum = Math.max(0, Math.round(Number(form.termFreeMonths) || 0));
+  const payFullPreviewInPaise = useMemo(() => {
+    if (!form.offersTerm || termFeePreviewInPaise <= 0 || durationMonths <= 0 || freeMonthsNum <= 0) return null;
+    return getTermPayFullPriceInPaise({
+      termFeeInPaise: termFeePreviewInPaise,
+      durationMonths,
+      termFreeMonthsOnFullPayment: freeMonthsNum,
+    });
+  }, [form.offersTerm, termFeePreviewInPaise, durationMonths, freeMonthsNum]);
 
   const openAdd = () => { setForm(defaultForm); setEditing(null); setShowModal(true); };
   const openEdit = (classDoc: ClassDoc) => {
@@ -196,10 +215,12 @@ const AdminClasses = () => {
       billingDayOfMonth: String(classDoc.billingDayOfMonth || 5),
       seatsTotal: classDoc.seatsTotal != null ? String(classDoc.seatsTotal) : "",
       active: classDoc.active,
-      feeType: classDoc.feeType === "term" ? "term" : "monthly",
+      offersMonthly: classOffersMonthly(classDoc),
+      offersTerm: classOffersTerm(classDoc),
       termFeeRupees: (classDoc.termFeeInPaise || 0) > 0 ? String((classDoc.termFeeInPaise || 0) / 100) : "",
       startDate: classDoc.startDate || "",
       endDate: classDoc.endDate || "",
+      termFreeMonths: (classDoc.termFreeMonthsOnFullPayment || 0) > 0 ? String(classDoc.termFreeMonthsOnFullPayment) : "",
       payAutopay: classDoc.payment?.autopay ?? true,
       payManual: classDoc.payment?.manual ?? true,
       payFull: classDoc.payment?.full ?? true,
@@ -241,11 +262,28 @@ const AdminClasses = () => {
       return;
     }
 
-    const isTerm = form.feeType === "term";
+    const offersMonthly = form.offersMonthly;
+    const offersTerm = form.offersTerm;
     const monthlyFeeInPaise = parsePriceToPaise(form.feeRupees) || 0;
     const termFeeInPaise = parsePriceToPaise(form.termFeeRupees) || 0;
 
-    if (isTerm) {
+    if (!offersMonthly && !offersTerm) {
+      toast({ title: "Pick at least one fee type", description: "Enable Monthly class and/or Term course for this class.", variant: "destructive" });
+      return;
+    }
+
+    if (offersMonthly) {
+      if (monthlyFeeInPaise <= 0) {
+        toast({ title: "Monthly fee required", description: "Enter a valid monthly fee.", variant: "destructive" });
+        return;
+      }
+      if (!form.payAutopay && !form.payManual && !form.payCash) {
+        toast({ title: "Select a monthly payment option", description: "Enable Autopay, Pay monthly, and/or Cash.", variant: "destructive" });
+        return;
+      }
+    }
+
+    if (offersTerm) {
       if (termFeeInPaise <= 0) {
         toast({ title: "Term fee required", description: "Enter a valid total course fee.", variant: "destructive" });
         return;
@@ -255,20 +293,11 @@ const AdminClasses = () => {
         return;
       }
       if (!form.payFull && !form.payEmi) {
-        toast({ title: "Select a payment option", description: "Enable Pay Full and/or EMI for this course.", variant: "destructive" });
+        toast({ title: "Select a term payment option", description: "Enable Pay Full and/or EMI for the course.", variant: "destructive" });
         return;
       }
       if (form.payEmi && !emiParsed.config) {
         toast({ title: "EMI split must total 100%", description: `Upfront + installments currently total ${Number.isNaN(emiParsed.sum) ? "an invalid value" : `${emiParsed.sum}%`}.`, variant: "destructive" });
-        return;
-      }
-    } else {
-      if (monthlyFeeInPaise <= 0) {
-        toast({ title: "Monthly fee required", description: "Enter a valid monthly fee.", variant: "destructive" });
-        return;
-      }
-      if (!form.payAutopay && !form.payManual && !form.payCash) {
-        toast({ title: "Select a payment option", description: "Enable Autopay, Pay monthly, and/or Cash for this class.", variant: "destructive" });
         return;
       }
     }
@@ -302,20 +331,27 @@ const AdminClasses = () => {
         ageTo: form.ageTo.trim() ? Number(form.ageTo) : undefined,
         facultyName: form.facultyName,
         monthlyFeeInPaise,
-        autopayDiscountInPaise: !isTerm && form.payAutopay && form.autopayDiscountRupees.trim()
+        autopayDiscountInPaise: offersMonthly && form.payAutopay && form.autopayDiscountRupees.trim()
           ? (parsePriceToPaise(form.autopayDiscountRupees) || 0)
           : undefined,
         billingDayOfMonth: clampBillingDay(Number(form.billingDayOfMonth)),
         seatsTotal: form.seatsTotal.trim() ? Number(form.seatsTotal) : undefined,
         active: form.active,
-        feeType: form.feeType,
+        offersMonthly,
+        offersTerm,
         termFeeInPaise,
         startDate: form.startDate,
         endDate: form.endDate,
-        payment: isTerm
-          ? { autopay: false, manual: false, full: form.payFull, emi: form.payEmi, cash: false }
-          : { autopay: form.payAutopay, manual: form.payManual, full: false, emi: false, cash: form.payCash },
-        emi: isTerm && form.payEmi ? emiParsed.config : null,
+        termFreeMonthsOnFullPayment: offersTerm ? Math.max(0, Math.round(Number(form.termFreeMonths) || 0)) : 0,
+        // Each track's options are gated by whether that track is enabled.
+        payment: {
+          autopay: offersMonthly && form.payAutopay,
+          manual: offersMonthly && form.payManual,
+          cash: offersMonthly && form.payCash,
+          full: offersTerm && form.payFull,
+          emi: offersTerm && form.payEmi,
+        },
+        emi: offersTerm && form.payEmi ? emiParsed.config : null,
         timeSlots,
       });
       toast({ title: editing ? "Class updated" : "Class added" });
@@ -366,9 +402,10 @@ const AdminClasses = () => {
                 <div className="flex items-start justify-between mb-2">
                   <div className="flex flex-wrap gap-1">
                     <span className={`px-2 py-1 rounded-full font-body text-[0.7rem] ${classDoc.active ? "bg-green-100 text-green-700" : "bg-muted text-muted-foreground"}`}>{classDoc.active ? "Active" : "Inactive"}</span>
-                    <span className="px-2 py-1 rounded-full bg-gold/15 text-gold font-body text-[0.65rem] font-semibold">{classDoc.feeType === "term" ? "Term course" : "Monthly"}</span>
+                    {classOffersMonthly(classDoc) && <span className="px-2 py-1 rounded-full bg-gold/15 text-gold font-body text-[0.65rem] font-semibold">Monthly</span>}
+                    {classOffersTerm(classDoc) && <span className="px-2 py-1 rounded-full bg-gold/15 text-gold font-body text-[0.65rem] font-semibold">Term course</span>}
                   </div>
-                  {classDoc.feeType !== "term" && classDoc.monthlyFeeInPaise > AUTOPAY_AFA_CAP_IN_PAISE && (
+                  {classOffersMonthly(classDoc) && classDoc.monthlyFeeInPaise > AUTOPAY_AFA_CAP_IN_PAISE && (
                     <span className="flex items-center gap-1 px-2 py-1 rounded-full bg-amber-100 text-amber-700 font-body text-[0.65rem]" title="Above ₹15,000 — autopay needs OTP each charge">
                       <AlertTriangle className="w-3 h-3" /> AFA
                     </span>
@@ -381,17 +418,22 @@ const AdminClasses = () => {
                   {(classDoc.timeSlots?.length || 0) > 0 && <p>🕒 {classDoc.timeSlots!.length} time slot{classDoc.timeSlots!.length > 1 ? "s" : ""}</p>}
                   {classDoc.facultyName && <p>👤 {classDoc.facultyName}</p>}
                   {classDoc.ageGroup && <p>🎯 {classDoc.ageGroup}</p>}
-                  {classDoc.feeType === "term"
-                    ? <p>📆 {classDoc.startDate || "?"} → {classDoc.endDate || "?"}{classDoc.durationMonths ? ` · ${classDoc.durationMonths} mo` : ""}</p>
-                    : <p>📅 Billed on day {classDoc.billingDayOfMonth} each month</p>}
-                  <p>💳 {(classDoc.feeType === "term"
-                    ? [classDoc.payment?.full && "Pay Full", classDoc.payment?.emi && "EMI"]
-                    : [classDoc.payment?.autopay && "Autopay", classDoc.payment?.manual && "Pay monthly", classDoc.payment?.cash && "Cash"]
-                  ).filter(Boolean).join(" · ") || "No payment options"}</p>
+                  {classOffersTerm(classDoc) && <p>📆 {classDoc.startDate || "?"} → {classDoc.endDate || "?"}{classDoc.durationMonths ? ` · ${classDoc.durationMonths} mo` : ""}</p>}
+                  {classOffersMonthly(classDoc) && <p>📅 Billed on day {classDoc.billingDayOfMonth} each month</p>}
+                  <p>💳 {[
+                    classOffersMonthly(classDoc) && classDoc.payment?.autopay && "Autopay",
+                    classOffersMonthly(classDoc) && classDoc.payment?.manual && "Pay monthly",
+                    classOffersMonthly(classDoc) && classDoc.payment?.cash && "Cash",
+                    classOffersTerm(classDoc) && classDoc.payment?.full && "Pay Full",
+                    classOffersTerm(classDoc) && classDoc.payment?.emi && "EMI",
+                  ].filter(Boolean).join(" · ") || "No payment options"}</p>
                 </div>
                 <p className="font-display text-[1.05rem] font-bold text-primary mb-1">{getClassFeeLabel(classDoc)}</p>
                 {hasAutopayDiscount(classDoc) && (
-                  <p className="font-body text-[0.78rem] text-green-700 mb-3">Autopay: <span className="font-semibold">{getAutopayFeeLabel(classDoc)}</span> <span className="text-muted-foreground">(₹{((classDoc.autopayDiscountInPaise || 0) / 100).toLocaleString("en-IN")} off)</span></p>
+                  <p className="font-body text-[0.78rem] text-green-700 mb-1">Autopay: <span className="font-semibold">{getAutopayFeeLabel(classDoc)}</span> <span className="text-muted-foreground">(₹{((classDoc.autopayDiscountInPaise || 0) / 100).toLocaleString("en-IN")} off)</span></p>
+                )}
+                {hasTermPayFullOffer(classDoc) && (
+                  <p className="font-body text-[0.78rem] text-green-700 mb-3">🎁 {getTermPayFullOfferLabel(classDoc)} — pay <span className="font-semibold">{formatPaiseAsRupees(getTermPayFullPriceInPaise(classDoc))}</span></p>
                 )}
                 <div className="flex items-center justify-end gap-1 pt-3 border-t border-border/50">
                   <button onClick={() => openEdit(classDoc)} className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-gold" aria-label={`Edit ${classDoc.name}`}><Pencil className="w-4 h-4" /></button>
@@ -419,31 +461,43 @@ const AdminClasses = () => {
                 <label className={labelClass}>Class Name *</label>
                 <input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} className={inputClass} placeholder="Carnatic Vocals — Level 1" />
               </div>
-              {/* Fee type selector */}
+              {/* Fee type selector — a class can offer one or both tracks. */}
               <div className="sm:col-span-2">
-                <label className={labelClass}>Fee Type *</label>
+                <label className={labelClass}>Fee Type * <span className="font-normal text-muted-foreground">(enable one or both — parents choose)</span></label>
                 <div className="grid grid-cols-2 gap-2">
-                  <button type="button" onClick={() => setForm({ ...form, feeType: "monthly" })} className={`flex items-center gap-2 rounded-md border px-3 py-2.5 text-left font-body text-[0.82rem] transition-colors ${form.feeType === "monthly" ? "border-gold bg-gold/10 font-semibold text-gold" : "border-border text-muted-foreground hover:border-gold/40"}`}>
+                  <button type="button" onClick={() => setForm({ ...form, offersMonthly: !form.offersMonthly })} className={`flex items-center gap-2 rounded-md border px-3 py-2.5 text-left font-body text-[0.82rem] transition-colors ${form.offersMonthly ? "border-gold bg-gold/10 font-semibold text-gold" : "border-border text-muted-foreground hover:border-gold/40"}`}>
+                    <input type="checkbox" readOnly checked={form.offersMonthly} className="pointer-events-none" />
                     <Repeat className="h-4 w-4" /> Monthly class
                   </button>
-                  <button type="button" onClick={() => setForm({ ...form, feeType: "term" })} className={`flex items-center gap-2 rounded-md border px-3 py-2.5 text-left font-body text-[0.82rem] transition-colors ${form.feeType === "term" ? "border-gold bg-gold/10 font-semibold text-gold" : "border-border text-muted-foreground hover:border-gold/40"}`}>
+                  <button type="button" onClick={() => setForm({ ...form, offersTerm: !form.offersTerm })} className={`flex items-center gap-2 rounded-md border px-3 py-2.5 text-left font-body text-[0.82rem] transition-colors ${form.offersTerm ? "border-gold bg-gold/10 font-semibold text-gold" : "border-border text-muted-foreground hover:border-gold/40"}`}>
+                    <input type="checkbox" readOnly checked={form.offersTerm} className="pointer-events-none" />
                     <CalendarRange className="h-4 w-4" /> Term course
                   </button>
                 </div>
                 <p className="mt-1 font-body text-[0.72rem] text-muted-foreground">
-                  {form.feeType === "monthly" ? "Recurring monthly fee — parents pay by autopay or monthly." : "One-time course fee for a fixed duration — parents pay in full or by EMI."}
+                  {form.offersMonthly && form.offersTerm
+                    ? "Both enabled — parents choose Monthly or Term course at enrolment."
+                    : form.offersTerm
+                      ? "One-time course fee for a fixed duration — parents pay in full or by EMI."
+                      : "Recurring monthly fee — parents pay by autopay or monthly."}
                 </p>
               </div>
 
-              {form.feeType === "monthly" ? (
+              {form.offersMonthly && (
                 <>
+                  {form.offersTerm && (
+                    <div className="sm:col-span-2 flex items-center gap-2 border-t border-border/60 pt-3">
+                      <Repeat className="h-4 w-4 text-gold" />
+                      <span className="font-display text-[0.95rem] font-semibold text-foreground">Monthly class</span>
+                    </div>
+                  )}
                   <div>
                     <label className={labelClass}>Monthly Fee *</label>
                     <div className="relative">
                       <BadgeIndianRupee className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                       <input value={form.feeRupees} onChange={(event) => setForm({ ...form, feeRupees: event.target.value })} className={`${inputClass} pl-10`} inputMode="decimal" placeholder="2500" />
                     </div>
-                    <p className="mt-1 font-body text-[0.72rem] text-muted-foreground">Preview: <span className="font-semibold text-gold">{feePreviewInPaise ? formatPaiseAsRupees(feePreviewInPaise) : "Enter fee"}</span></p>
+                    <p className="mt-1 font-body text-[0.72rem] text-muted-foreground">Preview: <span className="font-semibold text-gold">{monthlyFeePreviewInPaise ? formatPaiseAsRupees(monthlyFeePreviewInPaise) : "Enter fee"}</span></p>
                   </div>
                   {form.payAutopay && (
                     <div>
@@ -454,8 +508,8 @@ const AdminClasses = () => {
                       </div>
                       {(() => {
                         const discountPaise = parsePriceToPaise(form.autopayDiscountRupees) || 0;
-                        const autopayFee = feePreviewInPaise - discountPaise;
-                        if (discountPaise > 0 && feePreviewInPaise > 0) {
+                        const autopayFee = monthlyFeePreviewInPaise - discountPaise;
+                        if (discountPaise > 0 && monthlyFeePreviewInPaise > 0) {
                           if (autopayFee < 100) {
                             return <p className="mt-1 font-body text-[0.72rem] text-destructive">Discount too high — autopay fee must be at least ₹1.</p>;
                           }
@@ -499,15 +553,23 @@ const AdminClasses = () => {
                     </div>
                   </div>
                 </>
-              ) : (
+              )}
+
+              {form.offersTerm && (
                 <>
+                  {form.offersMonthly && (
+                    <div className="sm:col-span-2 flex items-center gap-2 border-t border-border/60 pt-3">
+                      <CalendarRange className="h-4 w-4 text-gold" />
+                      <span className="font-display text-[0.95rem] font-semibold text-foreground">Term course</span>
+                    </div>
+                  )}
                   <div>
                     <label className={labelClass}>Total Course Fee *</label>
                     <div className="relative">
                       <BadgeIndianRupee className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                       <input value={form.termFeeRupees} onChange={(event) => setForm({ ...form, termFeeRupees: event.target.value })} className={`${inputClass} pl-10`} inputMode="decimal" placeholder="30000" />
                     </div>
-                    <p className="mt-1 font-body text-[0.72rem] text-muted-foreground">Preview: <span className="font-semibold text-gold">{feePreviewInPaise ? formatPaiseAsRupees(feePreviewInPaise) : "Enter fee"}</span></p>
+                    <p className="mt-1 font-body text-[0.72rem] text-muted-foreground">Preview: <span className="font-semibold text-gold">{termFeePreviewInPaise ? formatPaiseAsRupees(termFeePreviewInPaise) : "Enter fee"}</span></p>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <div>
@@ -535,6 +597,22 @@ const AdminClasses = () => {
                       </label>
                     </div>
                   </div>
+                  {form.payFull && (
+                    <div className="sm:col-span-2">
+                      <label className={labelClass}>Pay-full offer — free months</label>
+                      <input value={form.termFreeMonths} onChange={(event) => setForm({ ...form, termFreeMonths: event.target.value })} className={inputClass} inputMode="numeric" placeholder="0 (no offer) · e.g. 1 = one month free" />
+                      {payFullPreviewInPaise != null ? (
+                        <p className="mt-1 font-body text-[0.72rem] text-muted-foreground">
+                          Pay-full price: <span className="font-semibold text-green-700">{formatPaiseAsRupees(payFullPreviewInPaise)}</span>
+                          <span className="text-muted-foreground"> (was {formatPaiseAsRupees(termFeePreviewInPaise)}, {freeMonthsNum} month{freeMonthsNum > 1 ? "s" : ""} free)</span>
+                        </p>
+                      ) : (
+                        <p className="mt-1 font-body text-[0.72rem] text-muted-foreground">
+                          When a parent pays the whole fee upfront they get this many months free. Needs a term fee + valid dates. Leave 0 for no offer.
+                        </p>
+                      )}
+                    </div>
+                  )}
                   {form.payEmi && (
                     <div className="sm:col-span-2 rounded-md border border-gold/30 bg-gold/5 p-3">
                       <p className="mb-2 font-body text-[0.8rem] font-semibold text-foreground">EMI split (must total 100%)</p>

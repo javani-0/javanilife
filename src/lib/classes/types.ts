@@ -13,8 +13,14 @@ export type AutopayMethod = "upi" | "card" | "emandate";
 export type MandateStatus = "created" | "authenticated" | "active" | "halted" | "cancelled";
 
 // A class is either a recurring **monthly** fee (autopay / pay-monthly) or a
-// one-off **term** course (pay-full / EMI installments). Admin picks at creation.
+// one-off **term** course (pay-full / EMI installments). `feeType` records the
+// *primary/default* track for a class and for backward compatibility; a class
+// may now offer BOTH tracks (see `offersMonthly` / `offersTerm`), in which case
+// the parent chooses which one at enrolment.
 export type ClassFeeType = "monthly" | "term";
+
+// A parent-chosen enrolment track for a class that offers both.
+export type ClassTrack = "monthly" | "term";
 
 // The four payment rails a parent can use. Which appear is admin-controlled per
 // class and constrained by feeType (monthly → autopay/manual, term → full/emi).
@@ -84,11 +90,19 @@ export interface ClassDoc {
   seatsTaken?: number;
   // 4.1b — fee type + term-course fields. Legacy docs without `feeType` are
   // treated as "monthly" for backward compatibility.
-  feeType: ClassFeeType;
-  termFeeInPaise?: number;   // total fee for a term course (term only)
-  startDate?: string;        // "YYYY-MM-DD" (term only)
-  endDate?: string;          // "YYYY-MM-DD" (term only)
-  durationMonths?: number;   // derived from start/end (term only)
+  feeType: ClassFeeType;     // primary/default track (headline + legacy)
+  // A class can expose one or both tracks. When absent, derived from feeType so
+  // existing single-type classes keep working unchanged.
+  offersMonthly?: boolean;   // monthly track available (autopay / pay-monthly / cash)
+  offersTerm?: boolean;      // term track available (pay-full / EMI)
+  termFeeInPaise?: number;   // total fee for the term track
+  startDate?: string;        // "YYYY-MM-DD" (term track)
+  endDate?: string;          // "YYYY-MM-DD" (term track)
+  durationMonths?: number;   // derived from start/end (term track)
+  // Pay-full offer: number of free months when a parent pays the whole term fee
+  // upfront. e.g. a 4-month ₹8,000 course with 1 free month → pay ₹6,000.
+  // 0 / undefined = no offer. Only applies to the "full" payment, not EMI.
+  termFreeMonthsOnFullPayment?: number;
   payment: ClassPaymentOptions;
   emi?: ClassEmiConfig;      // per-class EMI split (term + emi enabled)
   timeSlots?: ClassTimeSlot[];

@@ -26,6 +26,7 @@ import {
   type ClassPaymentMethod,
   type ClassPaymentOptions,
   type ClassTimeSlot,
+  type ClassTrack,
 } from "./types";
 
 export const CLASSES_COLLECTION = "classes";
@@ -177,10 +178,15 @@ export const normalizeClass = (id: string, data: DocumentData = {}): ClassDoc =>
   // New: fee type, term fields, payment options, EMI split, time slots.
   // Legacy docs (no feeType) read as "monthly" with autopay+manual enabled.
   feeType: data.feeType === "term" ? "term" : "monthly",
+  // Track capabilities — fall back to feeType so existing single-type classes
+  // keep behaving exactly as before.
+  offersMonthly: data.offersMonthly != null ? data.offersMonthly === true : data.feeType !== "term",
+  offersTerm: data.offersTerm != null ? data.offersTerm === true : data.feeType === "term",
   termFeeInPaise: data.termFeeInPaise != null ? Math.max(0, Math.round(toNumber(data.termFeeInPaise))) : undefined,
   startDate: typeof data.startDate === "string" ? data.startDate : "",
   endDate: typeof data.endDate === "string" ? data.endDate : "",
   durationMonths: data.durationMonths != null ? Math.max(0, Math.round(toNumber(data.durationMonths))) : undefined,
+  termFreeMonthsOnFullPayment: data.termFreeMonthsOnFullPayment != null ? Math.max(0, Math.round(toNumber(data.termFreeMonthsOnFullPayment))) : undefined,
   payment: data.payment ? normalizePaymentOptions(data.payment) : { ...DEFAULT_CLASS_PAYMENT_OPTIONS },
   emi: normalizeEmiConfig(data.emi),
   timeSlots: Array.isArray(data.timeSlots)
@@ -190,24 +196,107 @@ export const normalizeClass = (id: string, data: DocumentData = {}): ClassDoc =>
   updatedAt: data.updatedAt,
 });
 
-type ClassFeeShape = { monthlyFeeInPaise?: number; feeType?: ClassFeeType; termFeeInPaise?: number; autopayDiscountInPaise?: number };
-
-/** The headline price label: "₹2,500 / month" (monthly) or "₹30,000 · term" (term). */
-export const getClassFeeLabel = (classDoc: ClassFeeShape): string => {
-  if (classDoc.feeType === "term") {
-    return (classDoc.termFeeInPaise || 0) > 0
-      ? `${formatPaiseAsRupees(classDoc.termFeeInPaise || 0)} · full course`
-      : "Fee to be updated";
-  }
-  return (classDoc.monthlyFeeInPaise || 0) > 0
-    ? `${formatPaiseAsRupees(classDoc.monthlyFeeInPaise || 0)} / month`
-    : "Fee to be updated";
+type ClassTrackShape = {
+  feeType?: ClassFeeType;
+  offersMonthly?: boolean;
+  offersTerm?: boolean;
 };
 
-/** The effective fee amount in paise for a class, regardless of type. */
-export const getClassFeeInPaise = (classDoc: ClassFeeShape): number => (
-  classDoc.feeType === "term" ? classDoc.termFeeInPaise || 0 : classDoc.monthlyFeeInPaise || 0
-);
+/** Which tracks does this class expose? Falls back to feeType for legacy docs. */
+export const classOffersMonthly = (classDoc: ClassTrackShape): boolean =>
+  classDoc.offersMonthly != null ? classDoc.offersMonthly : classDoc.feeType !== "term";
+
+export const classOffersTerm = (classDoc: ClassTrackShape): boolean =>
+  classDoc.offersTerm != null ? classDoc.offersTerm : classDoc.feeType === "term";
+
+export const classOffersBoth = (classDoc: ClassTrackShape): boolean =>
+  classOffersMonthly(classDoc) && classOffersTerm(classDoc);
+
+/** The tracks a parent may choose, in display order (monthly first). */
+export const classTracks = (classDoc: ClassTrackShape): ClassTrack[] => ([
+  classOffersMonthly(classDoc) ? "monthly" : null,
+  classOffersTerm(classDoc) ? "term" : null,
+] as (ClassTrack | null)[]).filter(Boolean) as ClassTrack[];
+
+type ClassFeeShape = ClassTrackShape & { monthlyFeeInPaise?: number; termFeeInPaise?: number; autopayDiscountInPaise?: number };
+
+const monthlyFeeLabel = (classDoc: ClassFeeShape) =>
+  (classDoc.monthlyFeeInPaise || 0) > 0 ? `${formatPaiseAsRupees(classDoc.monthlyFeeInPaise || 0)} / month` : "Fee to be updated";
+
+const termFeeLabel = (classDoc: ClassFeeShape) =>
+  (classDoc.termFeeInPaise || 0) > 0 ? `${formatPaiseAsRupees(classDoc.termFeeInPaise || 0)} · full course` : "Fee to be updated";
+
+/**
+ * The headline price label. For a both-track class it shows both prices
+ * ("₹2,000 / month · ₹8,000 course"); otherwise just the relevant one.
+ */
+export const getClassFeeLabel = (classDoc: ClassFeeShape): string => {
+  const monthly = classOffersMonthly(classDoc);
+  const term = classOffersTerm(classDoc);
+  if (monthly && term) {
+    return `${monthlyFeeLabel(classDoc)} · ${termFeeLabel(classDoc)}`;
+  }
+  return term ? termFeeLabel(classDoc) : monthlyFeeLabel(classDoc);
+};
+
+/** Price label for a single chosen track. */
+export const getTrackFeeLabel = (classDoc: ClassFeeShape, track: ClassTrack): string =>
+  track === "term" ? termFeeLabel(classDoc) : monthlyFeeLabel(classDoc);
+
+/** The effective fee amount in paise for a given track (defaults to primary feeType). */
+export const getClassFeeInPaise = (classDoc: ClassFeeShape, track?: ClassTrack): number => {
+  const resolved: ClassTrack = track || (classDoc.feeType === "term" ? "term" : "monthly");
+  return resolved === "term" ? classDoc.termFeeInPaise || 0 : classDoc.monthlyFeeInPaise || 0;
+};
+
+// --- Term pay-full offer (N months free when paying the whole fee upfront) ---
+
+type TermOfferShape = {
+  termFeeInPaise?: number;
+  durationMonths?: number;
+  startDate?: string;
+  endDate?: string;
+  termFreeMonthsOnFullPayment?: number;
+};
+
+const termDurationMonths = (classDoc: TermOfferShape): number => {
+  const stored = Math.max(0, Math.round(Number(classDoc.durationMonths || 0)));
+  return stored > 0 ? stored : monthsBetween(classDoc.startDate, classDoc.endDate);
+};
+
+/** Whole free months granted on full payment (clamped to < duration). */
+export const getTermFreeMonths = (classDoc: TermOfferShape): number => {
+  const freeMonths = Math.max(0, Math.round(Number(classDoc.termFreeMonthsOnFullPayment || 0)));
+  const duration = termDurationMonths(classDoc);
+  if (freeMonths <= 0 || duration <= 0) return 0;
+  // Never give away the whole course; cap at duration - 1.
+  return Math.min(freeMonths, Math.max(0, duration - 1));
+};
+
+/** The ₹ discount (paise) applied to a full payment from the free-months offer. */
+export const getTermPayFullDiscountInPaise = (classDoc: TermOfferShape): number => {
+  const freeMonths = getTermFreeMonths(classDoc);
+  const duration = termDurationMonths(classDoc);
+  const termFee = Math.max(0, Math.round(Number(classDoc.termFeeInPaise || 0)));
+  if (freeMonths <= 0 || duration <= 0 || termFee <= 0) return 0;
+  return Math.round((termFee / duration) * freeMonths);
+};
+
+/** The full-payment price after the offer (clamped ≥ ₹1). */
+export const getTermPayFullPriceInPaise = (classDoc: TermOfferShape): number => {
+  const termFee = Math.max(0, Math.round(Number(classDoc.termFeeInPaise || 0)));
+  const discount = getTermPayFullDiscountInPaise(classDoc);
+  return discount > 0 ? Math.max(100, termFee - discount) : termFee;
+};
+
+export const hasTermPayFullOffer = (classDoc: TermOfferShape): boolean => getTermPayFullDiscountInPaise(classDoc) > 0;
+
+/** A short marketing label for the offer, e.g. "Pay full & get 1 month free". */
+export const getTermPayFullOfferLabel = (classDoc: TermOfferShape): string => {
+  const freeMonths = getTermFreeMonths(classDoc);
+  if (freeMonths <= 0) return "";
+  return `Pay full & get ${freeMonths} month${freeMonths > 1 ? "s" : ""} free`;
+};
 
 /** The monthly fee in paise after autopay discount (clamped ≥ 100 paise i.e. ₹1). */
 export const getAutopayFeeInPaise = (classDoc: ClassFeeShape): number => {
@@ -230,12 +319,13 @@ export const isClassEnrollable = (
   classDoc: { active?: boolean } & ClassFeeShape,
 ): boolean => Boolean(classDoc.active) && getClassFeeInPaise(classDoc) > 0;
 
-/** Which payment rails a parent may actually use for this class. */
-export const getEnabledPaymentMethods = (
-  classDoc: { feeType?: ClassFeeType; payment?: ClassPaymentOptions },
+/** Which payment rails a parent may use for a specific track of this class. */
+export const getPaymentMethodsForTrack = (
+  classDoc: { payment?: ClassPaymentOptions },
+  track: ClassTrack,
 ): ClassPaymentMethod[] => {
   const payment = classDoc.payment || DEFAULT_CLASS_PAYMENT_OPTIONS;
-  if (classDoc.feeType === "term") {
+  if (track === "term") {
     return ([
       payment.full ? "full" : null,
       payment.emi ? "emi" : null,
@@ -246,6 +336,18 @@ export const getEnabledPaymentMethods = (
     payment.manual ? "manual" : null,
     payment.cash ? "cash" : null,
   ].filter(Boolean) as ClassPaymentMethod[]);
+};
+
+/**
+ * Which payment rails a parent may use for this class, for the primary/default
+ * track. Kept for callers that don't drive a track choice; track-aware screens
+ * should use {@link getPaymentMethodsForTrack}.
+ */
+export const getEnabledPaymentMethods = (
+  classDoc: { feeType?: ClassFeeType; offersMonthly?: boolean; offersTerm?: boolean; payment?: ClassPaymentOptions },
+): ClassPaymentMethod[] => {
+  const tracks = classTracks(classDoc);
+  return tracks.flatMap((track) => getPaymentMethodsForTrack(classDoc, track));
 };
 
 /** Live subscription to every class (admin). Returns the unsubscribe fn. */
@@ -296,9 +398,12 @@ export interface ClassWritePayload {
   seatsTotal?: number;
   // New fields
   feeType?: ClassFeeType;
+  offersMonthly?: boolean;
+  offersTerm?: boolean;
   termFeeInPaise?: number;
   startDate?: string;
   endDate?: string;
+  termFreeMonthsOnFullPayment?: number;
   payment?: ClassPaymentOptions;
   emi?: ClassEmiConfig | null;
   timeSlots?: ClassTimeSlot[];
@@ -325,11 +430,21 @@ const buildClassPayload = (payload: ClassWritePayload) => {
   const ageFrom = payload.ageFrom != null && Number.isFinite(payload.ageFrom) ? Math.max(0, Math.round(payload.ageFrom)) : null;
   const ageTo = payload.ageTo != null && Number.isFinite(payload.ageTo) ? Math.max(0, Math.round(payload.ageTo)) : null;
 
-  const feeType: ClassFeeType = payload.feeType === "term" ? "term" : "monthly";
+  // Track capabilities — a class may offer monthly, term, or both.
+  const offersMonthly = payload.offersMonthly ?? (payload.feeType !== "term");
+  const offersTerm = payload.offersTerm ?? (payload.feeType === "term");
+  // Primary/headline track: monthly takes precedence when both are on.
+  const feeType: ClassFeeType = offersMonthly ? "monthly" : "term";
   const startDate = (payload.startDate || "").trim();
   const endDate = (payload.endDate || "").trim();
+  const durationMonths = offersTerm ? monthsBetween(startDate, endDate) : 0;
   const timeSlots = (payload.timeSlots || []).map(sanitizeTimeSlot);
   const payment = payload.payment || DEFAULT_CLASS_PAYMENT_OPTIONS;
+  // Clamp the pay-full free-months offer to a valid range (< duration).
+  const freeMonthsRaw = Math.max(0, Math.round(Number(payload.termFreeMonthsOnFullPayment || 0)));
+  const termFreeMonthsOnFullPayment = offersTerm && durationMonths > 0
+    ? Math.min(freeMonthsRaw, Math.max(0, durationMonths - 1))
+    : 0;
 
   // Display schedule string: prefer an explicit day/time (legacy), else derive
   // from the time slots so public cards still show a schedule.
@@ -352,7 +467,7 @@ const buildClassPayload = (payload: ClassWritePayload) => {
     ageTo,
     ageGroup: composeAgeGroup(ageFrom ?? undefined, ageTo ?? undefined),
     monthlyFeeInPaise: Math.max(0, Math.round(payload.monthlyFeeInPaise)),
-    autopayDiscountInPaise: feeType === "monthly" && payload.autopayDiscountInPaise
+    autopayDiscountInPaise: offersMonthly && payload.autopayDiscountInPaise
       ? Math.min(Math.max(0, Math.round(payload.autopayDiscountInPaise)), Math.max(0, Math.round(payload.monthlyFeeInPaise)) - 100)
       : null,
     billingDayOfMonth: clampBillingDay(payload.billingDayOfMonth),
@@ -360,10 +475,13 @@ const buildClassPayload = (payload: ClassWritePayload) => {
     seatsTotal: payload.seatsTotal != null ? Math.max(0, Math.round(payload.seatsTotal)) : null,
     // New persisted fields.
     feeType,
-    termFeeInPaise: feeType === "term" ? Math.max(0, Math.round(payload.termFeeInPaise || 0)) : null,
-    startDate: feeType === "term" ? startDate : "",
-    endDate: feeType === "term" ? endDate : "",
-    durationMonths: feeType === "term" ? monthsBetween(startDate, endDate) : null,
+    offersMonthly,
+    offersTerm,
+    termFeeInPaise: offersTerm ? Math.max(0, Math.round(payload.termFeeInPaise || 0)) : null,
+    startDate: offersTerm ? startDate : "",
+    endDate: offersTerm ? endDate : "",
+    durationMonths: offersTerm ? durationMonths : null,
+    termFreeMonthsOnFullPayment,
     payment: {
       autopay: payment.autopay === true,
       manual: payment.manual === true,

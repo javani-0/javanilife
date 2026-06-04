@@ -55,6 +55,26 @@ export const dueDateFor = (monthKey: string, billingDay: number): string => {
 
 export const buildFeePaymentId = (enrollmentId: string, monthKey: string): string => `${enrollmentId}_${monthKey}`;
 
+/**
+ * The full-payment amount (paise) for a term course after its pay-full offer
+ * (N free months). Mirrors the client helper in src/lib/classes/classes.ts —
+ * keep the two in sync. Returns the plain term fee when there is no offer.
+ */
+export const termPayFullAmountInPaise = (classData: {
+  termFeeInPaise?: number;
+  durationMonths?: number;
+  termFreeMonthsOnFullPayment?: number;
+}): number => {
+  const termFee = Math.max(0, Math.round(Number(classData.termFeeInPaise || 0)));
+  const duration = Math.max(0, Math.round(Number(classData.durationMonths || 0)));
+  const freeMonthsRaw = Math.max(0, Math.round(Number(classData.termFreeMonthsOnFullPayment || 0)));
+  // Never give away the whole course; cap at duration - 1.
+  const freeMonths = duration > 0 ? Math.min(freeMonthsRaw, Math.max(0, duration - 1)) : 0;
+  if (termFee <= 0 || duration <= 0 || freeMonths <= 0) return termFee;
+  const discount = Math.round((termFee / duration) * freeMonths);
+  return Math.max(100, termFee - discount);
+};
+
 const toUtcMidnight = (dateKey: string): Date | null => {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateKey || "");
   if (!match) return null;

@@ -14,6 +14,7 @@ import { formatPaiseAsRupees } from "@/lib/ecommerce";
 import {
   AUTOPAY_AFA_CAP_IN_PAISE,
   buildClassEmiPlan,
+  classTracks,
   confirmSubscription,
   createEnrollment,
   createSubscription,
@@ -24,13 +25,18 @@ import {
   getClass,
   getClassFeeInPaise,
   getClassFeeLabel,
-  getEnabledPaymentMethods,
+  getPaymentMethodsForTrack,
+  getTermPayFullOfferLabel,
+  getTermPayFullPriceInPaise,
+  getTrackFeeLabel,
   hasAutopayDiscount,
+  hasTermPayFullOffer,
   openSubscriptionCheckout,
   payFeeNow,
   type ClassDoc,
   type ClassPaymentMethod,
   type ClassTimeSlot,
+  type ClassTrack,
 } from "@/lib/classes";
 import heroTemple from "@/assets/hero-temple.jpg";
 
@@ -72,19 +78,31 @@ const ClassDetail = () => {
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<ClassPaymentMethod | null>(null);
+  const [track, setTrack] = useState<ClassTrack | null>(null);
   const [selectedSlotId, setSelectedSlotId] = useState<string>("");
   const [submitting, setSubmitting] = useState(false);
 
-  const enabledMethods = useMemo(() => (classDoc ? getEnabledPaymentMethods(classDoc) : []), [classDoc]);
+  const availableTracks = useMemo(() => (classDoc ? classTracks(classDoc) : []), [classDoc]);
+  // The active track: the parent's choice, or the only available one.
+  const activeTrack: ClassTrack | null = track && availableTracks.includes(track) ? track : availableTracks[0] || null;
+  const enabledMethods = useMemo(
+    () => (classDoc && activeTrack ? getPaymentMethodsForTrack(classDoc, activeTrack) : []),
+    [classDoc, activeTrack],
+  );
   const slots = useMemo(() => classDoc?.timeSlots || [], [classDoc]);
-  const isTerm = classDoc?.feeType === "term";
+  const isTerm = activeTrack === "term";
   const emiConfig = classDoc?.emi || DEFAULT_CLASS_EMI_CONFIG;
   const emiPlan = useMemo(
-    () => (classDoc && isTerm ? buildClassEmiPlan(getClassFeeInPaise(classDoc), emiConfig) : null),
+    () => (classDoc && isTerm ? buildClassEmiPlan(getClassFeeInPaise(classDoc, "term"), emiConfig) : null),
     [classDoc, isTerm, emiConfig],
   );
 
-  // Default the payment method to the first enabled one once the class loads.
+  // Default the track to the first available once the class loads.
+  useEffect(() => {
+    if (availableTracks.length > 0) setTrack((current) => (current && availableTracks.includes(current) ? current : availableTracks[0]));
+  }, [availableTracks]);
+
+  // Default the payment method to the first enabled one for the active track.
   useEffect(() => {
     if (enabledMethods.length > 0) setPaymentMethod((current) => (current && enabledMethods.includes(current) ? current : enabledMethods[0]));
   }, [enabledMethods]);
@@ -154,7 +172,7 @@ const ClassDetail = () => {
     setSubmitting(true);
     let enrollmentId: string | undefined;
     try {
-      const installmentPlan = method === "emi" ? buildClassEmiPlan(getClassFeeInPaise(classDoc), emiConfig) : undefined;
+      const installmentPlan = method === "emi" ? buildClassEmiPlan(getClassFeeInPaise(classDoc, "term"), emiConfig) : undefined;
 
       const enrollmentMonthlyFee = method === "autopay" && classDoc && hasAutopayDiscount(classDoc)
         ? getAutopayFeeInPaise(classDoc)
@@ -177,7 +195,7 @@ const ClassDetail = () => {
         paymentPlan: method,
         slotId: chosenSlot?.id,
         slotLabel: chosenSlot?.label,
-        feeType: classDoc.feeType,
+        feeType: isTerm ? "term" : "monthly",
         termFeeInPaise: isTerm ? classDoc.termFeeInPaise : undefined,
         emi: method === "emi" ? emiConfig : undefined,
         installmentPlan,
@@ -366,6 +384,34 @@ const ClassDetail = () => {
                 </>
               )}
 
+              {/* Track selector — only when the class offers both monthly + term */}
+              {availableTracks.length > 1 && (
+                <>
+                  <h3 className="mt-7 font-display text-lg text-foreground">Choose your plan</h3>
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                    {availableTracks.map((option) => {
+                      const active = activeTrack === option;
+                      const isTermOption = option === "term";
+                      return (
+                        <button type="button" key={option} onClick={() => setTrack(option)} className={`flex flex-col gap-1 rounded-xl border p-4 text-left transition-colors ${active ? "border-gold bg-gold/10" : "border-border hover:border-gold/40"}`}>
+                          <span className="flex items-center gap-2 font-body font-semibold text-foreground">
+                            {isTermOption ? <CalendarDays className="h-4 w-4 text-gold" /> : <Repeat className="h-4 w-4 text-gold" />}
+                            {isTermOption ? "Term course" : "Monthly"}
+                          </span>
+                          <span className="font-display text-base font-bold text-primary">{getTrackFeeLabel(classDoc, option)}</span>
+                          <span className="font-body text-[0.74rem] text-muted-foreground">
+                            {isTermOption ? "Pay once for the whole course (or by EMI)." : "Pay every month — autopay or manual."}
+                          </span>
+                          {isTermOption && hasTermPayFullOffer(classDoc) && (
+                            <span className="mt-0.5 inline-block rounded-full bg-green-100 px-2 py-0.5 font-body text-[0.66rem] font-semibold text-green-700">🎁 {getTermPayFullOfferLabel(classDoc)}</span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
+
               {/* Payment method */}
               <h3 className="mt-7 font-display text-lg text-foreground">How would you like to pay?</h3>
               {enabledMethods.length === 0 ? (
@@ -398,6 +444,18 @@ const ClassDetail = () => {
                     <span className="font-display text-lg font-bold text-green-700">{getAutopayFeeLabel(classDoc)}</span>
                   </div>
                   <p className="mt-1 font-body text-[0.72rem] text-green-700">You save ₹{((classDoc.autopayDiscountInPaise || 0) / 100).toLocaleString("en-IN")} every month with autopay.</p>
+                </div>
+              )}
+
+              {/* Pay-full offer banner */}
+              {paymentMethod === "full" && classDoc && hasTermPayFullOffer(classDoc) && (
+                <div className="mt-3 rounded-xl border border-green-200 bg-green-50 p-4">
+                  <p className="font-body text-[0.82rem] font-semibold text-green-800">🎁 {getTermPayFullOfferLabel(classDoc)}!</p>
+                  <div className="mt-1 flex items-baseline gap-2">
+                    <span className="font-body text-[0.78rem] text-muted-foreground line-through">{formatPaiseAsRupees(classDoc.termFeeInPaise || 0)}</span>
+                    <span className="font-display text-lg font-bold text-green-700">{formatPaiseAsRupees(getTermPayFullPriceInPaise(classDoc))}</span>
+                  </div>
+                  <p className="mt-1 font-body text-[0.72rem] text-green-700">You save ₹{(((classDoc.termFeeInPaise || 0) - getTermPayFullPriceInPaise(classDoc)) / 100).toLocaleString("en-IN")} when you pay the full course fee now.</p>
                 </div>
               )}
 
@@ -455,12 +513,19 @@ const ClassDetail = () => {
               </div>
               <div className="mt-4 rounded-xl bg-gold/10 p-4">
                 <p className="font-body text-xs uppercase tracking-wider text-muted-foreground">{isTerm ? "Course fee" : "Monthly fee"}</p>
-                <p className="font-display text-2xl font-bold text-primary">{getClassFeeLabel(classDoc)}</p>
-                {hasAutopayDiscount(classDoc) && (
+                <p className="font-display text-2xl font-bold text-primary">{activeTrack ? getTrackFeeLabel(classDoc, activeTrack) : getClassFeeLabel(classDoc)}</p>
+                {!isTerm && hasAutopayDiscount(classDoc) && (
                   <div className="mt-2 rounded-lg bg-green-100/70 px-3 py-2">
                     <p className="font-body text-xs uppercase tracking-wider text-green-800">With Autopay</p>
                     <p className="font-display text-lg font-bold text-green-700">{getAutopayFeeLabel(classDoc)}</p>
                     <p className="font-body text-[0.7rem] text-green-700">Save ₹{((classDoc.autopayDiscountInPaise || 0) / 100).toLocaleString("en-IN")}/mo</p>
+                  </div>
+                )}
+                {isTerm && hasTermPayFullOffer(classDoc) && (
+                  <div className="mt-2 rounded-lg bg-green-100/70 px-3 py-2">
+                    <p className="font-body text-xs uppercase tracking-wider text-green-800">Pay full</p>
+                    <p className="font-display text-lg font-bold text-green-700">{formatPaiseAsRupees(getTermPayFullPriceInPaise(classDoc))}</p>
+                    <p className="font-body text-[0.7rem] text-green-700">{getTermPayFullOfferLabel(classDoc)}</p>
                   </div>
                 )}
               </div>

@@ -5,7 +5,7 @@ import Footer from "@/components/Footer";
 import PageHero from "@/components/PageHero";
 import SEO from "@/components/SEO";
 import ShareButton from "@/components/ShareButton";
-import { getAutopayFeeLabel, getClassFeeLabel, hasAutopayDiscount, isClassEnrollable, subscribeToActiveClasses, type ClassDoc } from "@/lib/classes";
+import { getAutopayFeeLabel, getClassFeeLabel, getTermPayFullOfferLabel, hasAutopayDiscount, hasTermPayFullOffer, isClassEnrollable, subscribeToActiveClasses, type ClassDoc } from "@/lib/classes";
 import heroDancer1 from "@/assets/hero-dancer-1.jpg";
 import heroDancer2 from "@/assets/hero-dancer-2.jpg";
 import heroDancer3 from "@/assets/hero-dancer-3.jpg";
@@ -55,6 +55,11 @@ const ClassCard = ({ classDoc }: { classDoc: ClassDoc }) => (
         <p className="mt-1 flex items-center gap-1 font-body text-[0.78rem] text-green-700">
           <span className="inline-block h-1.5 w-1.5 rounded-full bg-green-500" />
           Autopay: <span className="font-semibold">{getAutopayFeeLabel(classDoc)}</span>
+        </p>
+      )}
+      {hasTermPayFullOffer(classDoc) && (
+        <p className="mt-1 flex items-center gap-1 font-body text-[0.78rem] font-semibold text-green-700">
+          🎁 {getTermPayFullOfferLabel(classDoc)}
         </p>
       )}
       <div className="mt-auto pt-4">

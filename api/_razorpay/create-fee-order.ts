@@ -1,8 +1,9 @@
 import { getFirebaseAdminAuth, getFirebaseAdminDb, FieldValue } from "../_lib/firebase-admin.js";
 import { getBearerToken, readJsonBody, requirePost, sendError, sendJson, type ApiRequest, type ApiResponse } from "../_lib/http.js";
 import { createRazorpayClient, getRazorpayCredentials, getRazorpayCurrency } from "../_lib/razorpay.js";
-import { monthKeyFor } from "../_lib/class-fees.js";
+import { monthKeyFor, termPayFullAmountInPaise } from "../_lib/class-fees.js";
 import {
+  CLASSES_COLLECTION,
   countSlotSeatOnce,
   ensureCustomFeePayment,
   ensureFeePayment,
@@ -66,9 +67,19 @@ export default async function handler(request: ApiRequest, response: ApiResponse
         // Term course: bill the full fee or a specific EMI installment.
         const kind = body.kind === "emi" ? "emi" : "full";
         if (kind === "full") {
+          // Default to the stored term fee, then apply the pay-full offer using
+          // the authoritative class doc (server-computed — never trust client).
+          let fullAmountInPaise = Math.max(0, Math.round(Number(enrollment.termFeeInPaise || 0)));
+          if (enrollment.classId) {
+            const classSnapshot = await db.collection(CLASSES_COLLECTION).doc(enrollment.classId).get();
+            if (classSnapshot.exists) {
+              const discounted = termPayFullAmountInPaise(classSnapshot.data() || {});
+              if (discounted > 0) fullAmountInPaise = discounted;
+            }
+          }
           const { id } = await ensureCustomFeePayment(db, enrollment, {
             suffix: "full",
-            amountInPaise: Math.max(0, Math.round(Number(enrollment.termFeeInPaise || 0))),
+            amountInPaise: fullAmountInPaise,
             periodLabel: "Full course fee",
             dueDate: monthKeyFor(new Date()) + "-01",
           });
