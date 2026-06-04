@@ -1,5 +1,6 @@
 import {
   collection,
+  deleteDoc,
   doc,
   getDocs,
   onSnapshot,
@@ -127,6 +128,11 @@ export const waiveFee = async (feeId: string, adminNote?: string): Promise<void>
     ...(adminNote ? { adminNote } : {}),
     updatedAt: serverTimestamp(),
   });
+};
+
+/** Admin: delete a fee record. */
+export const deleteFee = async (feeId: string): Promise<void> => {
+  await deleteDoc(doc(db, FEE_PAYMENTS_COLLECTION, feeId));
 };
 
 export interface FeeTotals {

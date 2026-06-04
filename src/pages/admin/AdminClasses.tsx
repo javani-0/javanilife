@@ -58,6 +58,7 @@ interface ClassFormState {
   payManual: boolean;
   payFull: boolean;
   payEmi: boolean;
+  payCash: boolean;
   emiUpfront: string;        // "50"
   emiInstallments: string;   // "25, 25"
   timeSlots: SlotFormState[];
@@ -86,6 +87,7 @@ const defaultForm: ClassFormState = {
   payManual: true,
   payFull: true,
   payEmi: true,
+  payCash: false,
   emiUpfront: String(DEFAULT_CLASS_EMI_CONFIG.upfrontPercentage),
   emiInstallments: DEFAULT_CLASS_EMI_CONFIG.installmentPercentages.join(", "),
   timeSlots: [],
@@ -202,6 +204,7 @@ const AdminClasses = () => {
       payManual: classDoc.payment?.manual ?? true,
       payFull: classDoc.payment?.full ?? true,
       payEmi: classDoc.payment?.emi ?? false,
+      payCash: classDoc.payment?.cash ?? false,
       emiUpfront: String(classDoc.emi?.upfrontPercentage ?? DEFAULT_CLASS_EMI_CONFIG.upfrontPercentage),
       emiInstallments: (classDoc.emi?.installmentPercentages ?? DEFAULT_CLASS_EMI_CONFIG.installmentPercentages).join(", "),
       timeSlots: (classDoc.timeSlots || []).map((slot) => ({
@@ -264,8 +267,8 @@ const AdminClasses = () => {
         toast({ title: "Monthly fee required", description: "Enter a valid monthly fee.", variant: "destructive" });
         return;
       }
-      if (!form.payAutopay && !form.payManual) {
-        toast({ title: "Select a payment option", description: "Enable Autopay and/or Pay monthly for this class.", variant: "destructive" });
+      if (!form.payAutopay && !form.payManual && !form.payCash) {
+        toast({ title: "Select a payment option", description: "Enable Autopay, Pay monthly, and/or Cash for this class.", variant: "destructive" });
         return;
       }
     }
@@ -310,8 +313,8 @@ const AdminClasses = () => {
         startDate: form.startDate,
         endDate: form.endDate,
         payment: isTerm
-          ? { autopay: false, manual: false, full: form.payFull, emi: form.payEmi }
-          : { autopay: form.payAutopay, manual: form.payManual, full: false, emi: false },
+          ? { autopay: false, manual: false, full: form.payFull, emi: form.payEmi, cash: false }
+          : { autopay: form.payAutopay, manual: form.payManual, full: false, emi: false, cash: form.payCash },
         emi: isTerm && form.payEmi ? emiParsed.config : null,
         timeSlots,
       });
@@ -383,7 +386,7 @@ const AdminClasses = () => {
                     : <p>📅 Billed on day {classDoc.billingDayOfMonth} each month</p>}
                   <p>💳 {(classDoc.feeType === "term"
                     ? [classDoc.payment?.full && "Pay Full", classDoc.payment?.emi && "EMI"]
-                    : [classDoc.payment?.autopay && "Autopay", classDoc.payment?.manual && "Pay monthly"]
+                    : [classDoc.payment?.autopay && "Autopay", classDoc.payment?.manual && "Pay monthly", classDoc.payment?.cash && "Cash"]
                   ).filter(Boolean).join(" · ") || "No payment options"}</p>
                 </div>
                 <p className="font-display text-[1.05rem] font-bold text-primary mb-1">{getClassFeeLabel(classDoc)}</p>
@@ -484,6 +487,12 @@ const AdminClasses = () => {
                       <label className={`flex flex-1 cursor-pointer items-start gap-2 rounded-md border p-3 font-body text-[0.8rem] ${form.payManual ? "border-gold bg-gold/5" : "border-border"}`}>
                         <input type="checkbox" className="mt-0.5" checked={form.payManual} onChange={(event) => setForm({ ...form, payManual: event.target.checked })} />
                         <span><span className="font-semibold text-foreground">Pay monthly</span><br /><span className="text-muted-foreground">Parent pays each month manually.</span></span>
+                      </label>
+                    </div>
+                    <div className="flex flex-col gap-2 sm:flex-row">
+                      <label className={`flex flex-1 cursor-pointer items-start gap-2 rounded-md border p-3 font-body text-[0.8rem] ${form.payCash ? "border-gold bg-gold/5" : "border-border"}`}>
+                        <input type="checkbox" className="mt-0.5" checked={form.payCash} onChange={(event) => setForm({ ...form, payCash: event.target.checked })} />
+                        <span><span className="font-semibold text-foreground">Cash</span><br /><span className="text-muted-foreground">Parent pays cash, admin collects offline.</span></span>
                       </label>
                     </div>
                   </div>

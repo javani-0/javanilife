@@ -118,6 +118,7 @@ const normalizePaymentOptions = (raw: unknown): ClassPaymentOptions => {
     manual: data.manual === true,
     full: data.full === true,
     emi: data.emi === true,
+    cash: data.cash === true,
   };
 };
 
@@ -243,6 +244,7 @@ export const getEnabledPaymentMethods = (
   return ([
     payment.autopay ? "autopay" : null,
     payment.manual ? "manual" : null,
+    payment.cash ? "cash" : null,
   ].filter(Boolean) as ClassPaymentMethod[]);
 };
 
@@ -367,6 +369,7 @@ const buildClassPayload = (payload: ClassWritePayload) => {
       manual: payment.manual === true,
       full: payment.full === true,
       emi: payment.emi === true,
+      cash: payment.cash === true,
     },
     emi: payload.emi ? {
       upfrontPercentage: payload.emi.upfrontPercentage,

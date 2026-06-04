@@ -18,7 +18,7 @@ export type ClassFeeType = "monthly" | "term";
 
 // The four payment rails a parent can use. Which appear is admin-controlled per
 // class and constrained by feeType (monthly → autopay/manual, term → full/emi).
-export type ClassPaymentMethod = "autopay" | "manual" | "full" | "emi";
+export type ClassPaymentMethod = "autopay" | "manual" | "full" | "emi" | "cash";
 
 // Admin toggles for which payment rails a class offers parents.
 export interface ClassPaymentOptions {
@@ -26,6 +26,7 @@ export interface ClassPaymentOptions {
   manual: boolean;  // monthly: pay each month yourself
   full: boolean;    // term: pay the whole term fee once
   emi: boolean;     // term: split the term fee into installments
+  cash: boolean;    // monthly: parent pays cash, admin collects offline
 }
 
 // Per-class EMI split. Mirrors EmiSettings (ecommerce) but scoped to one class.
@@ -50,6 +51,7 @@ export const DEFAULT_CLASS_PAYMENT_OPTIONS: ClassPaymentOptions = {
   manual: true,
   full: false,
   emi: false,
+  cash: false,
 };
 
 export const DEFAULT_CLASS_EMI_CONFIG: ClassEmiConfig = {

@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import { PauseCircle, PlayCircle, Search, UserCheck, X, XCircle, Trash2 } from "lucide-react";
+import { Banknote, PauseCircle, PlayCircle, Search, UserCheck, X, XCircle, Trash2, LayoutGrid, List } from "lucide-react";
+import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { formatPaiseAsRupees } from "@/lib/ecommerce";
 import {
   cancelEnrollment,
+  collectCashPayment,
   deleteEnrollment,
   ENROLLMENT_STATUS_LABELS,
   MANDATE_STATUS_LABELS,
@@ -23,11 +25,13 @@ const statusStyles: Record<EnrollmentStatus, string> = {
 };
 
 const AdminEnrollments = () => {
+  const { user } = useAuth();
   const { toast } = useToast();
   const [enrollments, setEnrollments] = useState<EnrollmentDoc[]>([]);
   const [search, setSearch] = useState("");
   const [classFilter, setClassFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState<"all" | EnrollmentStatus>("all");
+  const [view, setView] = useState<"table" | "grid">("grid");
   const [selected, setSelected] = useState<EnrollmentDoc | null>(null);
 
   useEffect(() => subscribeToEnrollmentsAdmin(setEnrollments, (error) => console.error("Unable to load enrollments", error)), []);
@@ -59,6 +63,19 @@ const AdminEnrollments = () => {
     }
   };
 
+  const handleCollectCash = async (enrollment: EnrollmentDoc) => {
+    if (!user) return;
+    if (!confirm(`Collect cash and activate enrolment for ${enrollment.student.name}? A WhatsApp confirmation will be sent to the parent.`)) return;
+    try {
+      const idToken = await user.getIdToken();
+      await collectCashPayment(idToken, enrollment.id);
+      toast({ title: "Cash collected", description: `${enrollment.student.name}'s enrolment is now active. WhatsApp sent to parent.` });
+    } catch (error) {
+      console.error("Cash collection failed", error);
+      toast({ title: "Cash collection failed", description: error instanceof Error ? error.message : undefined, variant: "destructive" });
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div>
@@ -80,6 +97,14 @@ const AdminEnrollments = () => {
           <option value="all">All statuses</option>
           {Object.entries(ENROLLMENT_STATUS_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
         </select>
+        <div className="flex h-10 items-center rounded-md border border-border bg-background p-1">
+          <button onClick={() => setView("table")} className={`rounded p-1.5 ${view === "table" ? "bg-muted text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`} title="Table View">
+            <List className="h-4 w-4" />
+          </button>
+          <button onClick={() => setView("grid")} className={`rounded p-1.5 ${view === "grid" ? "bg-muted text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`} title="Grid View">
+            <LayoutGrid className="h-4 w-4" />
+          </button>
+        </div>
       </div>
 
       {visible.length === 0 ? (
@@ -88,7 +113,7 @@ const AdminEnrollments = () => {
           <h3 className="font-display text-xl text-foreground">No enrollments found</h3>
           <p className="mt-1 font-body text-sm text-muted-foreground">Adjust filters or wait for parents to enrol.</p>
         </div>
-      ) : (
+      ) : view === "table" ? (
         <div className="overflow-hidden rounded-lg bg-card shadow-card">
           <div className="overflow-x-auto">
             <table className="w-full text-left">
@@ -121,6 +146,11 @@ const AdminEnrollments = () => {
                     <td className="px-4 py-3"><span className={`rounded-full px-2 py-1 font-body text-[0.7rem] ${statusStyles[enrollment.status]}`}>{ENROLLMENT_STATUS_LABELS[enrollment.status]}</span></td>
                     <td className="px-4 py-3" onClick={(event) => event.stopPropagation()}>
                       <div className="flex gap-1">
+                        {enrollment.status === "pending" && enrollment.paymentPlan === "cash" && (
+                          <button onClick={() => handleCollectCash(enrollment)} className="flex items-center gap-1 rounded border border-green-300 px-2 py-1 font-body text-[0.7rem] text-green-700 hover:bg-green-50" title="Collect Cash">
+                            <Banknote className="h-3.5 w-3.5" /> Cash
+                          </button>
+                        )}
                         {enrollment.status === "active" && (
                           <button onClick={() => runAction("Enrollment paused", () => pauseEnrollment(enrollment.id))} className="p-1.5 rounded text-muted-foreground hover:bg-muted hover:text-blue-600" title="Pause"><PauseCircle className="h-4 w-4" /></button>
                         )}
@@ -138,6 +168,68 @@ const AdminEnrollments = () => {
               </tbody>
             </table>
           </div>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {visible.map((enrollment) => (
+            <div key={enrollment.id} className="flex flex-col justify-between rounded-xl border border-border/60 bg-card p-5 shadow-card cursor-pointer hover:border-gold/30 transition-colors" onClick={() => setSelected(enrollment)}>
+              <div>
+                <div className="mb-2 flex items-start justify-between">
+                  <div>
+                    <h4 className="font-display text-lg font-semibold text-foreground">{enrollment.student.name}</h4>
+                    <p className="font-body text-xs text-muted-foreground">{enrollment.student.age} yrs · {enrollment.student.gender}</p>
+                  </div>
+                  <span className={`rounded-full px-2 py-1 font-body text-[0.7rem] ${statusStyles[enrollment.status]}`}>{ENROLLMENT_STATUS_LABELS[enrollment.status]}</span>
+                </div>
+                <div className="my-4 space-y-1 font-body text-[0.8rem]">
+                  <div className="flex justify-between border-b border-border/50 pb-1">
+                    <span className="text-muted-foreground">Class</span>
+                    <span className="font-medium text-foreground">{enrollment.className}</span>
+                  </div>
+                  <div className="flex justify-between border-b border-border/50 py-1">
+                    <span className="text-muted-foreground">Fee</span>
+                    <span className="font-display font-bold text-primary">{formatPaiseAsRupees(enrollment.monthlyFeeInPaise)}</span>
+                  </div>
+                  <div className="flex justify-between border-b border-border/50 py-1">
+                    <span className="text-muted-foreground">Parent</span>
+                    <span className="text-foreground text-right">{enrollment.parent.name}<br/><span className="text-[0.7rem] text-muted-foreground">{enrollment.parent.phone}</span></span>
+                  </div>
+                  <div className="flex justify-between pt-1">
+                    <span className="text-muted-foreground">Autopay</span>
+                    <span className="text-foreground">
+                      {enrollment.autopay.enabled ? "On" : "Off"}
+                      {enrollment.autopay.mandateStatus && <span className="ml-1 text-muted-foreground">({MANDATE_STATUS_LABELS[enrollment.autopay.mandateStatus]})</span>}
+                    </span>
+                  </div>
+                </div>
+              </div>
+              <div className="mt-4 flex flex-wrap gap-2" onClick={(event) => event.stopPropagation()}>
+                {enrollment.status === "pending" && enrollment.paymentPlan === "cash" && (
+                  <button onClick={() => handleCollectCash(enrollment)} className="flex flex-1 items-center justify-center gap-1 rounded border border-green-300 px-2 py-1.5 font-body text-[0.75rem] font-semibold text-green-700 hover:bg-green-50">
+                    <Banknote className="h-3.5 w-3.5" /> Cash
+                  </button>
+                )}
+                {enrollment.status === "active" && (
+                  <button onClick={() => runAction("Enrollment paused", () => pauseEnrollment(enrollment.id))} className="flex flex-1 items-center justify-center gap-1 rounded border border-border px-2 py-1.5 font-body text-[0.75rem] font-semibold text-muted-foreground hover:bg-muted hover:text-blue-600">
+                    <PauseCircle className="h-3.5 w-3.5" /> Pause
+                  </button>
+                )}
+                {enrollment.status === "paused" && (
+                  <button onClick={() => runAction("Enrollment resumed", () => resumeEnrollment(enrollment.id))} className="flex flex-1 items-center justify-center gap-1 rounded border border-border px-2 py-1.5 font-body text-[0.75rem] font-semibold text-muted-foreground hover:bg-muted hover:text-green-600">
+                    <PlayCircle className="h-3.5 w-3.5" /> Resume
+                  </button>
+                )}
+                {enrollment.status !== "cancelled" && (
+                  <button onClick={() => { if (confirm(`Cancel enrolment for ${enrollment.student.name}?`)) runAction("Enrollment cancelled", () => cancelEnrollment(enrollment.id)); }} className="flex flex-1 items-center justify-center gap-1 rounded border border-border px-2 py-1.5 font-body text-[0.75rem] font-semibold text-muted-foreground hover:bg-destructive/10 hover:text-destructive">
+                    <XCircle className="h-3.5 w-3.5" /> Cancel
+                  </button>
+                )}
+                <button onClick={() => { if (confirm(`Are you sure you want to completely delete the enrolment for ${enrollment.student.name}? This cannot be undone.`)) runAction("Enrollment deleted", () => deleteEnrollment(enrollment.id)); }} className="flex flex-1 items-center justify-center gap-1 rounded border border-border px-2 py-1.5 font-body text-[0.75rem] font-semibold text-muted-foreground hover:bg-destructive/10 hover:text-destructive">
+                  <Trash2 className="h-3.5 w-3.5" /> Delete
+                </button>
+              </div>
+            </div>
+          ))}
         </div>
       )}
 
@@ -160,6 +252,7 @@ const AdminEnrollments = () => {
                 ["WhatsApp", selected.parent.whatsappNumber || "—"],
                 ["Address", selected.parent.address || "—"],
                 ["Status", ENROLLMENT_STATUS_LABELS[selected.status]],
+                ["Payment Plan", selected.paymentPlan ? selected.paymentPlan.charAt(0).toUpperCase() + selected.paymentPlan.slice(1) : "—"],
                 ["Autopay", selected.autopay.enabled ? `On${selected.autopay.mandateStatus ? ` (${MANDATE_STATUS_LABELS[selected.autopay.mandateStatus]})` : ""}` : "Off"],
                 ["Next charge", selected.autopay.nextChargeAt || "—"],
                 ["Started", selected.startMonthKey || "—"],

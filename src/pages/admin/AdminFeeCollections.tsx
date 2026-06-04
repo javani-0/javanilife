@@ -1,13 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { BellRing, Banknote, Download, IndianRupee, Search, XCircle } from "lucide-react";
+import { BellRing, Banknote, Download, IndianRupee, Search, XCircle, Trash2, LayoutGrid, List } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { useScrollHighlight } from "@/hooks/useScrollHighlight";
 import { formatPaiseAsRupees } from "@/lib/ecommerce";
 import {
   deriveDisplayFeeStatus,
+  FEE_PAYMENT_METHOD_LABELS,
   FEE_STATUS_LABELS,
+  deleteFee,
   markFeeCash,
   monthKeyFor,
   notifyClassFee,
@@ -16,6 +18,7 @@ import {
   summarizeFees,
   waiveFee,
   type FeePaymentDoc,
+  type FeePaymentMethod,
   type FeeStatus,
 } from "@/lib/classes";
 
@@ -57,6 +60,8 @@ const AdminFeeCollections = () => {
   const [search, setSearch] = useState("");
   const [classFilter, setClassFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState<"all" | FeeStatus>("all");
+  const [methodFilter, setMethodFilter] = useState<"all" | FeePaymentMethod>("all");
+  const [view, setView] = useState<"table" | "grid">("grid");
   const [busyId, setBusyId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -80,11 +85,12 @@ const AdminFeeCollections = () => {
     return fees
       .filter((fee) => classFilter === "all" || fee.classId === classFilter)
       .filter((fee) => statusFilter === "all" || deriveDisplayFeeStatus(fee) === statusFilter)
+      .filter((fee) => methodFilter === "all" || fee.paymentMethod === methodFilter)
       .filter((fee) => !normalizedSearch || [fee.studentName, fee.parentName, fee.parentPhone, fee.className]
         .filter(Boolean)
         .some((value) => value.toLowerCase().includes(normalizedSearch)))
       .sort((a, b) => a.studentName.localeCompare(b.studentName));
-  }, [fees, classFilter, statusFilter, search]);
+  }, [fees, classFilter, statusFilter, methodFilter, search]);
 
   const runAction = async (label: string, feeId: string, action: () => Promise<void>) => {
     setBusyId(feeId);
@@ -172,6 +178,18 @@ const AdminFeeCollections = () => {
           <option value="all">All statuses</option>
           {Object.entries(FEE_STATUS_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
         </select>
+        <select value={methodFilter} onChange={(event) => setMethodFilter(event.target.value as typeof methodFilter)} className="h-10 rounded-md border border-border bg-background px-3 font-body text-sm outline-none focus:border-gold">
+          <option value="all">All methods</option>
+          {Object.entries(FEE_PAYMENT_METHOD_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+        </select>
+        <div className="flex h-10 items-center rounded-md border border-border bg-background p-1">
+          <button onClick={() => setView("table")} className={`rounded p-1.5 ${view === "table" ? "bg-muted text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`} title="Table View">
+            <List className="h-4 w-4" />
+          </button>
+          <button onClick={() => setView("grid")} className={`rounded p-1.5 ${view === "grid" ? "bg-muted text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`} title="Grid View">
+            <LayoutGrid className="h-4 w-4" />
+          </button>
+        </div>
       </div>
 
       {loading ? (
@@ -182,7 +200,7 @@ const AdminFeeCollections = () => {
           <h3 className="font-display text-xl text-foreground">No fee records for {periodLabel(monthKey)}</h3>
           <p className="mt-1 font-body text-sm text-muted-foreground">Fee rows appear once enrolments roll into this month (the daily cron creates them) or after a payment.</p>
         </div>
-      ) : (
+      ) : view === "table" ? (
         <div className="overflow-hidden rounded-lg bg-card shadow-card">
           <div className="overflow-x-auto">
             <table className="w-full text-left">
@@ -228,6 +246,9 @@ const AdminFeeCollections = () => {
                               <BellRing className="h-3.5 w-3.5" /> Remind
                             </button>
                           )}
+                          <button onClick={() => { if (confirm(`Are you sure you want to completely delete the fee record for ${fee.studentName}? This cannot be undone.`)) runAction("Fee record deleted", fee.id, () => deleteFee(fee.id)); }} disabled={busyId === fee.id} className="flex items-center gap-1 rounded border border-border px-2 py-1 font-body text-[0.7rem] text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50" title="Delete">
+                            <Trash2 className="h-3.5 w-3.5" /> Delete
+                          </button>
                         </div>
                       </td>
                     </tr>
@@ -236,6 +257,66 @@ const AdminFeeCollections = () => {
               </tbody>
             </table>
           </div>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {visible.map((fee) => {
+            const displayStatus = deriveDisplayFeeStatus(fee);
+            const settled = displayStatus === "paid" || displayStatus === "waived";
+            return (
+              <div key={fee.id} id={`fee-${fee.id}`} className="flex flex-col justify-between rounded-xl border border-border/60 bg-card p-5 shadow-card scroll-mt-28">
+                <div>
+                  <div className="mb-2 flex items-start justify-between">
+                    <div>
+                      <h4 className="font-display text-lg font-semibold text-foreground">{fee.studentName}</h4>
+                      <p className="font-body text-xs text-muted-foreground">{fee.className}</p>
+                    </div>
+                    <span className={`rounded-full px-2 py-1 font-body text-[0.7rem] ${statusStyles[displayStatus]}`}>{FEE_STATUS_LABELS[displayStatus]}</span>
+                  </div>
+                  <div className="my-4 space-y-1 font-body text-[0.8rem]">
+                    <div className="flex justify-between border-b border-border/50 pb-1">
+                      <span className="text-muted-foreground">Amount</span>
+                      <span className="font-display font-bold text-primary">{formatPaiseAsRupees(fee.amountInPaise)}</span>
+                    </div>
+                    <div className="flex justify-between border-b border-border/50 py-1">
+                      <span className="text-muted-foreground">Parent</span>
+                      <span className="text-foreground text-right">{fee.parentName}<br/><span className="text-[0.7rem] text-muted-foreground">{fee.parentPhone}</span></span>
+                    </div>
+                    <div className="flex justify-between border-b border-border/50 py-1">
+                      <span className="text-muted-foreground">Method</span>
+                      <span className="capitalize text-foreground">{fee.paymentMethod || "—"}</span>
+                    </div>
+                    {fee.paidAt && (
+                      <div className="flex justify-between pt-1">
+                        <span className="text-muted-foreground">Paid On</span>
+                        <span className="text-foreground">{formatTimestamp(fee.paidAt)}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {!settled && (
+                    <button onClick={() => runAction("Marked as cash paid", fee.id, () => markFeeCash(fee.id))} disabled={busyId === fee.id} className="flex flex-1 items-center justify-center gap-1 rounded border border-green-300 px-2 py-1.5 font-body text-[0.75rem] font-semibold text-green-700 hover:bg-green-50 disabled:opacity-50">
+                      <Banknote className="h-3.5 w-3.5" /> Cash
+                    </button>
+                  )}
+                  {!settled && (
+                    <button onClick={() => { if (confirm(`Waive ${fee.periodLabel} for ${fee.studentName}?`)) runAction("Month waived", fee.id, () => waiveFee(fee.id)); }} disabled={busyId === fee.id} className="flex flex-1 items-center justify-center gap-1 rounded border border-border px-2 py-1.5 font-body text-[0.75rem] font-semibold text-muted-foreground hover:bg-muted disabled:opacity-50">
+                      <XCircle className="h-3.5 w-3.5" /> Waive
+                    </button>
+                  )}
+                  {!settled && (
+                    <button onClick={() => resendReminder(fee)} disabled={busyId === fee.id} className="flex flex-1 items-center justify-center gap-1 rounded border border-gold/40 px-2 py-1.5 font-body text-[0.75rem] font-semibold text-gold hover:bg-gold/10 disabled:opacity-50">
+                      <BellRing className="h-3.5 w-3.5" /> Remind
+                    </button>
+                  )}
+                  <button onClick={() => { if (confirm(`Are you sure you want to completely delete the fee record for ${fee.studentName}? This cannot be undone.`)) runAction("Fee record deleted", fee.id, () => deleteFee(fee.id)); }} disabled={busyId === fee.id} className="flex flex-1 items-center justify-center gap-1 rounded border border-border px-2 py-1.5 font-body text-[0.75rem] font-semibold text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50">
+                    <Trash2 className="h-3.5 w-3.5" /> Delete
+                  </button>
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>

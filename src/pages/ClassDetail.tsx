@@ -3,7 +3,7 @@ import { useNavigate, useParams, Link } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { ArrowLeft, CalendarDays, CreditCard, GraduationCap, Loader2, Repeat, Users, Wallet } from "lucide-react";
+import { ArrowLeft, Banknote, CalendarDays, CreditCard, GraduationCap, Loader2, Repeat, Users, Wallet } from "lucide-react";
 import Footer from "@/components/Footer";
 import PageHero from "@/components/PageHero";
 import SEO from "@/components/SEO";
@@ -17,6 +17,7 @@ import {
   createEnrollment,
   createSubscription,
   DEFAULT_CLASS_EMI_CONFIG,
+  deleteEnrollment,
   getAutopayFeeInPaise,
   getAutopayFeeLabel,
   getClass,
@@ -37,6 +38,7 @@ const PAYMENT_METHOD_META: Record<ClassPaymentMethod, { title: string; blurb: st
   manual: { title: "Pay monthly", blurb: "Pay each month yourself from your account. We'll remind you before the due date.", icon: Wallet },
   full: { title: "Pay Full", blurb: "Pay the entire course fee once. No further payments.", icon: Wallet },
   emi: { title: "EMI", blurb: "Pay a part upfront now, then the rest in installments. We'll remind you before each due date.", icon: CreditCard },
+  cash: { title: "Pay Cash", blurb: "Pay in cash at the centre. Your enrolment will be confirmed once the admin collects the payment.", icon: Banknote },
 };
 
 const seatsLeft = (slot: ClassTimeSlot): number | null => (
@@ -149,6 +151,7 @@ const ClassDetail = () => {
     }
 
     setSubmitting(true);
+    let enrollmentId: string | undefined;
     try {
       const installmentPlan = method === "emi" ? buildClassEmiPlan(getClassFeeInPaise(classDoc), emiConfig) : undefined;
 
@@ -156,7 +159,7 @@ const ClassDetail = () => {
         ? getAutopayFeeInPaise(classDoc)
         : classDoc.monthlyFeeInPaise;
 
-      const enrollmentId = await createEnrollment({
+      enrollmentId = await createEnrollment({
         parentUserId: user.uid,
         classId: id,
         className: classDoc.name,
@@ -178,6 +181,13 @@ const ClassDetail = () => {
         emi: method === "emi" ? emiConfig : undefined,
         installmentPlan,
       });
+
+      // Cash: No payment checkout needed — enrollment stays pending until admin collects cash.
+      if (method === "cash") {
+        toast({ title: "Enrolment submitted", description: "Please pay in cash at the centre. Your enrolment will be confirmed once the admin collects the payment." });
+        navigate("/account/classes");
+        return;
+      }
 
       const idToken = await user.getIdToken();
       const prefill = { name: values.parentName, email: user.email || "", contact: values.parentPhone };
@@ -206,6 +216,17 @@ const ClassDetail = () => {
       navigate("/account/classes");
     } catch (error) {
       console.error("Enrolment failed", error);
+
+      // Clean up the orphaned enrollment if payment was cancelled or failed.
+      // For cash enrollments, don't delete — they stay pending for admin to collect.
+      if (enrollmentId && method !== "cash") {
+        try {
+          await deleteEnrollment(enrollmentId);
+        } catch (cleanupError) {
+          console.error("Failed to clean up enrollment after payment failure", cleanupError);
+        }
+      }
+
       toast({
         title: "Enrolment incomplete",
         description: error instanceof Error ? error.message : "Something went wrong. Please try again.",
@@ -390,6 +411,7 @@ const ClassDetail = () => {
                   : paymentMethod === "autopay" ? "Enrol & Set Up Autopay"
                   : paymentMethod === "full" ? "Enrol & Pay Full Fee"
                   : paymentMethod === "emi" ? "Enrol & Pay First Installment"
+                  : paymentMethod === "cash" ? "Enrol & Pay Cash"
                   : "Enrol & Pay First Month"}
               </button>
               {!user && <p className="mt-2 text-center font-body text-[0.78rem] text-muted-foreground">You'll be asked to sign in to complete enrolment.</p>}

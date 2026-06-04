@@ -80,3 +80,14 @@ export interface ClassFeeNotifyResponse {
 /** Admin/owner-triggered re-send of a fee notification (e.g. resend reminder). */
 export const notifyClassFee = (idToken: string, feePaymentId: string, event: ClassFeeNotifyEvent = "fee-reminder") =>
   postJson<ClassFeeNotifyResponse>("/api/classes/notify", idToken, { feePaymentId, event });
+
+export interface CollectCashResponse {
+  ok: boolean;
+  enrollmentId: string;
+  feePaymentId: string;
+  notification?: unknown;
+}
+
+/** Admin: collect cash from a pending enrollment. Activates enrollment + creates cash fee + sends WhatsApp. */
+export const collectCashPayment = (idToken: string, enrollmentId: string) =>
+  postJson<CollectCashResponse>("/api/classes/collect-cash", idToken, { enrollmentId });
