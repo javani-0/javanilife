@@ -100,6 +100,8 @@ const classFeeReminderTemplate = () => getWhatsAppEnvValue("WHATSAPP_CLASS_FEE_R
 const classFeePaidParentTemplate = () => getWhatsAppEnvValue("WHATSAPP_CLASS_FEE_PAID_PARENT_TEMPLATE", getWhatsAppEnvValue("VITE_WHATSAPP_CLASS_FEE_PAID_PARENT_TEMPLATE", "class_fee_paid_parent"));
 const classFeePaidAdminTemplate = () => getWhatsAppEnvValue("WHATSAPP_CLASS_FEE_PAID_ADMIN_TEMPLATE", getWhatsAppEnvValue("VITE_WHATSAPP_CLASS_FEE_PAID_ADMIN_TEMPLATE", "class_fee_paid_admin"));
 const classFeeFailedTemplate = () => getWhatsAppEnvValue("WHATSAPP_CLASS_FEE_FAILED_TEMPLATE", getWhatsAppEnvValue("VITE_WHATSAPP_CLASS_FEE_FAILED_TEMPLATE", "class_fee_failed"));
+const autopayCancelledParentTemplate = () => getWhatsAppEnvValue("WHATSAPP_AUTOPAY_CANCELLED_PARENT_TEMPLATE", getWhatsAppEnvValue("VITE_WHATSAPP_AUTOPAY_CANCELLED_PARENT_TEMPLATE", "autopay_cancelled_parent"));
+const autopayCancelledAdminTemplate = () => getWhatsAppEnvValue("WHATSAPP_AUTOPAY_CANCELLED_ADMIN_TEMPLATE", getWhatsAppEnvValue("VITE_WHATSAPP_AUTOPAY_CANCELLED_ADMIN_TEMPLATE", "autopay_cancelled_admin"));
 
 const firstName = (name?: string) => (name || "there").split(" ").filter(Boolean)[0] || "there";
 const rupeesFromPaise = (paise?: number) => String(Math.round(Number(paise || 0) / 100));
@@ -175,4 +177,41 @@ export const sendClassFeeNotifications = async (
     (async () => sendWebPush({ tokens: await collectAdminTokens(), title: "Class fee failed", body: `${ctx.studentName} · ${ctx.className} · ₹${amount} · ${ctx.monthLabel} failed.`, link: "/admin/fee-collections", data: { feePaymentId: ctx.feePaymentId, type: "class-fee-failed", audience: "admin" } }))(),
   ]);
   return { parentWhatsApp: settle(parentWhatsApp), parentPush: settle(parentPush), adminPush: settle(adminPush) };
+};
+
+// --- Autopay cancelled notification -----------------------------------------
+
+export interface AutopayCancelledContext {
+  enrollmentId: string;
+  className: string;
+  studentName: string;
+  parentName: string;
+  parentUserId?: string;
+  parentPhone?: string;
+  parentWhatsApp?: string;
+  cancelledBy?: "parent" | "admin";
+}
+
+/**
+ * Notify both the parent and the admin that a class autopay mandate has been
+ * cancelled. Parent gets WhatsApp + web push; admin gets WhatsApp + web push.
+ * Never throws — returns a per-channel result summary.
+ */
+export const sendAutopayCancelledNotifications = async (ctx: AutopayCancelledContext) => {
+  const parentNumber = sanitizeWhatsAppNumber(ctx.parentWhatsApp || ctx.parentPhone || "");
+  const parentTokensPromise = ctx.parentUserId ? collectUserTokens(ctx.parentUserId) : Promise.resolve([]);
+  const adminNumber = await getAdminWhatsAppNumber().catch(() => "");
+
+  const [parentWhatsApp, adminWhatsApp, parentPush, adminPush] = await Promise.allSettled([
+    parentNumber
+      ? sendWhatsAppTemplate({ to: parentNumber, templateName: autopayCancelledParentTemplate(), languageCode: templateLanguage(), params: [firstName(ctx.parentName), ctx.studentName, ctx.className] })
+      : Promise.resolve({ status: "skipped", errorMessage: "Parent WhatsApp number missing." }),
+    adminNumber
+      ? sendWhatsAppTemplate({ to: adminNumber, templateName: autopayCancelledAdminTemplate(), languageCode: templateLanguage(), params: [ctx.studentName, ctx.className, ctx.parentName] })
+      : Promise.resolve({ status: "skipped", errorMessage: "Admin WhatsApp number missing." }),
+    (async () => sendWebPush({ tokens: await parentTokensPromise, title: "Autopay cancelled", body: `Autopay for ${ctx.studentName}'s ${ctx.className} has been turned off. You can pay monthly or re-enable autopay anytime.`, link: "/account/classes", data: { enrollmentId: ctx.enrollmentId, type: "autopay-cancelled", audience: "parent" } }))(),
+    (async () => sendWebPush({ tokens: await collectAdminTokens(), title: "Autopay cancelled", body: `${ctx.studentName} · ${ctx.className} · ${ctx.parentName} — autopay cancelled${ctx.cancelledBy ? ` by ${ctx.cancelledBy}` : ""}.`, link: "/admin/enrollments", data: { enrollmentId: ctx.enrollmentId, type: "autopay-cancelled", audience: "admin" } }))(),
+  ]);
+
+  return { parentWhatsApp: settle(parentWhatsApp), adminWhatsApp: settle(adminWhatsApp), parentPush: settle(parentPush), adminPush: settle(adminPush) };
 };

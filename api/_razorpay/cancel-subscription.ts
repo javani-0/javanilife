@@ -3,6 +3,7 @@ import { getBearerToken, readJsonBody, requirePost, sendError, sendJson, type Ap
 import { createRazorpayClient } from "../_lib/razorpay.js";
 import { cancelSubscription } from "../_lib/razorpay-subscriptions.js";
 import { ENROLLMENTS_COLLECTION, type EnrollmentRecord } from "../_lib/fee-store.js";
+import { sendAutopayCancelledNotifications } from "../_lib/notify.js";
 
 interface CancelSubscriptionBody {
   enrollmentId?: string;
@@ -68,6 +69,20 @@ export default async function handler(request: ApiRequest, response: ApiResponse
       "autopay.mandateStatus": "cancelled",
       updatedAt: FieldValue.serverTimestamp(),
     });
+
+    // Tell the parent and the admin the mandate was turned off. Awaited (with a
+    // guard) so the serverless function isn't killed before the messages send;
+    // a notification failure must not fail the cancellation itself.
+    await sendAutopayCancelledNotifications({
+      enrollmentId,
+      className: enrollment.className || "your class",
+      studentName: enrollment.student?.name || "the student",
+      parentName: enrollment.parent?.name || "there",
+      parentUserId: enrollment.parentUserId,
+      parentPhone: enrollment.parent?.phone,
+      parentWhatsApp: enrollment.parent?.whatsappNumber,
+      cancelledBy: isAdmin ? "admin" : "parent",
+    }).catch((error) => console.error("Autopay cancelled notification failed", { enrollmentId, error }));
 
     sendJson(response, 200, { ok: true });
   } catch (error) {
