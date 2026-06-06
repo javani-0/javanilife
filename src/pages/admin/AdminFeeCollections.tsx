@@ -1,26 +1,42 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { BellRing, Banknote, Download, IndianRupee, Search, XCircle, Trash2, LayoutGrid, List } from "lucide-react";
+import { BellRing, Banknote, Download, IndianRupee, Search, XCircle, Trash2, LayoutGrid, List, X } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { useScrollHighlight } from "@/hooks/useScrollHighlight";
+import { createPortal } from "react-dom";
 import { formatPaiseAsRupees } from "@/lib/ecommerce";
 import {
   deriveDisplayFeeStatus,
   FEE_PAYMENT_METHOD_LABELS,
   FEE_STATUS_LABELS,
   deleteFee,
+  formatMonthRange,
+  formatNiceDate,
   markFeeCash,
   monthKeyFor,
   notifyClassFee,
   periodLabel,
+  subscribeToEnrollmentsAdmin,
   subscribeToFeesAdmin,
   summarizeFees,
   waiveFee,
+  type EnrollmentDoc,
   type FeePaymentDoc,
   type FeePaymentMethod,
   type FeeStatus,
 } from "@/lib/classes";
+
+// A "Term Fee" is a one-off full-course payment — its fee-doc id ends with
+// "_full" (or "_advance" for a pre-paid first cycle).
+const isTermFee = (fee: FeePaymentDoc): boolean => /_(full|advance)$/.test(fee.id);
+
+// What to show in the Method column / filter — surfaces "Term Fee" for full
+// course payments, otherwise the stored method.
+const feeMethodLabel = (fee: FeePaymentDoc): string => {
+  if (isTermFee(fee)) return "Term Fee";
+  return fee.paymentMethod ? FEE_PAYMENT_METHOD_LABELS[fee.paymentMethod] : "—";
+};
 
 const statusStyles: Record<FeeStatus, string> = {
   paid: "bg-green-100 text-green-700",
@@ -60,14 +76,23 @@ const AdminFeeCollections = () => {
   const [search, setSearch] = useState("");
   const [classFilter, setClassFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState<"all" | FeeStatus>("all");
-  const [methodFilter, setMethodFilter] = useState<"all" | FeePaymentMethod>("all");
+  const [methodFilter, setMethodFilter] = useState<"all" | FeePaymentMethod | "term">("all");
   const [view, setView] = useState<"table" | "grid">("grid");
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [enrollmentsById, setEnrollmentsById] = useState<Map<string, EnrollmentDoc>>(new Map());
+  const [selectedFee, setSelectedFee] = useState<FeePaymentDoc | null>(null);
 
   useEffect(() => {
     setLoading(true);
     return subscribeToFeesAdmin(monthKey, (items) => { setFees(items); setLoading(false); }, () => setLoading(false));
   }, [monthKey]);
+
+  // Enrolments carry the batch time + next charge date + term span the fee
+  // detail popup shows; keep a live id→enrolment map.
+  useEffect(() => subscribeToEnrollmentsAdmin(
+    (items) => setEnrollmentsById(new Map(items.map((item) => [item.id, item]))),
+    (error) => console.error("Unable to load enrollments", error),
+  ), []);
 
   // Deep link from WhatsApp admin fee notifications: /admin/fee-collections?fee=<feePaymentId>
   useScrollHighlight("fee", !loading);
@@ -85,7 +110,7 @@ const AdminFeeCollections = () => {
     return fees
       .filter((fee) => classFilter === "all" || fee.classId === classFilter)
       .filter((fee) => statusFilter === "all" || deriveDisplayFeeStatus(fee) === statusFilter)
-      .filter((fee) => methodFilter === "all" || fee.paymentMethod === methodFilter)
+      .filter((fee) => methodFilter === "all" || (methodFilter === "term" ? isTermFee(fee) : (!isTermFee(fee) && fee.paymentMethod === methodFilter)))
       .filter((fee) => !normalizedSearch || [fee.studentName, fee.parentName, fee.parentPhone, fee.className]
         .filter(Boolean)
         .some((value) => value.toLowerCase().includes(normalizedSearch)))
@@ -175,12 +200,13 @@ const AdminFeeCollections = () => {
           {classOptions.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
         </select>
         <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)} className="h-10 rounded-md border border-border bg-background px-3 font-body text-sm outline-none focus:border-gold">
-          <option value="all">All statuses</option>
+          <option value="all">Payment Status</option>
           {Object.entries(FEE_STATUS_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
         </select>
         <select value={methodFilter} onChange={(event) => setMethodFilter(event.target.value as typeof methodFilter)} className="h-10 rounded-md border border-border bg-background px-3 font-body text-sm outline-none focus:border-gold">
-          <option value="all">All methods</option>
+          <option value="all">Payment Method</option>
           {Object.entries(FEE_PAYMENT_METHOD_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          <option value="term">Term Fee</option>
         </select>
         <div className="flex h-10 items-center rounded-md border border-border bg-background p-1">
           <button onClick={() => setView("table")} className={`rounded p-1.5 ${view === "table" ? "bg-muted text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`} title="Table View">
@@ -216,7 +242,7 @@ const AdminFeeCollections = () => {
                   const displayStatus = deriveDisplayFeeStatus(fee);
                   const settled = displayStatus === "paid" || displayStatus === "waived";
                   return (
-                    <tr key={fee.id} id={`fee-${fee.id}`} className="border-b border-border/50 hover:bg-muted/20 scroll-mt-28">
+                    <tr key={fee.id} id={`fee-${fee.id}`} onClick={() => setSelectedFee(fee)} className="cursor-pointer border-b border-border/50 hover:bg-muted/20 scroll-mt-28">
                       <td className="px-4 py-3 font-body text-sm font-medium text-foreground">{fee.studentName}</td>
                       <td className="px-4 py-3 font-body text-sm text-foreground">{fee.className}</td>
                       <td className="px-4 py-3">
@@ -228,8 +254,8 @@ const AdminFeeCollections = () => {
                         <span className={`rounded-full px-2 py-1 font-body text-[0.7rem] ${statusStyles[displayStatus]}`}>{FEE_STATUS_LABELS[displayStatus]}</span>
                         {fee.paidAt && <p className="mt-0.5 font-body text-[0.65rem] text-muted-foreground">{formatTimestamp(fee.paidAt)}</p>}
                       </td>
-                      <td className="px-4 py-3 font-body text-xs capitalize text-muted-foreground">{fee.paymentMethod || "—"}</td>
-                      <td className="px-4 py-3">
+                      <td className="px-4 py-3 font-body text-xs text-muted-foreground">{feeMethodLabel(fee)}</td>
+                      <td className="px-4 py-3" onClick={(event) => event.stopPropagation()}>
                         <div className="flex flex-wrap gap-1">
                           {!settled && (
                             <button onClick={() => runAction("Marked as cash paid", fee.id, () => markFeeCash(fee.id))} disabled={busyId === fee.id} className="flex items-center gap-1 rounded border border-green-300 px-2 py-1 font-body text-[0.7rem] text-green-700 hover:bg-green-50 disabled:opacity-50" title="Mark cash paid">
@@ -264,7 +290,7 @@ const AdminFeeCollections = () => {
             const displayStatus = deriveDisplayFeeStatus(fee);
             const settled = displayStatus === "paid" || displayStatus === "waived";
             return (
-              <div key={fee.id} id={`fee-${fee.id}`} className="flex flex-col justify-between rounded-xl border border-border/60 bg-card p-5 shadow-card scroll-mt-28">
+              <div key={fee.id} id={`fee-${fee.id}`} onClick={() => setSelectedFee(fee)} className="flex cursor-pointer flex-col justify-between rounded-xl border border-border/60 bg-card p-5 shadow-card transition-colors hover:border-gold/30 scroll-mt-28">
                 <div>
                   <div className="mb-2 flex items-start justify-between">
                     <div>
@@ -284,7 +310,7 @@ const AdminFeeCollections = () => {
                     </div>
                     <div className="flex justify-between border-b border-border/50 py-1">
                       <span className="text-muted-foreground">Method</span>
-                      <span className="capitalize text-foreground">{fee.paymentMethod || "—"}</span>
+                      <span className="text-foreground">{feeMethodLabel(fee)}</span>
                     </div>
                     {fee.paidAt && (
                       <div className="flex justify-between pt-1">
@@ -294,7 +320,7 @@ const AdminFeeCollections = () => {
                     )}
                   </div>
                 </div>
-                <div className="mt-4 flex flex-wrap gap-2">
+                <div className="mt-4 flex flex-wrap gap-2" onClick={(event) => event.stopPropagation()}>
                   {!settled && (
                     <button onClick={() => runAction("Marked as cash paid", fee.id, () => markFeeCash(fee.id))} disabled={busyId === fee.id} className="flex flex-1 items-center justify-center gap-1 rounded border border-green-300 px-2 py-1.5 font-body text-[0.75rem] font-semibold text-green-700 hover:bg-green-50 disabled:opacity-50">
                       <Banknote className="h-3.5 w-3.5" /> Cash
@@ -318,6 +344,49 @@ const AdminFeeCollections = () => {
             );
           })}
         </div>
+      )}
+
+      {selectedFee && createPortal(
+        (() => {
+          const fee = selectedFee;
+          const enrollment = enrollmentsById.get(fee.enrollmentId);
+          const displayStatus = deriveDisplayFeeStatus(fee);
+          const termFee = isTermFee(fee);
+          const range = enrollment ? formatMonthRange(enrollment.termStartDate, enrollment.termEndDate) : "";
+          const rows: [string, string][] = [
+            ["Student", fee.studentName],
+            ["Class", fee.className],
+            ["Batch time", enrollment?.slotLabel || "—"],
+            ["Amount", formatPaiseAsRupees(fee.amountInPaise)],
+            ["Status", FEE_STATUS_LABELS[displayStatus]],
+            ["Payment method", feeMethodLabel(fee)],
+            ["Bill date", fee.dueDate ? formatNiceDate(fee.dueDate) : "—"],
+            ["Next charge date", enrollment?.nextChargeDate ? formatNiceDate(enrollment.nextChargeDate) : "—"],
+            ["Paid on", formatTimestamp(fee.paidAt) || "—"],
+            ...(termFee && range ? ([["Course range", `${range}${displayStatus === "paid" ? " · Paid" : ""}`]] as [string, string][]) : []),
+            ["Parent", `${fee.parentName} · ${fee.parentPhone}`],
+          ];
+          return (
+            <div className="fixed inset-0 z-[9999] flex items-center justify-center overflow-y-auto p-4">
+              <div className="fixed inset-0 bg-black/40" onClick={() => setSelectedFee(null)} />
+              <div className="relative mx-4 w-full max-w-md rounded-xl bg-card p-6 shadow-hero">
+                <div className="mb-4 flex items-center justify-between">
+                  <h3 className="font-display text-xl text-foreground">{termFee ? "Term Fee" : "Fee"} details</h3>
+                  <button onClick={() => setSelectedFee(null)} aria-label="Close"><X className="h-5 w-5" /></button>
+                </div>
+                <dl className="space-y-2 font-body text-sm">
+                  {rows.map(([label, value]) => (
+                    <div key={label} className="flex justify-between gap-4 border-b border-border/40 pb-2">
+                      <dt className="text-muted-foreground">{label}</dt>
+                      <dd className="text-right font-medium text-foreground">{value}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </div>
+            </div>
+          );
+        })(),
+        document.body
       )}
     </div>
   );

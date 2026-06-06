@@ -59,7 +59,7 @@ export const normalizeEnrollment = (id: string, data: DocumentData = {}): Enroll
     classId: typeof data.classId === "string" ? data.classId : "",
     className: typeof data.className === "string" ? data.className : "",
     monthlyFeeInPaise: Math.max(0, Math.round(toNumber(data.monthlyFeeInPaise))),
-    billingDayOfMonth: clampBillingDay(toNumber(data.billingDayOfMonth, 5)),
+    billingDayOfMonth: clampBillingDay(toNumber(data.billingDayOfMonth, 1)),
     startMonthKey: typeof data.startMonthKey === "string" ? data.startMonthKey : "",
     status: (data.status as EnrollmentStatus) || "pending",
     autopay: {
@@ -77,6 +77,10 @@ export const normalizeEnrollment = (id: string, data: DocumentData = {}): Enroll
     slotLabel: typeof data.slotLabel === "string" ? data.slotLabel : undefined,
     feeType: data.feeType === "term" ? "term" : (data.feeType === "monthly" ? "monthly" : undefined),
     termFeeInPaise: data.termFeeInPaise != null ? Math.max(0, Math.round(toNumber(data.termFeeInPaise))) : undefined,
+    termStartDate: typeof data.termStartDate === "string" ? data.termStartDate : undefined,
+    termEndDate: typeof data.termEndDate === "string" ? data.termEndDate : undefined,
+    nextChargeDate: typeof data.nextChargeDate === "string" ? data.nextChargeDate : undefined,
+    advancePaid: data.advancePaid === true ? true : undefined,
     emi: data.emi && typeof data.emi === "object" ? (data.emi as ClassEmiConfig) : undefined,
     installmentPlan: data.installmentPlan && typeof data.installmentPlan === "object"
       ? (data.installmentPlan as CourseInstallmentPlan)
@@ -103,8 +107,14 @@ export interface CreateEnrollmentInput {
   // Term-course fields.
   feeType?: ClassFeeType;
   termFeeInPaise?: number;
+  termStartDate?: string;
+  termEndDate?: string;
   emi?: ClassEmiConfig;
   installmentPlan?: CourseInstallmentPlan;
+  // Next billing/charge date (ISO "YYYY-MM-DD") to show the parent up front.
+  nextChargeDate?: string;
+  // The parent pre-paid the first cycle at sign-up.
+  advancePaid?: boolean;
 }
 
 /** Create a pending enrollment owned by the signed-in parent. Returns the doc id. */
@@ -141,14 +151,48 @@ export const createEnrollment = async (input: CreateEnrollmentInput): Promise<st
 
   if (input.slotId) docData.slotId = input.slotId;
   if (input.slotLabel) docData.slotLabel = input.slotLabel;
+  if (input.nextChargeDate) docData.nextChargeDate = input.nextChargeDate;
+  if (input.advancePaid) docData.advancePaid = true;
   if (isTerm) {
     docData.termFeeInPaise = Math.max(0, Math.round(input.termFeeInPaise || 0));
+    if (input.termStartDate) docData.termStartDate = input.termStartDate;
+    if (input.termEndDate) docData.termEndDate = input.termEndDate;
     if (input.emi) docData.emi = input.emi;
     if (input.installmentPlan) docData.installmentPlan = input.installmentPlan;
   }
 
   const created = await addDoc(collection(db, ENROLLMENTS_COLLECTION), docData);
   return created.id;
+};
+
+/**
+ * Admin: patch editable enrolment fields (status, fees, plan, next charge date,
+ * term span). Only defined keys are written; money fields are clamped.
+ */
+export interface AdminEnrollmentPatch {
+  status?: EnrollmentStatus;
+  paymentPlan?: ClassPaymentMethod;
+  feeType?: ClassFeeType;
+  monthlyFeeInPaise?: number;
+  termFeeInPaise?: number;
+  billingDayOfMonth?: number;
+  nextChargeDate?: string;
+  termStartDate?: string;
+  termEndDate?: string;
+}
+
+export const updateEnrollment = async (id: string, patch: AdminEnrollmentPatch): Promise<void> => {
+  const data: Record<string, unknown> = { updatedAt: serverTimestamp() };
+  if (patch.status !== undefined) data.status = patch.status;
+  if (patch.paymentPlan !== undefined) data.paymentPlan = patch.paymentPlan;
+  if (patch.feeType !== undefined) data.feeType = patch.feeType;
+  if (patch.monthlyFeeInPaise !== undefined) data.monthlyFeeInPaise = Math.max(0, Math.round(patch.monthlyFeeInPaise));
+  if (patch.termFeeInPaise !== undefined) data.termFeeInPaise = Math.max(0, Math.round(patch.termFeeInPaise));
+  if (patch.billingDayOfMonth !== undefined) data.billingDayOfMonth = clampBillingDay(patch.billingDayOfMonth);
+  if (patch.nextChargeDate !== undefined) data.nextChargeDate = patch.nextChargeDate;
+  if (patch.termStartDate !== undefined) data.termStartDate = patch.termStartDate;
+  if (patch.termEndDate !== undefined) data.termEndDate = patch.termEndDate;
+  await updateDoc(doc(db, ENROLLMENTS_COLLECTION, id), data);
 };
 
 export const getEnrollment = async (id: string): Promise<EnrollmentDoc | null> => {

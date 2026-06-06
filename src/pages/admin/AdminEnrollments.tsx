@@ -13,7 +13,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { formatPaiseAsRupees } from "@/lib/ecommerce";
+import { formatPaiseAsRupees, parsePriceToPaise } from "@/lib/ecommerce";
 import {
   cancelEnrollment,
   collectCashPayment,
@@ -21,8 +21,11 @@ import {
   ENROLLMENT_STATUS_LABELS,
   MANDATE_STATUS_LABELS,
   pauseEnrollment,
+  recordManualPaidFee,
   resumeEnrollment,
   subscribeToEnrollmentsAdmin,
+  updateEnrollment,
+  type ClassPaymentMethod,
   type EnrollmentDoc,
   type EnrollmentStatus,
 } from "@/lib/classes";
@@ -41,6 +44,26 @@ const createdAtMillis = (enrollment: EnrollmentDoc): number => {
   return typeof createdAt?.toMillis === "function" ? createdAt.toMillis() : 0;
 };
 
+interface EditState {
+  status: EnrollmentStatus;
+  paymentPlan: string;
+  feeType: "monthly" | "term";
+  monthlyFeeRupees: string;
+  termFeeRupees: string;
+  nextChargeDate: string;
+  termStartDate: string;
+  termEndDate: string;
+  fullPaidRupees: string;
+}
+
+const PAYMENT_PLAN_OPTIONS: { value: ClassPaymentMethod; label: string }[] = [
+  { value: "autopay", label: "Autopay" },
+  { value: "manual", label: "Pay monthly" },
+  { value: "cash", label: "Cash" },
+  { value: "full", label: "Pay Full (term)" },
+  { value: "emi", label: "EMI (term)" },
+];
+
 const AdminEnrollments = () => {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -48,8 +71,10 @@ const AdminEnrollments = () => {
   const [search, setSearch] = useState("");
   const [classFilter, setClassFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState<"all" | EnrollmentStatus>("all");
-  const [view, setView] = useState<"table" | "grid">("grid");
+  const [view, setView] = useState<"table" | "grid">("table");
   const [selected, setSelected] = useState<EnrollmentDoc | null>(null);
+  const [edit, setEdit] = useState<EditState | null>(null);
+  const [savingEdit, setSavingEdit] = useState(false);
   const [confirmState, setConfirmState] = useState<{
     title: string;
     description: string;
@@ -59,6 +84,30 @@ const AdminEnrollments = () => {
   } | null>(null);
 
   useEffect(() => subscribeToEnrollmentsAdmin(setEnrollments, (error) => console.error("Unable to load enrollments", error)), []);
+
+  // Populate the editable form whenever a different enrolment is opened. We keep
+  // the live `selected` in sync so the modal reflects updates after a save.
+  useEffect(() => {
+    if (!selected) { setEdit(null); return; }
+    setEdit({
+      status: selected.status,
+      paymentPlan: selected.paymentPlan || "",
+      feeType: selected.feeType === "term" ? "term" : "monthly",
+      monthlyFeeRupees: selected.monthlyFeeInPaise > 0 ? String(selected.monthlyFeeInPaise / 100) : "",
+      termFeeRupees: (selected.termFeeInPaise || 0) > 0 ? String((selected.termFeeInPaise || 0) / 100) : "",
+      nextChargeDate: selected.nextChargeDate || "",
+      termStartDate: selected.termStartDate || "",
+      termEndDate: selected.termEndDate || "",
+      fullPaidRupees: (selected.termFeeInPaise || 0) > 0 ? String((selected.termFeeInPaise || 0) / 100) : "",
+    });
+  }, [selected]);
+
+  // Keep `selected` pointing at the freshest copy from the live subscription.
+  useEffect(() => {
+    if (!selected) return;
+    const fresh = enrollments.find((item) => item.id === selected.id);
+    if (fresh && fresh !== selected) setSelected(fresh);
+  }, [enrollments]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const classOptions = useMemo(() => {
     const map = new Map<string, string>();
@@ -123,12 +172,62 @@ const AdminEnrollments = () => {
     onConfirm: () => runAction("Enrollment deleted", () => deleteEnrollment(enrollment.id)),
   });
 
+  const handleSaveEdit = async () => {
+    if (!selected || !edit) return;
+    setSavingEdit(true);
+    try {
+      await updateEnrollment(selected.id, {
+        status: edit.status,
+        paymentPlan: edit.paymentPlan ? (edit.paymentPlan as ClassPaymentMethod) : undefined,
+        feeType: edit.feeType,
+        monthlyFeeInPaise: parsePriceToPaise(edit.monthlyFeeRupees) || 0,
+        termFeeInPaise: parsePriceToPaise(edit.termFeeRupees) || 0,
+        nextChargeDate: edit.nextChargeDate,
+        termStartDate: edit.termStartDate,
+        termEndDate: edit.termEndDate,
+      });
+      toast({ title: "Enrolment updated", description: `${selected.student.name}'s details were saved.` });
+    } catch (error) {
+      console.error("Enrolment update failed", error);
+      toast({ title: "Update failed", description: error instanceof Error ? error.message : undefined, variant: "destructive" });
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
+  // Records a paid term fee for the amount actually received, marks the term
+  // course as Full Paid, and activates the enrolment so the parent sees the
+  // correct status immediately. (Item 1/6 — payment-data correction tool.)
+  const handleMarkFullPaid = () => {
+    if (!selected || !edit) return;
+    const amountInPaise = parsePriceToPaise(edit.fullPaidRupees) || 0;
+    if (amountInPaise < 100) {
+      toast({ title: "Enter a valid amount", description: "Enter the full amount received (e.g. 6000).", variant: "destructive" });
+      return;
+    }
+    setConfirmState({
+      title: "Mark Full Paid?",
+      description: `Record ${formatPaiseAsRupees(amountInPaise)} as fully paid for ${selected.student.name}, activate the enrolment, and show "Full Paid" in their profile.`,
+      confirmLabel: "Mark Full Paid",
+      onConfirm: async () => {
+        try {
+          await recordManualPaidFee(selected, { amountInPaise, suffix: "full", periodLabel: "Full course fee", paymentMethod: "manual" });
+          await updateEnrollment(selected.id, { status: "active", feeType: "term", termFeeInPaise: amountInPaise });
+          toast({ title: "Marked Full Paid", description: `${selected.student.name} is now active with ${formatPaiseAsRupees(amountInPaise)} recorded.` });
+        } catch (error) {
+          console.error("Mark Full Paid failed", error);
+          toast({ title: "Could not mark paid", description: error instanceof Error ? error.message : undefined, variant: "destructive" });
+        }
+      },
+    });
+  };
+
   return (
     <div className="space-y-6">
       <div>
         <p className="font-body text-sm font-semibold uppercase tracking-[0.2em] text-gold">Classes</p>
-        <h1 className="mt-2 font-display text-3xl text-foreground">Enrollments</h1>
-        <p className="mt-1 font-body text-sm text-muted-foreground">All enrolled students, parent contacts, autopay status, and enrolment lifecycle.</p>
+        <h1 className="mt-2 font-display text-3xl text-foreground">Sign Up</h1>
+        <p className="mt-1 font-body text-sm text-muted-foreground">All student sign-ups, parent contacts, autopay status, and enrolment lifecycle.</p>
       </div>
 
       <div className="flex flex-col gap-3 rounded-xl border border-border/60 bg-card p-4 shadow-card sm:flex-row sm:items-center">
@@ -280,36 +379,91 @@ const AdminEnrollments = () => {
         </div>
       )}
 
-      {selected && createPortal(
+      {selected && edit && createPortal(
         <div className="fixed inset-0 z-[9999] flex items-center justify-center overflow-y-auto p-4">
           <div className="fixed inset-0 bg-black/40" onClick={() => setSelected(null)} />
-          <div className="relative mx-4 w-full max-w-lg rounded-xl bg-card p-6 shadow-hero">
+          <div className="relative mx-4 my-6 w-full max-w-lg rounded-xl bg-card p-6 shadow-hero max-h-[90vh] overflow-y-auto">
             <div className="mb-4 flex items-center justify-between">
-              <h3 className="font-display text-xl text-foreground">Enrolment Details</h3>
+              <h3 className="font-display text-xl text-foreground">Edit Enrolment</h3>
               <button onClick={() => setSelected(null)} aria-label="Close"><X className="h-5 w-5" /></button>
             </div>
-            <dl className="space-y-2 font-body text-sm">
+
+            {/* Read-only summary */}
+            <dl className="space-y-1.5 font-body text-sm">
               {[
                 ["Student", `${selected.student.name} (${selected.student.age} yrs, ${selected.student.gender})`],
                 ["Class", selected.className],
-                ["Monthly Fee", formatPaiseAsRupees(selected.monthlyFeeInPaise)],
-                ["Billing Day", `Day ${selected.billingDayOfMonth}`],
-                ["Parent", selected.parent.name],
-                ["Phone", selected.parent.phone],
-                ["WhatsApp", selected.parent.whatsappNumber || "—"],
-                ["Address", selected.parent.address || "—"],
-                ["Status", ENROLLMENT_STATUS_LABELS[selected.status]],
-                ["Payment Plan", selected.paymentPlan ? selected.paymentPlan.charAt(0).toUpperCase() + selected.paymentPlan.slice(1) : "—"],
+                ["Batch", selected.slotLabel || "—"],
+                ["Parent", `${selected.parent.name} · ${selected.parent.phone}`],
                 ["Autopay", selected.autopay.enabled ? `On${selected.autopay.mandateStatus ? ` (${MANDATE_STATUS_LABELS[selected.autopay.mandateStatus]})` : ""}` : "Off"],
-                ["Next charge", selected.autopay.nextChargeAt || "—"],
                 ["Started", selected.startMonthKey || "—"],
               ].map(([label, value]) => (
-                <div key={label} className="flex justify-between gap-4 border-b border-border/40 pb-2">
+                <div key={label} className="flex justify-between gap-4 border-b border-border/40 pb-1.5">
                   <dt className="text-muted-foreground">{label}</dt>
                   <dd className="text-right font-medium text-foreground">{value}</dd>
                 </div>
               ))}
             </dl>
+
+            {/* Editable fields */}
+            <div className="mt-4 grid grid-cols-2 gap-3 font-body text-sm">
+              <label className="block">
+                <span className="mb-1 block text-[0.8rem] text-muted-foreground">Status</span>
+                <select value={edit.status} onChange={(e) => setEdit({ ...edit, status: e.target.value as EnrollmentStatus })} className="h-9 w-full rounded-md border border-border bg-background px-2 text-sm outline-none focus:border-gold">
+                  {Object.entries(ENROLLMENT_STATUS_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                </select>
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-[0.8rem] text-muted-foreground">Payment plan</span>
+                <select value={edit.paymentPlan} onChange={(e) => setEdit({ ...edit, paymentPlan: e.target.value })} className="h-9 w-full rounded-md border border-border bg-background px-2 text-sm outline-none focus:border-gold">
+                  <option value="">—</option>
+                  {PAYMENT_PLAN_OPTIONS.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                </select>
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-[0.8rem] text-muted-foreground">Fee type</span>
+                <select value={edit.feeType} onChange={(e) => setEdit({ ...edit, feeType: e.target.value as "monthly" | "term" })} className="h-9 w-full rounded-md border border-border bg-background px-2 text-sm outline-none focus:border-gold">
+                  <option value="monthly">Monthly</option>
+                  <option value="term">Term course</option>
+                </select>
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-[0.8rem] text-muted-foreground">Next charge date</span>
+                <input type="date" value={edit.nextChargeDate} onChange={(e) => setEdit({ ...edit, nextChargeDate: e.target.value })} className="h-9 w-full rounded-md border border-border bg-background px-2 text-sm outline-none focus:border-gold" />
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-[0.8rem] text-muted-foreground">Monthly fee (₹)</span>
+                <input inputMode="decimal" value={edit.monthlyFeeRupees} onChange={(e) => setEdit({ ...edit, monthlyFeeRupees: e.target.value })} className="h-9 w-full rounded-md border border-border bg-background px-2 text-sm outline-none focus:border-gold" placeholder="2000" />
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-[0.8rem] text-muted-foreground">Term fee (₹)</span>
+                <input inputMode="decimal" value={edit.termFeeRupees} onChange={(e) => setEdit({ ...edit, termFeeRupees: e.target.value })} className="h-9 w-full rounded-md border border-border bg-background px-2 text-sm outline-none focus:border-gold" placeholder="6000" />
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-[0.8rem] text-muted-foreground">Term start</span>
+                <input type="date" value={edit.termStartDate} onChange={(e) => setEdit({ ...edit, termStartDate: e.target.value })} className="h-9 w-full rounded-md border border-border bg-background px-2 text-sm outline-none focus:border-gold" />
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-[0.8rem] text-muted-foreground">Term end</span>
+                <input type="date" value={edit.termEndDate} onChange={(e) => setEdit({ ...edit, termEndDate: e.target.value })} className="h-9 w-full rounded-md border border-border bg-background px-2 text-sm outline-none focus:border-gold" />
+              </label>
+            </div>
+
+            <button onClick={handleSaveEdit} disabled={savingEdit} className="mt-4 w-full rounded-md bg-gradient-primary px-4 py-2.5 font-body text-sm font-semibold text-primary-foreground hover:brightness-110 disabled:opacity-60">
+              {savingEdit ? "Saving…" : "Save changes"}
+            </button>
+
+            {/* Mark Full Paid — corrects amount + activates */}
+            <div className="mt-4 rounded-lg border border-green-200 bg-green-50/60 p-3">
+              <p className="font-body text-[0.82rem] font-semibold text-green-800">Record full payment</p>
+              <p className="mt-0.5 font-body text-[0.72rem] text-muted-foreground">Enter the amount actually received to mark this as Full Paid and activate the enrolment.</p>
+              <div className="mt-2 flex items-center gap-2">
+                <input inputMode="decimal" value={edit.fullPaidRupees} onChange={(e) => setEdit({ ...edit, fullPaidRupees: e.target.value })} className="h-9 w-32 rounded-md border border-border bg-background px-2 font-body text-sm outline-none focus:border-gold" placeholder="6000" />
+                <button onClick={handleMarkFullPaid} className="flex-1 rounded-md border border-green-400 bg-green-100 px-3 py-2 font-body text-sm font-semibold text-green-800 hover:bg-green-200">
+                  Mark Full Paid &amp; Activate
+                </button>
+              </div>
+            </div>
           </div>
         </div>,
         document.body

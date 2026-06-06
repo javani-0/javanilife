@@ -155,8 +155,17 @@ export interface EnrollmentDoc {
   // Term-course enrolment fields (feeType === "term").
   feeType?: ClassFeeType;
   termFeeInPaise?: number;
+  // Term span copied from the class at enrolment so the parent's profile + fee
+  // records can show "May to August" without re-fetching the class.
+  termStartDate?: string; // "YYYY-MM-DD"
+  termEndDate?: string;   // "YYYY-MM-DD"
   emi?: ClassEmiConfig;
   installmentPlan?: CourseInstallmentPlan; // when paymentPlan === "emi"
+  // Admin-editable next charge/billing date (ISO "YYYY-MM-DD"). Shown to the
+  // parent, included in messages, and surfaced in the fee-collection popup.
+  nextChargeDate?: string;
+  // True once the parent has pre-paid the first cycle in advance at sign-up.
+  advancePaid?: boolean;
   createdAt?: Timestamp;
   updatedAt?: Timestamp;
 }

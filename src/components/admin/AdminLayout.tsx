@@ -14,7 +14,7 @@ const navItems = [
   { label: "Enquiries", icon: ClipboardList, path: "/admin/enquiries" },
   { label: "Courses Manager", icon: BookOpen, path: "/admin/courses" },
   { label: "Classes Manager", icon: GraduationCap, path: "/admin/classes" },
-  { label: "Enrollments", icon: UserCheck, path: "/admin/enrollments" },
+  { label: "Sign Up", icon: UserCheck, path: "/admin/enrollments" },
   { label: "Fee Collections", icon: Wallet, path: "/admin/fee-collections" },
   { label: "Gallery Manager", icon: Image, path: "/admin/gallery" },
   { label: "Products Manager", icon: ShoppingBag, path: "/admin/products" },

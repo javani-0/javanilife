@@ -83,7 +83,7 @@ const defaultForm: ClassFormState = {
   facultyName: "",
   feeRupees: "",
   autopayDiscountRupees: "",
-  billingDayOfMonth: "5",
+  billingDayOfMonth: "1",
   seatsTotal: "",
   active: true,
   offersMonthly: true,
@@ -212,7 +212,7 @@ const AdminClasses = () => {
       facultyName: classDoc.facultyName || "",
       feeRupees: classDoc.monthlyFeeInPaise > 0 ? String(classDoc.monthlyFeeInPaise / 100) : "",
       autopayDiscountRupees: (classDoc.autopayDiscountInPaise || 0) > 0 ? String((classDoc.autopayDiscountInPaise || 0) / 100) : "",
-      billingDayOfMonth: String(classDoc.billingDayOfMonth || 5),
+      billingDayOfMonth: String(classDoc.billingDayOfMonth || 1),
       seatsTotal: classDoc.seatsTotal != null ? String(classDoc.seatsTotal) : "",
       active: classDoc.active,
       offersMonthly: classOffersMonthly(classDoc),
@@ -521,7 +521,7 @@ const AdminClasses = () => {
                   )}
                   <div>
                     <label className={labelClass}>Billing Day (1–28)</label>
-                    <input value={form.billingDayOfMonth} onChange={(event) => setForm({ ...form, billingDayOfMonth: event.target.value })} className={inputClass} inputMode="numeric" placeholder="5" />
+                    <input value={form.billingDayOfMonth} onChange={(event) => setForm({ ...form, billingDayOfMonth: event.target.value })} className={inputClass} inputMode="numeric" placeholder="1" />
                   </div>
                   {overAfaCap && (
                     <div className="sm:col-span-2 flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 p-3">

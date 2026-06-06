@@ -6,6 +6,7 @@ import {
   onSnapshot,
   query,
   serverTimestamp,
+  setDoc,
   updateDoc,
   where,
   type DocumentData,
@@ -15,6 +16,7 @@ import { formatPaiseAsRupees } from "@/lib/ecommerce";
 import {
   isOverdue,
   periodLabel as periodLabelFor,
+  type EnrollmentDoc,
   type FeePaymentDoc,
   type FeePaymentMethod,
   type FeeStatus,
@@ -133,6 +135,40 @@ export const waiveFee = async (feeId: string, adminNote?: string): Promise<void>
 /** Admin: delete a fee record. */
 export const deleteFee = async (feeId: string): Promise<void> => {
   await deleteDoc(doc(db, FEE_PAYMENTS_COLLECTION, feeId));
+};
+
+/**
+ * Admin: record a one-off paid fee for an enrolment (e.g. correcting a term
+ * full payment that came in outside the app). Writes/merges a paid fee doc with
+ * a stable id so re-running is idempotent. `suffix` keys the doc — "full" for a
+ * full course payment, "advance" for a pre-paid first cycle.
+ */
+export const recordManualPaidFee = async (
+  enrollment: Pick<EnrollmentDoc, "id" | "classId" | "className" | "parentUserId" | "student" | "parent">,
+  params: { amountInPaise: number; suffix?: string; periodLabel?: string; paymentMethod?: FeePaymentMethod },
+): Promise<string> => {
+  const suffix = params.suffix || "full";
+  const id = `${enrollment.id}_${suffix}`;
+  const monthKey = new Date().toISOString().slice(0, 7);
+  await setDoc(doc(db, FEE_PAYMENTS_COLLECTION, id), {
+    enrollmentId: enrollment.id,
+    classId: enrollment.classId || "",
+    className: enrollment.className || "",
+    parentUserId: enrollment.parentUserId || "",
+    studentName: enrollment.student?.name || "",
+    parentName: enrollment.parent?.name || "",
+    parentPhone: enrollment.parent?.phone || "",
+    monthKey,
+    periodLabel: params.periodLabel || "Full course fee",
+    amountInPaise: Math.max(0, Math.round(params.amountInPaise)),
+    dueDate: `${monthKey}-01`,
+    status: "paid",
+    paymentMethod: params.paymentMethod || "manual",
+    paidAt: serverTimestamp(),
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  }, { merge: true });
+  return id;
 };
 
 export interface FeeTotals {

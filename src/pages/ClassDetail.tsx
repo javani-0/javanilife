@@ -22,6 +22,7 @@ import {
   deleteEnrollment,
   getAutopayFeeInPaise,
   getAutopayFeeLabel,
+  formatNiceDate,
   getClass,
   getClassFeeInPaise,
   getClassFeeLabel,
@@ -42,7 +43,7 @@ import heroTemple from "@/assets/hero-temple.jpg";
 
 const PAYMENT_METHOD_META: Record<ClassPaymentMethod, { title: string; blurb: string; icon: typeof Repeat; recommended?: boolean }> = {
   autopay: { title: "Autopay", blurb: "Authorise once; the fee is auto-debited each month. We notify you on every debit.", icon: Repeat, recommended: true },
-  manual: { title: "Pay monthly", blurb: "Pay each month yourself from your account. We'll remind you before the due date.", icon: Wallet },
+  manual: { title: "Advance Fee", blurb: "Pay this cycle now as an advance. We'll show your next charge date; pay later months from My Classes.", icon: Wallet },
   full: { title: "Pay Full", blurb: "Pay the entire course fee once. No further payments.", icon: Wallet },
   emi: { title: "EMI", blurb: "Pay a part upfront now, then the rest in installments. We'll remind you before each due date.", icon: CreditCard },
   cash: { title: "Pay Cash", blurb: "Pay in cash at the centre. Your enrolment will be confirmed once the admin collects the payment.", icon: Banknote },
@@ -178,6 +179,13 @@ const ClassDetail = () => {
         ? getAutopayFeeInPaise(classDoc)
         : classDoc.monthlyFeeInPaise;
 
+      // A sensible default next charge date the admin can later adjust: the
+      // course start for term enrolments, else the 1st of next month (monthly
+      // billing now runs 1st-to-month-end).
+      const now = new Date();
+      const firstOfNextMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1)).toISOString().slice(0, 10);
+      const defaultNextCharge = isTerm ? (classDoc.startDate || "") : firstOfNextMonth;
+
       enrollmentId = await createEnrollment({
         parentUserId: user.uid,
         classId: id,
@@ -197,6 +205,11 @@ const ClassDetail = () => {
         slotLabel: chosenSlot?.label,
         feeType: isTerm ? "term" : "monthly",
         termFeeInPaise: isTerm ? classDoc.termFeeInPaise : undefined,
+        termStartDate: isTerm ? classDoc.startDate : undefined,
+        termEndDate: isTerm ? classDoc.endDate : undefined,
+        nextChargeDate: defaultNextCharge || undefined,
+        // "Advance Fee" = the manual monthly option pays this cycle upfront.
+        advancePaid: method === "manual" ? true : undefined,
         emi: method === "emi" ? emiConfig : undefined,
         installmentPlan,
       });
@@ -234,7 +247,7 @@ const ClassDetail = () => {
         } catch (confirmError) {
           console.error("Autopay confirmation sync failed (webhook will reconcile)", confirmError);
         }
-        toast({ title: "Autopay set up", description: "We'll auto-debit the monthly fee and notify you each time." });
+        toast({ title: "Autopay set up", description: `We'll auto-debit the monthly fee and notify you each time.${defaultNextCharge ? ` Next charge: ${formatNiceDate(defaultNextCharge)}.` : ""}` });
       } else if (method === "full") {
         await payFeeNow({ idToken, feePaymentIdOrEnrollment: { enrollmentId, kind: "full" }, name: "Javani Spiritual Hub", description: `${classDoc.name} — full course fee`, prefill });
         toast({ title: "Payment received", description: "Your course fee is being confirmed." });
@@ -242,8 +255,8 @@ const ClassDetail = () => {
         await payFeeNow({ idToken, feePaymentIdOrEnrollment: { enrollmentId, kind: "emi", installmentNumber: 1 }, name: "Javani Spiritual Hub", description: `${classDoc.name} — EMI first installment`, prefill });
         toast({ title: "First installment received", description: "Pay the remaining installments from My Classes before their due dates." });
       } else {
-        await payFeeNow({ idToken, feePaymentIdOrEnrollment: { enrollmentId, kind: "monthly" }, name: "Javani Spiritual Hub", description: `${classDoc.name} — first month fee`, prefill });
-        toast({ title: "Payment received", description: "Your first month's fee is being confirmed." });
+        await payFeeNow({ idToken, feePaymentIdOrEnrollment: { enrollmentId, kind: "monthly" }, name: "Javani Spiritual Hub", description: `${classDoc.name} — advance fee`, prefill });
+        toast({ title: "Advance paid", description: `Your advance fee is being confirmed.${defaultNextCharge ? ` Next charge: ${formatNiceDate(defaultNextCharge)}.` : ""}` });
       }
 
       navigate("/account/classes");
@@ -485,7 +498,7 @@ const ClassDetail = () => {
                   : paymentMethod === "full" ? "Enrol & Pay Full Fee"
                   : paymentMethod === "emi" ? "Enrol & Pay First Installment"
                   : paymentMethod === "cash" ? "Enrol & Pay Cash"
-                  : "Enrol & Pay First Month"}
+                  : "Enrol & Pay Advance"}
               </button>
               {!user && <p className="mt-2 text-center font-body text-[0.78rem] text-muted-foreground">You'll be asked to sign in to complete enrolment.</p>}
             </form>

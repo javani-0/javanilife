@@ -11,6 +11,8 @@ import {
   ENROLLMENT_STATUS_LABELS,
   FEE_STATUS_LABELS,
   formatFeeAmount,
+  formatMonthRange,
+  formatNiceDate,
   getClassFeeLabel,
   isFeePayable,
   payFeeNow,
@@ -152,6 +154,19 @@ const Classes = () => {
                     )}
                   </div>
                 </div>
+
+                {/* Term span + next charge date */}
+                {(() => {
+                  const range = enrollment.feeType === "term" ? formatMonthRange(enrollment.termStartDate, enrollment.termEndDate) : "";
+                  const nextCharge = enrollment.nextChargeDate ? formatNiceDate(enrollment.nextChargeDate) : "";
+                  if (!range && !nextCharge) return null;
+                  return (
+                    <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1.5 font-body text-xs text-muted-foreground">
+                      {range && <span className="flex items-center gap-1.5"><CalendarClock className="h-3.5 w-3.5 text-gold" /> Course months: <span className="font-semibold text-foreground">{range}</span></span>}
+                      {nextCharge && <span className="flex items-center gap-1.5"><CalendarClock className="h-3.5 w-3.5 text-gold" /> Next charge: <span className="font-semibold text-foreground">{nextCharge}</span></span>}
+                    </div>
+                  );
+                })()}
 
                 {/* Upcoming / payable */}
                 {upcoming && (

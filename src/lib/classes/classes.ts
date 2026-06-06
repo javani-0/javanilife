@@ -170,7 +170,7 @@ export const normalizeClass = (id: string, data: DocumentData = {}): ClassDoc =>
   ageTo: data.ageTo != null ? Math.max(0, Math.round(toNumber(data.ageTo))) : undefined,
   monthlyFeeInPaise: Math.max(0, Math.round(toNumber(data.monthlyFeeInPaise))),
   autopayDiscountInPaise: data.autopayDiscountInPaise != null ? Math.max(0, Math.round(toNumber(data.autopayDiscountInPaise))) : undefined,
-  billingDayOfMonth: clampBillingDay(toNumber(data.billingDayOfMonth, 5)),
+  billingDayOfMonth: clampBillingDay(toNumber(data.billingDayOfMonth, 1)),
   active: data.active !== false,
   razorpayPlanId: typeof data.razorpayPlanId === "string" ? data.razorpayPlanId : "",
   seatsTotal: data.seatsTotal != null ? Math.max(0, Math.round(toNumber(data.seatsTotal))) : undefined,

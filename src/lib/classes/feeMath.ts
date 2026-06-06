@@ -55,6 +55,27 @@ export const periodLabel = (monthKey: string): string => {
   return `${MONTH_NAMES[parsed.month - 1]} ${parsed.year}`;
 };
 
+const SHORT_MONTHS = MONTH_NAMES.map((name) => name.slice(0, 3));
+
+/** "1 Jul 2026" for "2026-07-01". Returns the input unchanged if not a date. */
+export const formatNiceDate = (iso?: string): string => {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || "");
+  if (!match) return iso || "";
+  return `${Number(match[3])} ${SHORT_MONTHS[Number(match[2]) - 1]} ${match[1]}`;
+};
+
+/** "May to August" from two "YYYY-MM-DD" (or "YYYY-MM") dates. */
+export const formatMonthRange = (startIso?: string, endIso?: string): string => {
+  const monthName = (iso?: string) => {
+    const match = /^(\d{4})-(\d{2})/.exec(iso || "");
+    return match ? MONTH_NAMES[Number(match[2]) - 1] : "";
+  };
+  const start = monthName(startIso);
+  const end = monthName(endIso);
+  if (start && end) return `${start} to ${end}`;
+  return start || end || "";
+};
+
 /** ISO date "YYYY-MM-DD" for the billing day in the given month. */
 export const dueDateFor = (monthKey: string, billingDay: number): string => {
   if (!parseMonthKey(monthKey)) return "";
