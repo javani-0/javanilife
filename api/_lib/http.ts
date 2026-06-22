@@ -2,6 +2,8 @@ type HeaderValue = string | string[] | undefined;
 
 export interface ApiRequest {
   method?: string;
+  url?: string;
+  query?: Record<string, string | string[] | undefined>;
   body?: unknown;
   headers: Record<string, HeaderValue>;
   on?: (event: string, callback: (...args: unknown[]) => void) => void;
@@ -11,6 +13,7 @@ export interface ApiResponse {
   status: (statusCode: number) => ApiResponse;
   json: (body: unknown) => void;
   setHeader?: (name: string, value: string) => void;
+  end?: (data?: unknown) => void;
 }
 
 export const readJsonBody = async <T>(request: ApiRequest): Promise<T> => {
