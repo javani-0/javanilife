@@ -1,6 +1,6 @@
-import { getFirebaseAdminAuth, getFirebaseAdminDb } from "../_lib/firebase-admin.js";
-import { getBearerToken, sendError, sendJson, type ApiRequest, type ApiResponse } from "../_lib/http.js";
-import { buildFinanceSummary, orderCollectedInPaise } from "../_lib/finance.js";
+import { getFirebaseAdminAuth, getFirebaseAdminDb } from "./firebase-admin.js";
+import { getBearerToken, sendError, sendJson, type ApiRequest, type ApiResponse } from "./http.js";
+import { buildFinanceSummary, orderCollectedInPaise } from "./finance.js";
 
 const isFirebaseAuthError = (error: unknown) => {
   const code = typeof error === "object" && error && "code" in error ? String((error as { code?: unknown }).code || "") : "";
@@ -13,13 +13,14 @@ const num = (value: unknown): number => {
 };
 
 // ---------------------------------------------------------------------------
-// GET /api/partner/summary
+// GET /api/partner/summary  (routed through api/razorpay.ts to stay within the
+// Hobby plan's 12-function limit — see vercel.json rewrites).
 // ---------------------------------------------------------------------------
 // Read-only financial aggregates for the partner dashboard (and reusable by the
 // admin). Computed with the Admin SDK so the partner never reads raw orders or
 // customer PII — only the rolled-up totals are returned. Gated to admin/partner.
 // ---------------------------------------------------------------------------
-export default async function handler(request: ApiRequest, response: ApiResponse) {
+export default async function partnerSummary(request: ApiRequest, response: ApiResponse) {
   if (request.method !== "GET" && request.method !== "POST") {
     response.setHeader?.("Allow", "GET, POST");
     sendError(response, 405, "Method not allowed");

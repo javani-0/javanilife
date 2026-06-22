@@ -19,11 +19,19 @@ import webhook from "./_razorpay/webhook.js";
 import createEmiSubscription from "./_razorpay/create-emi-subscription.js";
 // @ts-ignore
 import payEmiInstallment from "./_razorpay/pay-emi-installment.js";
+// Folded into this router (not a separate function) to stay within the Hobby
+// plan's 12-serverless-function limit. Reached via /api/partner/summary (see
+// vercel.json rewrite). Not razorpay-related, but this is the project's shared
+// multi-action function.
+import partnerSummary from "./_lib/partner-summary.js";
 
 export default async function handler(request: ApiRequest, response: ApiResponse) {
   const url = request.url || "";
   const action = request.query?.action;
 
+  if (action === "partner-summary" || url.includes("/partner/summary")) {
+    return partnerSummary(request, response);
+  }
   if (action === "cancel-subscription" || url.includes("/cancel-subscription")) {
     return cancelSubscription(request, response);
   }

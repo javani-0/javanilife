@@ -14,6 +14,7 @@
     }
   ],
   "rewrites": [
+    { "source": "/api/partner/summary", "destination": "/api/razorpay?action=partner-summary" },
     { "source": "/api/webhook", "destination": "/api/razorpay?action=webhook" },
     { "source": "/api/razorpay/create-emi-subscription", "destination": "/api/razorpay?action=create-emi-subscription" },
     { "source": "/api/razorpay/pay-emi-installment", "destination": "/api/razorpay?action=pay-emi-installment" },
