@@ -109,7 +109,7 @@ const Classes = () => {
           size="compact"
         />
 
-        <div className="border-b border-gold/10 bg-background py-3 shadow-[0_10px_30px_rgba(51,35,20,0.08)] sm:sticky sm:top-[80px] sm:py-4">
+        <div className="relative z-30 border-b border-gold/10 bg-background py-3 shadow-[0_10px_30px_rgba(51,35,20,0.08)] sm:sticky sm:top-[80px] sm:py-4">
           <div className="mx-auto flex max-w-7xl items-center px-4 sm:px-6">
             <label className="relative block w-full sm:w-[360px]">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
