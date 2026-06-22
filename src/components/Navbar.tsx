@@ -91,6 +91,10 @@ const Navbar = () => {
   const activeColor = isSolid ? "text-gold border-b-2 border-gold" : "text-gold-light border-b-2 border-gold-light";
   const hoverColor = isSolid ? "hover:text-gold" : "hover:text-gold-light";
   const isSpiritualHubActive = spiritualHubLinks.some((link) => location.pathname === link.path);
+  // A top-level link is active on its page AND its detail pages, e.g. "/classes"
+  // stays highlighted on "/classes/:id". Home ("/") only matches exactly.
+  const isLinkActive = (path: string) =>
+    path === "/" ? location.pathname === "/" : (location.pathname === path || location.pathname.startsWith(`${path}/`));
 
   const showMobile = mobileOpen || closing;
 
@@ -139,7 +143,7 @@ const Navbar = () => {
                   <Link
                     to={link.path}
                     className={`font-body font-medium text-[0.85rem] xl:text-[0.9rem] relative pb-1 transition-colors duration-300 ${
-                      location.pathname === link.path
+                      isLinkActive(link.path)
                         ? activeColor
                         : `${textColor} ${hoverColor}`
                     }`}
@@ -152,7 +156,7 @@ const Navbar = () => {
                   key={link.path}
                   to={link.path}
                   className={`font-body font-medium text-[0.85rem] xl:text-[0.9rem] relative pb-1 transition-colors duration-300 ${
-                    location.pathname === link.path
+                    isLinkActive(link.path)
                       ? activeColor
                       : `${textColor} ${hoverColor}`
                   }`}
@@ -301,7 +305,7 @@ const Navbar = () => {
           {/* Nav Links */}
           <div className="flex-1 overflow-y-auto flex flex-col items-center gap-1 px-6 py-6">
             {navLinks.map((link, i) => {
-              const isActive = location.pathname === link.path;
+              const isActive = isLinkActive(link.path);
               return (
                 <div key={link.path} className="flex flex-col items-center">
                   {link.path === "/courses" && (

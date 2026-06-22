@@ -3,11 +3,12 @@ import { useNavigate, useParams, Link } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { ArrowLeft, Banknote, CalendarDays, CreditCard, GraduationCap, Loader2, Repeat, Users, Wallet } from "lucide-react";
+import { ArrowLeft, Banknote, CalendarDays, CreditCard, GraduationCap, Loader2, Maximize2, Repeat, Users, Wallet } from "lucide-react";
 import Footer from "@/components/Footer";
 import PageHero from "@/components/PageHero";
 import SEO from "@/components/SEO";
 import ShareButton from "@/components/ShareButton";
+import ImageViewer from "@/components/ImageViewer";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { formatPaiseAsRupees } from "@/lib/ecommerce";
@@ -84,6 +85,7 @@ const ClassDetail = () => {
   const [track, setTrack] = useState<ClassTrack | null>(null);
   const [selectedSlotId, setSelectedSlotId] = useState<string>("");
   const [submitting, setSubmitting] = useState(false);
+  const [viewerOpen, setViewerOpen] = useState(false);
 
   const availableTracks = useMemo(() => (classDoc ? classTracks(classDoc) : []), [classDoc]);
   // The active track: the parent's choice, or the only available one.
@@ -512,7 +514,14 @@ const ClassDetail = () => {
 
             {/* Class summary */}
             <aside className="h-fit rounded-2xl border border-gold/15 bg-card p-5 shadow-card lg:sticky lg:top-28">
-              {classDoc.image && <img src={classDoc.image} alt={classDoc.name} className="mb-4 aspect-square w-full rounded-lg object-cover" />}
+              {classDoc.image && (
+                <div className="group relative mb-4 cursor-zoom-in overflow-hidden rounded-lg" onClick={() => setViewerOpen(true)}>
+                  <img src={classDoc.image} alt={classDoc.name} className="aspect-square w-full object-cover" />
+                  <span className="pointer-events-none absolute bottom-3 right-3 flex items-center gap-1 rounded-full bg-black/55 px-2.5 py-1 font-body text-[0.7rem] text-white opacity-0 transition-opacity group-hover:opacity-100">
+                    <Maximize2 className="h-3.5 w-3.5" /> View full
+                  </span>
+                </div>
+              )}
               <div className="flex items-start justify-between gap-2">
                 <h3 className="font-display text-xl text-foreground">{classDoc.name}</h3>
                 <ShareButton
@@ -554,6 +563,7 @@ const ClassDetail = () => {
         </div>
       </main>
       <Footer />
+      {classDoc.image && <ImageViewer images={[classDoc.image]} isOpen={viewerOpen} onClose={() => setViewerOpen(false)} />}
     </>
   );
 };

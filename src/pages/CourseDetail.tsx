@@ -10,7 +10,8 @@ import Footer from "@/components/Footer";
 import SEO from "@/components/SEO";
 import ShareButton from "@/components/ShareButton";
 import PrimaryButton from "@/components/PrimaryButton";
-import { MessageCircle, ArrowLeft, Award, ShoppingBag } from "lucide-react";
+import ImageViewer from "@/components/ImageViewer";
+import { MessageCircle, ArrowLeft, Award, ShoppingBag, Maximize2 } from "lucide-react";
 import {
   createCartItemFromCourse,
   getCourseCategory,
@@ -32,6 +33,7 @@ const CourseDetail = () => {
   const [course, setCourse] = useState<Course | null>(null);
   const [loading, setLoading] = useState(true);
   const [imgLoaded, setImgLoaded] = useState(false);
+  const [viewerOpen, setViewerOpen] = useState(false);
   const { whatsappNumber } = useContactInfo();
   const { categories: courseCategories } = useCourseCategories();
   const { addItem, setBuyNowItem } = useCart();
@@ -104,7 +106,7 @@ const CourseDetail = () => {
           <div className="grid md:grid-cols-2 gap-10 lg:gap-16 items-start">
 
             {/* Image */}
-            <div className="relative rounded-2xl overflow-hidden aspect-square bg-muted">
+            <div className="group relative cursor-zoom-in rounded-2xl overflow-hidden aspect-square bg-muted" onClick={() => course.image && setViewerOpen(true)}>
               {!imgLoaded && <div className="absolute inset-0 skeleton-shimmer" />}
               <img
                 src={course.image}
@@ -112,6 +114,11 @@ const CourseDetail = () => {
                 onLoad={() => setImgLoaded(true)}
                 className={`w-full h-full object-cover transition-opacity duration-500 ${imgLoaded ? "opacity-100" : "opacity-0"}`}
               />
+              {course.image && (
+                <span className="pointer-events-none absolute bottom-3 right-3 flex items-center gap-1 rounded-full bg-black/55 px-2.5 py-1 font-body text-[0.7rem] text-white opacity-0 transition-opacity group-hover:opacity-100">
+                  <Maximize2 className="h-3.5 w-3.5" /> View full
+                </span>
+              )}
               {course.status === "inactive" && (
                 <div className="absolute top-3 right-3 bg-red-500 text-white px-3 py-1 text-xs font-body font-semibold rounded-full shadow-lg">
                   Not Available
@@ -193,6 +200,7 @@ const CourseDetail = () => {
         </div>
       </main>
       <Footer />
+      {course.image && <ImageViewer images={[course.image]} isOpen={viewerOpen} onClose={() => setViewerOpen(false)} />}
     </>
   );
 };
