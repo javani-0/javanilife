@@ -468,7 +468,7 @@ const AdminProducts = () => {
 
             return (
               <article key={product.id} className="overflow-hidden rounded-lg border border-gold/10 bg-card shadow-card transition-shadow hover:shadow-hero">
-                <div className="relative aspect-[3/2] overflow-hidden bg-muted">
+                <div className="relative aspect-square overflow-hidden bg-muted">
                   {imageUrl ? (
                     <img src={imageUrl} alt={product.name} className="h-full w-full object-cover" loading="lazy" />
                   ) : (
@@ -682,7 +682,7 @@ const AdminProducts = () => {
 
               <div className="sm:col-span-2">
                 <label className={labelClass}>Primary Image URL *</label>
-                {form.image && <img src={form.image} alt="Preview" className="mb-2 h-40 w-full rounded-md object-cover" />}
+                {form.image && <img src={form.image} alt="Preview" className="mb-2 aspect-square w-full max-w-xs rounded-md object-cover" />}
                 <input value={form.image} onChange={(event) => setForm({ ...form, image: event.target.value })} className={inputClass} placeholder="https://..." />
                 <div className="mt-2 flex flex-wrap gap-2">
                   <button type="button" onClick={() => imageRef.current?.click()} disabled={imageUploading} className="flex items-center gap-2 rounded-md border border-border px-3 py-2 font-body text-[0.85rem] text-foreground hover:bg-muted disabled:opacity-50">

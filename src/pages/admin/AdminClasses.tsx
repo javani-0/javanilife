@@ -395,7 +395,7 @@ const AdminClasses = () => {
           {sortedClasses.map((classDoc) => (
             <div key={classDoc.id} className="bg-card shadow-card rounded-lg overflow-hidden hover:shadow-hero transition-shadow">
               {classDoc.image && (
-                <div className="aspect-[3/2] overflow-hidden">
+                <div className="aspect-square overflow-hidden">
                   <img src={classDoc.image} alt={classDoc.name} className="w-full h-full object-cover" loading="lazy" />
                 </div>
               )}
@@ -719,7 +719,7 @@ const AdminClasses = () => {
               </div>
               <div className="sm:col-span-2">
                 <label className={labelClass}>Class Image</label>
-                {form.image && <img src={form.image} alt="Preview" className="w-full h-40 object-cover rounded-md mb-2" />}
+                {form.image && <img src={form.image} alt="Preview" className="aspect-square w-full max-w-xs object-cover rounded-md mb-2" />}
                 <div className="flex flex-wrap gap-2">
                   <button type="button" onClick={() => imageRef.current?.click()} disabled={imageUploading} className="flex items-center gap-2 px-3 py-2 rounded-md border border-border font-body text-[0.85rem] hover:bg-muted disabled:opacity-50">
                     <Upload className="w-4 h-4" /> {imageUploading ? "Uploading..." : "Upload Image"}

@@ -20,7 +20,7 @@ const CourseCard = ({ image, title, description, badge, badgeColor = "red" }: Co
 
   return (
     <div className="bg-card shadow-card rounded-lg overflow-hidden transition-all duration-300 hover:-translate-y-1.5 hover:shadow-hero group cursor-pointer">
-      <div className="aspect-[3/2] relative overflow-hidden">
+      <div className="aspect-square relative overflow-hidden">
         {!imgLoaded && <div className="absolute inset-0 skeleton-shimmer" />}
         <img
           src={image}

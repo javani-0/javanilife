@@ -48,7 +48,7 @@ const fieldControlClass = "h-10 sm:h-12 w-full rounded-md border border-gold/20 
 
 const SkeletonCard = () => (
   <div className="bg-card shadow-card rounded-lg overflow-hidden">
-    <div className="aspect-[3/2] skeleton-shimmer" />
+    <div className="aspect-square skeleton-shimmer" />
     <div className="p-5 sm:p-6 space-y-3">
       <div className="h-5 w-28 skeleton-shimmer rounded" />
       <div className="h-6 w-3/4 skeleton-shimmer rounded" />

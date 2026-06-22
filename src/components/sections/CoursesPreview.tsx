@@ -91,7 +91,7 @@ const CoursesPreview = () => {
                 style={{ animationDelay: `${i * 0.15}s` }}
               >
               <div className="bg-card shadow-card rounded-lg overflow-hidden transition-all duration-300 hover:-translate-y-1.5 hover:shadow-hero group">
-                <div className="aspect-[3/2] relative overflow-hidden">
+                <div className="aspect-square relative overflow-hidden">
                   {<div className="absolute inset-0 skeleton-shimmer peer" />}
                   <img src={c.image} alt={c.title} loading="lazy" onLoad={(e) => { (e.target as HTMLElement).previousElementSibling?.remove(); }} className="w-full h-full object-cover transition-all duration-500 group-hover:scale-[1.06]" />
                 </div>

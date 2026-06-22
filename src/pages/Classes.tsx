@@ -14,7 +14,7 @@ const fieldControlClass = "h-10 sm:h-12 w-full rounded-md border border-gold/20 
 
 const SkeletonCard = () => (
   <div className="bg-card shadow-card rounded-lg overflow-hidden">
-    <div className="aspect-[3/2] skeleton-shimmer" />
+    <div className="aspect-square skeleton-shimmer" />
     <div className="p-5 space-y-3">
       <div className="h-6 w-3/4 skeleton-shimmer rounded" />
       <div className="h-4 w-full skeleton-shimmer rounded" />
@@ -25,7 +25,7 @@ const SkeletonCard = () => (
 
 const ClassCard = ({ classDoc }: { classDoc: ClassDoc }) => (
   <div className="group flex h-full flex-col overflow-hidden rounded-lg border border-gold/15 bg-card shadow-[0_10px_28px_rgba(51,35,20,0.07)] transition-all duration-300 hover:-translate-y-1 hover:border-gold/40 hover:shadow-[0_14px_38px_rgba(51,35,20,0.12)]">
-    <div className="relative aspect-[3/2] overflow-hidden bg-muted">
+    <div className="relative aspect-square overflow-hidden bg-muted">
       {classDoc.image ? (
         <img src={classDoc.image} alt={classDoc.name} loading="lazy" className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.035]" />
       ) : (

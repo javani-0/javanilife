@@ -104,7 +104,7 @@ const CourseDetail = () => {
           <div className="grid md:grid-cols-2 gap-10 lg:gap-16 items-start">
 
             {/* Image */}
-            <div className="relative rounded-2xl overflow-hidden aspect-[3/2] bg-muted">
+            <div className="relative rounded-2xl overflow-hidden aspect-square bg-muted">
               {!imgLoaded && <div className="absolute inset-0 skeleton-shimmer" />}
               <img
                 src={course.image}

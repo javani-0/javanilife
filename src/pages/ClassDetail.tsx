@@ -512,7 +512,7 @@ const ClassDetail = () => {
 
             {/* Class summary */}
             <aside className="h-fit rounded-2xl border border-gold/15 bg-card p-5 shadow-card lg:sticky lg:top-28">
-              {classDoc.image && <img src={classDoc.image} alt={classDoc.name} className="mb-4 h-40 w-full rounded-lg object-cover" />}
+              {classDoc.image && <img src={classDoc.image} alt={classDoc.name} className="mb-4 aspect-square w-full rounded-lg object-cover" />}
               <div className="flex items-start justify-between gap-2">
                 <h3 className="font-display text-xl text-foreground">{classDoc.name}</h3>
                 <ShareButton
