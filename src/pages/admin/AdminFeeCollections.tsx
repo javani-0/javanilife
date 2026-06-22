@@ -312,6 +312,12 @@ const AdminFeeCollections = () => {
                       <span className="text-muted-foreground">Method</span>
                       <span className="text-foreground">{feeMethodLabel(fee)}</span>
                     </div>
+                    {(fee.slotLabel || enrollmentsById.get(fee.enrollmentId)?.slotLabel) && (
+                      <div className="flex justify-between border-b border-border/50 py-1">
+                        <span className="text-muted-foreground">Class Timing</span>
+                        <span className="text-foreground text-right">{fee.slotLabel || enrollmentsById.get(fee.enrollmentId)?.slotLabel}</span>
+                      </div>
+                    )}
                     {fee.paidAt && (
                       <div className="flex justify-between pt-1">
                         <span className="text-muted-foreground">Paid On</span>
@@ -352,18 +358,24 @@ const AdminFeeCollections = () => {
           const enrollment = enrollmentsById.get(fee.enrollmentId);
           const displayStatus = deriveDisplayFeeStatus(fee);
           const termFee = isTermFee(fee);
-          const range = enrollment ? formatMonthRange(enrollment.termStartDate, enrollment.termEndDate) : "";
+          // Prefer the values denormalized onto the fee doc itself (always present,
+          // even for today's payments), falling back to the live enrolment.
+          const batch = fee.slotLabel || enrollment?.slotLabel || "—";
+          const billingPeriod = fee.billingPeriodLabel
+            || (enrollment ? formatMonthRange(enrollment.billingStartMonth || enrollment.termStartDate, enrollment.billingEndMonth || enrollment.termEndDate) : "")
+            || fee.periodLabel
+            || "—";
+          const nextCharge = fee.nextChargeDate || enrollment?.nextChargeDate || "";
           const rows: [string, string][] = [
             ["Student", fee.studentName],
             ["Class", fee.className],
-            ["Batch time", enrollment?.slotLabel || "—"],
+            ["Class Timing", batch],
             ["Amount", formatPaiseAsRupees(fee.amountInPaise)],
             ["Status", FEE_STATUS_LABELS[displayStatus]],
             ["Payment method", feeMethodLabel(fee)],
-            ["Bill date", fee.dueDate ? formatNiceDate(fee.dueDate) : "—"],
-            ["Next charge date", enrollment?.nextChargeDate ? formatNiceDate(enrollment.nextChargeDate) : "—"],
-            ["Paid on", formatTimestamp(fee.paidAt) || "—"],
-            ...(termFee && range ? ([["Course range", `${range}${displayStatus === "paid" ? " · Paid" : ""}`]] as [string, string][]) : []),
+            ["Billing Period", `${billingPeriod}${termFee && displayStatus === "paid" ? " · Paid" : ""}`],
+            ["Next Charge Date", nextCharge ? formatNiceDate(nextCharge) : "—"],
+            ["Paid On", formatTimestamp(fee.paidAt) || "—"],
             ["Parent", `${fee.parentName} · ${fee.parentPhone}`],
           ];
           return (

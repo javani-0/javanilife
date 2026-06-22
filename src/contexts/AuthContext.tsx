@@ -31,7 +31,7 @@ export interface UserProfile {
   phone?: string;
   whatsappNumber?: string;
   callNumber?: string;
-  role: "admin" | "user";
+  role: "admin" | "user" | "partner";
   createdAt?: Timestamp;
 }
 

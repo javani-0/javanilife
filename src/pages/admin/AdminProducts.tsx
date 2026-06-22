@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { addDoc, collection, deleteDoc, doc, onSnapshot, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { CLOUDINARY_CLOUD_NAME, CLOUDINARY_UPLOAD_PRESET } from "@/lib/cloudinary";
+import { openSquareCropper } from "@/components/SquareImageCropper";
 import CategoryManager from "@/components/admin/CategoryManager";
 import {
   AlertTriangle,
@@ -692,9 +693,13 @@ const AdminProducts = () => {
                     type="file"
                     accept="image/*"
                     hidden
-                    onChange={(event) => {
+                    onChange={async (event) => {
                       const file = event.target.files?.[0];
-                      if (file) void uploadImage(file);
+                      event.target.value = "";
+                      if (!file) return;
+                      // Enforce 1:1 — crop to square before uploading.
+                      const square = await openSquareCropper(file);
+                      if (square) void uploadImage(square);
                     }}
                   />
                 </div>

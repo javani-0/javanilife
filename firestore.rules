@@ -20,6 +20,10 @@ service cloud.firestore {
       return hasRole('admin');
     }
 
+    function isPartner() {
+      return hasRole('partner');
+    }
+
     function isSafeOwnUserProfileWrite(userId) {
       return isOwner(userId)
         && request.resource.data.uid == userId
@@ -83,8 +87,20 @@ service cloud.firestore {
         || (signedIn() && resource.data.uid == request.auth.uid);
     }
 
+    // Finance config (e.g. finance/settings: partner identity + profit share %).
+    // Admin writes; admin + partner read (the partner dashboard needs the % and
+    // partner name — no customer data lives here).
     match /finance/{id} {
-      allow read, write: if isAdmin();
+      allow read: if isAdmin() || isPartner();
+      allow write: if isAdmin();
+    }
+
+    // Business expenses — admin enters/edits; admin + partner may read. The
+    // partner dashboard reads aggregates via the server, but allowing read here
+    // keeps the admin console working and exposes no customer PII.
+    match /expenses/{id} {
+      allow read: if isAdmin() || isPartner();
+      allow write: if isAdmin();
     }
 
     match /courses/{id} {

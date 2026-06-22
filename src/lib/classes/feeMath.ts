@@ -76,6 +76,74 @@ export const formatMonthRange = (startIso?: string, endIso?: string): string => 
   return start || end || "";
 };
 
+// ---------------------------------------------------------------------------
+// Advance vs. arrears billing period.
+// ---------------------------------------------------------------------------
+// Business rule (client-confirmed): the "manual" rail is the **Advance Fee** —
+// the parent pre-pays the *current* cycle. Every other rail (autopay, term
+// pay-full, term EMI, cash) is billed **in arrears** — the collection made this
+// month pays for the *previous* month. So a 4-month autopay/term collected in
+// June covers "May to August" and the next charge falls in September.
+// ---------------------------------------------------------------------------
+
+/** A class payment rail. Mirrors ClassPaymentMethod; kept loose for portability. */
+export type BillingMethod = "autopay" | "manual" | "full" | "emi" | "cash" | (string & {});
+
+/** Only the "manual" Advance Fee rail bills the current month; all others are arrears. */
+export const isAdvanceBilling = (method?: BillingMethod): boolean => method === "manual";
+
+export interface BillingPeriod {
+  startMonthKey: string;       // "2026-05" — first billed month
+  endMonthKey: string;         // "2026-08" — last billed month (== start for a monthly fee)
+  nextChargeMonthKey: string;  // "2026-09" — the month after the period ends
+  monthsCovered: string[];     // ["May","June","July","August"] — for human-readable messages
+  periodLabel: string;         // "May 2026" (monthly) or "May to August" (multi-month)
+}
+
+/**
+ * Compute the billed period from the *collection* month key + the payment rail.
+ * Advance ("manual") bills the collection month itself; every other rail bills
+ * in arrears (start = the previous month). `durationMonths` (>=1) spans the
+ * period: 1 for a monthly fee, N for an N-month term/course.
+ */
+export const computeBillingPeriodFromMonthKey = (
+  collectionMonthKey: string,
+  method: BillingMethod | undefined,
+  durationMonths = 1,
+): BillingPeriod => {
+  const months = Math.max(1, Math.floor(Number(durationMonths) || 1));
+  const startMonthKey = isAdvanceBilling(method) ? collectionMonthKey : addMonths(collectionMonthKey, -1);
+  const endMonthKey = addMonths(startMonthKey, months - 1);
+  // Next charge = the month after the covered period ends (e.g. a May–August
+  // term → September), but never earlier than the month after this payment, so
+  // recurring monthly arrears (June pays for May) still bill again in July, not
+  // June. "YYYY-MM" keys compare correctly as strings.
+  const afterPeriod = addMonths(endMonthKey, 1);
+  const afterPayment = addMonths(collectionMonthKey, 1);
+  const nextChargeMonthKey = afterPeriod >= afterPayment ? afterPeriod : afterPayment;
+
+  const monthsCovered: string[] = [];
+  for (let i = 0; i < months; i += 1) {
+    const parsed = parseMonthKey(addMonths(startMonthKey, i));
+    if (parsed) monthsCovered.push(MONTH_NAMES[parsed.month - 1]);
+  }
+
+  const startParsed = parseMonthKey(startMonthKey);
+  const endParsed = parseMonthKey(endMonthKey);
+  const label = months <= 1
+    ? periodLabel(startMonthKey)
+    : (startParsed && endParsed ? `${MONTH_NAMES[startParsed.month - 1]} to ${MONTH_NAMES[endParsed.month - 1]}` : periodLabel(startMonthKey));
+
+  return { startMonthKey, endMonthKey, nextChargeMonthKey, monthsCovered, periodLabel: label };
+};
+
+/** Convenience: compute the billed period from a payment Date instead of a month key. */
+export const computeBillingPeriod = (
+  method: BillingMethod | undefined,
+  paymentDate: Date = new Date(),
+  durationMonths = 1,
+): BillingPeriod => computeBillingPeriodFromMonthKey(monthKeyFor(paymentDate), method, durationMonths);
+
 /** ISO date "YYYY-MM-DD" for the billing day in the given month. */
 export const dueDateFor = (monthKey: string, billingDay: number): string => {
   if (!parseMonthKey(monthKey)) return "";

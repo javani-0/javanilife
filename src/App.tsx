@@ -13,6 +13,7 @@ import Navbar from "./components/Navbar";
 import CartDrawer from "./components/cart/CartDrawer";
 import AccountRoute from "./components/account/AccountRoute";
 import ProtectedRoute from "./components/admin/ProtectedRoute";
+import PartnerRoute from "./components/PartnerRoute";
 import AdminLayout from "./components/admin/AdminLayout";
 import PageLoader from "./components/PageLoader";
 import NotificationPermissionPrompt from "./components/NotificationPermissionPrompt";
@@ -62,8 +63,10 @@ const AdminOrderDetail = lazy(() => import("./pages/admin/AdminOrderDetail"));
 const AdminCustomers = lazy(() => import("./pages/admin/AdminCustomers"));
 const AdminPartners = lazy(() => import("./pages/admin/AdminPartners"));
 const AdminFaculty = lazy(() => import("./pages/admin/AdminFaculty"));
+const AdminFinance = lazy(() => import("./pages/admin/AdminFinance"));
 const AdminSiteSettings = lazy(() => import("./pages/admin/AdminSiteSettings"));
 const AdminDeliverySettings = lazy(() => import("./pages/admin/AdminDeliverySettings"));
+const PartnerDashboard = lazy(() => import("./pages/PartnerDashboard"));
 
 const queryClient = new QueryClient();
 
@@ -90,20 +93,21 @@ const PublicFloatingButtons = () => {
     pathname === "/checkout" ||
     pathname.startsWith("/account") ||
     pathname === "/login" ||
-    pathname === "/signup"
+    pathname === "/signup" ||
+    pathname.startsWith("/partner")
   ) return null;
   return <FloatingButtons />;
 };
 
 const PublicScrollProgress = () => {
   const { pathname } = useLocation();
-  if (pathname.startsWith("/admin")) return null;
+  if (pathname.startsWith("/admin") || pathname.startsWith("/partner")) return null;
   return <ScrollProgressBar />;
 };
 
 const PublicNavbar = () => {
   const { pathname } = useLocation();
-  if (pathname.startsWith("/admin") || pathname === "/login" || pathname === "/signup") return null;
+  if (pathname.startsWith("/admin") || pathname.startsWith("/partner") || pathname === "/login" || pathname === "/signup") return null;
   return <Navbar />;
 };
 
@@ -198,8 +202,10 @@ const App = () => {
                       <Route path="customers" element={<AdminCustomers />} />
                       <Route path="partners" element={<AdminPartners />} />
                       <Route path="faculty" element={<AdminFaculty />} />
+                      <Route path="finance" element={<AdminFinance />} />
                       <Route path="site-settings" element={<AdminSiteSettings />} />
                     </Route>
+                    <Route path="/partner" element={<PartnerRoute><PartnerDashboard /></PartnerRoute>} />
                     <Route path="*" element={<NotFound />} />
                   </Routes>
                 </PageTransition>

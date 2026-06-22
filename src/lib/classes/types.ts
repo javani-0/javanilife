@@ -164,6 +164,12 @@ export interface EnrollmentDoc {
   // Admin-editable next charge/billing date (ISO "YYYY-MM-DD"). Shown to the
   // parent, included in messages, and surfaced in the fee-collection popup.
   nextChargeDate?: string;
+  // The billed period (advance vs. arrears, see feeMath.computeBillingPeriod).
+  // "YYYY-MM" keys — the first and last month this enrolment's fees cover.
+  billingStartMonth?: string;
+  billingEndMonth?: string;
+  // Human label for the billed period, e.g. "May 2026" or "May to August".
+  billingPeriodLabel?: string;
   // True once the parent has pre-paid the first cycle in advance at sign-up.
   advancePaid?: boolean;
   createdAt?: Timestamp;
@@ -193,6 +199,19 @@ export interface FeePaymentDoc {
   dueDate: string;
   status: FeeStatus;
   paymentMethod?: FeePaymentMethod;
+  // The payment rail chosen at enrolment (autopay/manual/full/emi/cash) — drives
+  // the advance-vs-arrears billing period and is shown in the admin popup.
+  paymentPlan?: ClassPaymentMethod;
+  // Chosen batch/time-slot, denormalized onto the fee doc so the admin popup +
+  // parent dashboard always have it even if the enrolment can't be matched.
+  slotId?: string;
+  slotLabel?: string;
+  // Billed period (see feeMath.computeBillingPeriod). "YYYY-MM" keys + a label
+  // like "May 2026" or "May to August", and the next charge date ("YYYY-MM-DD").
+  billingStartMonth?: string;
+  billingEndMonth?: string;
+  billingPeriodLabel?: string;
+  nextChargeDate?: string;
   razorpaySubscriptionId?: string;
   razorpayOrderId?: string;
   razorpayPaymentId?: string;

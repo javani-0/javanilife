@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { deleteDoc, doc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { CLOUDINARY_CLOUD_NAME, CLOUDINARY_UPLOAD_PRESET } from "@/lib/cloudinary";
+import { openSquareCropper } from "@/components/SquareImageCropper";
 import { Plus, Pencil, Trash2, X, Upload, BadgeIndianRupee, AlertTriangle, GraduationCap, CalendarRange, Repeat, Clock } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { formatPaiseAsRupees, parsePriceToPaise } from "@/lib/ecommerce";
@@ -725,10 +726,14 @@ const AdminClasses = () => {
                   </button>
                   <input ref={imageRef} type="file" accept="image/*" hidden onChange={async (event) => {
                     const file = event.target.files?.[0];
+                    event.target.value = "";
                     if (!file) return;
+                    // Enforce 1:1 — crop to square before uploading.
+                    const square = await openSquareCropper(file);
+                    if (!square) return;
                     setImageUploading(true);
                     const formData = new FormData();
-                    formData.append("file", file);
+                    formData.append("file", square);
                     formData.append("upload_preset", CLOUDINARY_UPLOAD_PRESET);
                     try {
                       const response = await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`, { method: "POST", body: formData });

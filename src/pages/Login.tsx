@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { signInWithEmailAndPassword } from "firebase/auth";
-import { auth } from "@/lib/firebase";
+import { doc, getDoc } from "firebase/firestore";
+import { auth, db } from "@/lib/firebase";
 import { Eye, EyeOff, KeyRound, Mail } from "lucide-react";
 import AuthShell from "@/components/auth/AuthShell";
 import PrimaryButton from "@/components/PrimaryButton";
@@ -21,9 +22,17 @@ const Login = () => {
     setError("");
     setLoading(true);
     try {
-      await signInWithEmailAndPassword(auth, email, password);
-      // Redirect to home page after login
-      navigate(redirectPath.startsWith("/") ? redirectPath : "/", { replace: true });
+      const cred = await signInWithEmailAndPassword(auth, email, password);
+      // Partners land on their read-only dashboard; everyone else honours the
+      // redirect param (defaulting to home).
+      let destination = redirectPath.startsWith("/") ? redirectPath : "/";
+      if (destination === "/") {
+        try {
+          const profile = await getDoc(doc(db, "users", cred.user.uid));
+          if (profile.exists() && profile.data().role === "partner") destination = "/partner";
+        } catch { /* fall back to the default destination */ }
+      }
+      navigate(destination, { replace: true });
     } catch (err: any) {
       if (err.code === "auth/user-not-found" || err.code === "auth/invalid-credential") {
         setError("Invalid email or password.");

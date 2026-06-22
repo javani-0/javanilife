@@ -4,8 +4,11 @@ import {
   buildFeePaymentId,
   clampBillingDay,
   collectDueReminders,
+  computeBillingPeriod,
+  computeBillingPeriodFromMonthKey,
   daysUntil,
   dueDateFor,
+  isAdvanceBilling,
   isOverdue,
   monthKeyFor,
   parseMonthKey,
@@ -96,6 +99,60 @@ describe("isOverdue", () => {
     expect(isOverdue("2026-06-04", now)).toBe(true);
     expect(isOverdue("2026-06-05", now)).toBe(false);
     expect(isOverdue("2026-06-06", now)).toBe(false);
+  });
+});
+
+describe("isAdvanceBilling", () => {
+  it("treats only the manual Advance Fee rail as current-month", () => {
+    expect(isAdvanceBilling("manual")).toBe(true);
+    expect(isAdvanceBilling("autopay")).toBe(false);
+    expect(isAdvanceBilling("full")).toBe(false);
+    expect(isAdvanceBilling("emi")).toBe(false);
+    expect(isAdvanceBilling("cash")).toBe(false);
+    expect(isAdvanceBilling(undefined)).toBe(false);
+  });
+});
+
+describe("computeBillingPeriodFromMonthKey", () => {
+  it("advance (manual) bills the current month", () => {
+    const period = computeBillingPeriodFromMonthKey("2026-06", "manual", 1);
+    expect(period.startMonthKey).toBe("2026-06");
+    expect(period.endMonthKey).toBe("2026-06");
+    expect(period.nextChargeMonthKey).toBe("2026-07");
+    expect(period.periodLabel).toBe("June 2026");
+    expect(period.monthsCovered).toEqual(["June"]);
+  });
+
+  it("arrears autopay collected in June bills May, recurs in July", () => {
+    const period = computeBillingPeriodFromMonthKey("2026-06", "autopay", 1);
+    expect(period.startMonthKey).toBe("2026-05");
+    expect(period.endMonthKey).toBe("2026-05");
+    // Monthly arrears: covers May, but the next monthly charge is July (not June).
+    expect(period.nextChargeMonthKey).toBe("2026-07");
+    expect(period.periodLabel).toBe("May 2026");
+  });
+
+  it("a 4-month term collected in June covers May to August, next charge September", () => {
+    const period = computeBillingPeriodFromMonthKey("2026-06", "full", 4);
+    expect(period.startMonthKey).toBe("2026-05");
+    expect(period.endMonthKey).toBe("2026-08");
+    expect(period.nextChargeMonthKey).toBe("2026-09");
+    expect(period.periodLabel).toBe("May to August");
+    expect(period.monthsCovered).toEqual(["May", "June", "July", "August"]);
+  });
+
+  it("rolls the arrears shift across a year boundary", () => {
+    const period = computeBillingPeriodFromMonthKey("2026-01", "cash", 1);
+    expect(period.startMonthKey).toBe("2025-12");
+    // Covers December, next monthly charge is February.
+    expect(period.nextChargeMonthKey).toBe("2026-02");
+  });
+});
+
+describe("computeBillingPeriod", () => {
+  it("derives the period from a payment Date", () => {
+    const period = computeBillingPeriod("autopay", new Date("2026-06-15T10:00:00Z"), 1);
+    expect(period.startMonthKey).toBe("2026-05");
   });
 });
 

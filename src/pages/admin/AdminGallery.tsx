@@ -5,6 +5,7 @@ import { CLOUDINARY_CLOUD_NAME, CLOUDINARY_UPLOAD_PRESET } from "@/lib/cloudinar
 import { Upload, Trash2, Image as ImageIcon, AlertTriangle, Link as LinkIcon } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Progress } from "@/components/ui/progress";
+import { openSquareCropper } from "@/components/SquareImageCropper";
 
 interface GalleryItem {
   id: string;
@@ -45,11 +46,18 @@ const AdminGallery = () => {
     return unsub;
   }, []);
 
-  const handleFiles = (files: FileList | null) => {
+  const handleFiles = async (files: FileList | null) => {
     if (!files) return;
     const arr = Array.from(files).filter((f) => f.type.startsWith("image/"));
-    setPreviewFiles(arr);
-    setPreviews(arr.map((f) => URL.createObjectURL(f)));
+    // Enforce 1:1 — crop each selected image to square before previewing.
+    const squares: File[] = [];
+    for (const f of arr) {
+      const square = await openSquareCropper(f);
+      if (square) squares.push(square);
+    }
+    if (squares.length === 0) return;
+    setPreviewFiles(squares);
+    setPreviews(squares.map((f) => URL.createObjectURL(f)));
   };
 
   const uploadAll = async () => {
@@ -172,7 +180,7 @@ const AdminGallery = () => {
           >
             <Upload className="w-8 h-8 text-gold mx-auto mb-2" />
             <p className="font-body text-[0.9rem] text-muted-foreground">Drag & drop images or click to browse</p>
-            <input ref={fileRef} type="file" accept="image/*" multiple hidden onChange={(e) => handleFiles(e.target.files)} />
+            <input ref={fileRef} type="file" accept="image/*" multiple hidden onChange={(e) => { handleFiles(e.target.files); e.target.value = ""; }} />
           </div>
           <div className="space-y-3">
             <div>

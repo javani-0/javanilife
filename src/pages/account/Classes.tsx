@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { CalendarClock, GraduationCap, Loader2, Repeat, Wallet, XCircle } from "lucide-react";
+import { CalendarClock, Clock, GraduationCap, Loader2, Repeat, Wallet, XCircle } from "lucide-react";
 import AccountLayout from "@/components/account/AccountLayout";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
@@ -155,14 +155,20 @@ const Classes = () => {
                   </div>
                 </div>
 
-                {/* Term span + next charge date */}
+                {/* Batch (class timing) + billed period + next charge date */}
                 {(() => {
-                  const range = enrollment.feeType === "term" ? formatMonthRange(enrollment.termStartDate, enrollment.termEndDate) : "";
+                  const batch = enrollment.slotLabel || "";
+                  // Show the fixed course range only for terms; monthly cycles
+                  // change each month, so those are read from the history below.
+                  const billingPeriod = enrollment.feeType === "term"
+                    ? (enrollment.billingPeriodLabel || formatMonthRange(enrollment.billingStartMonth || enrollment.termStartDate, enrollment.billingEndMonth || enrollment.termEndDate))
+                    : "";
                   const nextCharge = enrollment.nextChargeDate ? formatNiceDate(enrollment.nextChargeDate) : "";
-                  if (!range && !nextCharge) return null;
+                  if (!batch && !billingPeriod && !nextCharge) return null;
                   return (
                     <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1.5 font-body text-xs text-muted-foreground">
-                      {range && <span className="flex items-center gap-1.5"><CalendarClock className="h-3.5 w-3.5 text-gold" /> Course months: <span className="font-semibold text-foreground">{range}</span></span>}
+                      {batch && <span className="flex items-center gap-1.5"><Clock className="h-3.5 w-3.5 text-gold" /> Class timing: <span className="font-semibold text-foreground">{batch}</span></span>}
+                      {billingPeriod && <span className="flex items-center gap-1.5"><CalendarClock className="h-3.5 w-3.5 text-gold" /> Billing period: <span className="font-semibold text-foreground">{billingPeriod}</span></span>}
                       {nextCharge && <span className="flex items-center gap-1.5"><CalendarClock className="h-3.5 w-3.5 text-gold" /> Next charge: <span className="font-semibold text-foreground">{nextCharge}</span></span>}
                     </div>
                   );

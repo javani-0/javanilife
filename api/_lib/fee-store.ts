@@ -3,7 +3,7 @@
 // the webhook, the cron, and api/classes/notify.
 // ---------------------------------------------------------------------------
 import { FieldValue } from "./firebase-admin.js";
-import { buildFeePaymentId, clampBillingDay, dueDateFor, periodLabel } from "./class-fees.js";
+import { buildFeePaymentId, clampBillingDay, computeBillingPeriodFromMonthKey, dueDateFor, periodLabel } from "./class-fees.js";
 import type { ClassFeeNotificationContext } from "./notify.js";
 
 type Firestore = FirebaseFirestore.Firestore;
@@ -44,7 +44,13 @@ export interface EnrollmentRecord {
   installmentPlan?: { installments?: TermInstallment[] };
   // Slot booking.
   slotId?: string;
+  slotLabel?: string;
   seatCounted?: boolean;
+  // Billed period + next charge (computed at enrolment; see class-fees.ts).
+  billingStartMonth?: string;
+  billingEndMonth?: string;
+  billingPeriodLabel?: string;
+  nextChargeDate?: string;
 }
 
 export const CLASSES_COLLECTION = "classes";
@@ -117,9 +123,24 @@ export interface FeePaymentRecord {
   reminders?: { preDebitSentAt?: string; preDebitMonthKey?: string; count?: number };
 }
 
-/** Denormalized base fields for a fee doc derived from an enrollment + month. */
+/**
+ * Batch + payment-plan fields denormalized onto every fee doc so the admin
+ * popup + parent dashboard always have the batch/plan even when the live
+ * enrolment can't be matched (the original "batch missing for today's payments"
+ * bug). `slotLabel` falls back to empty string (never undefined — Firestore
+ * rejects undefined).
+ */
+const slotAndPlanFields = (enrollment: EnrollmentRecord) => ({
+  paymentPlan: getString(enrollment.paymentPlan),
+  slotId: getString(enrollment.slotId),
+  slotLabel: getString(enrollment.slotLabel),
+});
+
+/** Denormalized base fields for a monthly fee doc derived from an enrollment + month. */
 export const buildFeePaymentSeed = (enrollment: EnrollmentRecord, monthKey: string) => {
   const billingDay = clampBillingDay(toNumber(enrollment.billingDayOfMonth, 5));
+  // Monthly fee → 1-month period, shifted to arrears unless it's the Advance Fee rail.
+  const billing = computeBillingPeriodFromMonthKey(monthKey, enrollment.paymentPlan, 1);
   return {
     enrollmentId: enrollment.id,
     classId: getString(enrollment.classId),
@@ -128,9 +149,16 @@ export const buildFeePaymentSeed = (enrollment: EnrollmentRecord, monthKey: stri
     studentName: getString(enrollment.student?.name),
     parentName: getString(enrollment.parent?.name),
     parentPhone: getString(enrollment.parent?.whatsappNumber) || getString(enrollment.parent?.phone),
+    ...slotAndPlanFields(enrollment),
     monthKey,
-    periodLabel: periodLabel(monthKey),
+    // periodLabel reflects the *billed* month (arrears-shifted), shown to parents.
+    periodLabel: billing.periodLabel,
+    billingPeriodLabel: billing.periodLabel,
+    billingStartMonth: billing.startMonthKey,
+    billingEndMonth: billing.endMonthKey,
+    nextChargeDate: dueDateFor(billing.nextChargeMonthKey, billingDay),
     amountInPaise: Math.max(0, Math.round(toNumber(enrollment.monthlyFeeInPaise))),
+    // dueDate stays the *collection* month (when payment is expected).
     dueDate: dueDateFor(monthKey, billingDay),
   };
 };
@@ -191,8 +219,14 @@ export const ensureCustomFeePayment = async (
   const monthKey = (params.dueDate || "").slice(0, 7);
   const seed = {
     ...feeIdentity(enrollment),
+    ...slotAndPlanFields(enrollment),
     monthKey,
     periodLabel: params.periodLabel,
+    // Term billed period ("May to August") + next charge were computed at enrolment.
+    billingPeriodLabel: getString(enrollment.billingPeriodLabel),
+    billingStartMonth: getString(enrollment.billingStartMonth),
+    billingEndMonth: getString(enrollment.billingEndMonth),
+    nextChargeDate: getString(enrollment.nextChargeDate),
     amountInPaise: Math.max(0, Math.round(toNumber(params.amountInPaise))),
     dueDate: params.dueDate,
     status: "pending",
@@ -244,4 +278,9 @@ export const notificationContextFromFee = (
   amountInPaise: Math.max(0, Math.round(toNumber(fee.amountInPaise))),
   monthLabel: getString(fee.periodLabel) || periodLabel(getString(fee.monthKey)),
   dueDate: getString(fee.dueDate),
+  // Enriched payment details (batch + billed period + next charge) for the
+  // post-payment message + web push (client-confirmed: in-app + push now).
+  slotLabel: getString(fee.slotLabel),
+  billingPeriodLabel: getString(fee.billingPeriodLabel) || getString(fee.periodLabel),
+  nextChargeDate: getString(fee.nextChargeDate),
 });

@@ -15,11 +15,13 @@ import {
   AUTOPAY_AFA_CAP_IN_PAISE,
   buildClassEmiPlan,
   classTracks,
+  computeBillingPeriod,
   confirmSubscription,
   createEnrollment,
   createSubscription,
   DEFAULT_CLASS_EMI_CONFIG,
   deleteEnrollment,
+  dueDateFor,
   getAutopayFeeInPaise,
   getAutopayFeeLabel,
   formatNiceDate,
@@ -179,12 +181,14 @@ const ClassDetail = () => {
         ? getAutopayFeeInPaise(classDoc)
         : classDoc.monthlyFeeInPaise;
 
-      // A sensible default next charge date the admin can later adjust: the
-      // course start for term enrolments, else the 1st of next month (monthly
-      // billing now runs 1st-to-month-end).
-      const now = new Date();
-      const firstOfNextMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1)).toISOString().slice(0, 10);
-      const defaultNextCharge = isTerm ? (classDoc.startDate || "") : firstOfNextMonth;
+      // Advance vs. arrears billing period (client-confirmed rule): "manual"
+      // (Advance Fee) pre-pays the current month; every other rail is arrears
+      // (start = previous month). Term courses span their full duration, so a
+      // 4-month term paid in June (arrears) covers "May to August" and the next
+      // charge falls in September. The admin can still adjust nextChargeDate.
+      const durationMonths = isTerm ? Math.max(1, classDoc.durationMonths || 1) : 1;
+      const billing = computeBillingPeriod(method, new Date(), durationMonths);
+      const defaultNextCharge = dueDateFor(billing.nextChargeMonthKey, classDoc.billingDayOfMonth);
 
       enrollmentId = await createEnrollment({
         parentUserId: user.uid,
@@ -208,6 +212,9 @@ const ClassDetail = () => {
         termStartDate: isTerm ? classDoc.startDate : undefined,
         termEndDate: isTerm ? classDoc.endDate : undefined,
         nextChargeDate: defaultNextCharge || undefined,
+        billingStartMonth: billing.startMonthKey,
+        billingEndMonth: billing.endMonthKey,
+        billingPeriodLabel: billing.periodLabel,
         // "Advance Fee" = the manual monthly option pays this cycle upfront.
         advancePaid: method === "manual" ? true : undefined,
         emi: method === "emi" ? emiConfig : undefined,

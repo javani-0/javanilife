@@ -80,6 +80,9 @@ export const normalizeEnrollment = (id: string, data: DocumentData = {}): Enroll
     termStartDate: typeof data.termStartDate === "string" ? data.termStartDate : undefined,
     termEndDate: typeof data.termEndDate === "string" ? data.termEndDate : undefined,
     nextChargeDate: typeof data.nextChargeDate === "string" ? data.nextChargeDate : undefined,
+    billingStartMonth: typeof data.billingStartMonth === "string" ? data.billingStartMonth : undefined,
+    billingEndMonth: typeof data.billingEndMonth === "string" ? data.billingEndMonth : undefined,
+    billingPeriodLabel: typeof data.billingPeriodLabel === "string" ? data.billingPeriodLabel : undefined,
     advancePaid: data.advancePaid === true ? true : undefined,
     emi: data.emi && typeof data.emi === "object" ? (data.emi as ClassEmiConfig) : undefined,
     installmentPlan: data.installmentPlan && typeof data.installmentPlan === "object"
@@ -113,6 +116,10 @@ export interface CreateEnrollmentInput {
   installmentPlan?: CourseInstallmentPlan;
   // Next billing/charge date (ISO "YYYY-MM-DD") to show the parent up front.
   nextChargeDate?: string;
+  // Billed period (advance vs. arrears) computed at enrolment. "YYYY-MM" keys.
+  billingStartMonth?: string;
+  billingEndMonth?: string;
+  billingPeriodLabel?: string;
   // The parent pre-paid the first cycle at sign-up.
   advancePaid?: boolean;
 }
@@ -152,6 +159,9 @@ export const createEnrollment = async (input: CreateEnrollmentInput): Promise<st
   if (input.slotId) docData.slotId = input.slotId;
   if (input.slotLabel) docData.slotLabel = input.slotLabel;
   if (input.nextChargeDate) docData.nextChargeDate = input.nextChargeDate;
+  if (input.billingStartMonth) docData.billingStartMonth = input.billingStartMonth;
+  if (input.billingEndMonth) docData.billingEndMonth = input.billingEndMonth;
+  if (input.billingPeriodLabel) docData.billingPeriodLabel = input.billingPeriodLabel;
   if (input.advancePaid) docData.advancePaid = true;
   if (isTerm) {
     docData.termFeeInPaise = Math.max(0, Math.round(input.termFeeInPaise || 0));

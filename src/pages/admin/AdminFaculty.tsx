@@ -42,6 +42,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Progress } from "@/components/ui/progress";
+import { openSquareCropper } from "@/components/SquareImageCropper";
 
 const AdminFaculty = () => {
   const [faculty, setFaculty] = useState<Faculty[]>([]);
@@ -126,8 +127,9 @@ const AdminFaculty = () => {
   };
 
   // Handle image file selection
-  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    e.target.value = "";
     if (!file) return;
 
     if (!file.type.startsWith("image/")) {
@@ -149,8 +151,12 @@ const AdminFaculty = () => {
       return;
     }
 
-    setImageFile(file);
-    setImagePreview(URL.createObjectURL(file));
+    // Enforce 1:1 — crop to square before accepting the file.
+    const square = await openSquareCropper(file);
+    if (!square) return;
+
+    setImageFile(square);
+    setImagePreview(URL.createObjectURL(square));
   };
 
   // Validate form before submission

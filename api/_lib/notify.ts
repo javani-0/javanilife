@@ -121,7 +121,30 @@ export interface ClassFeeNotificationContext {
   amountInPaise: number;
   monthLabel: string;
   dueDate?: string;
+  // Enriched payment details for parent transparency (batch + billed period +
+  // next charge). Filled by notificationContextFromFee; optional for callers.
+  slotLabel?: string;
+  billingPeriodLabel?: string;
+  nextChargeDate?: string;
 }
+
+/** "5 Sep 2026" → friendly date for a "YYYY-MM-DD" string (or "" if unparseable). */
+const niceDate = (iso?: string): string => {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || "");
+  if (!match) return "";
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  return `${Number(match[3])} ${months[Number(match[2]) - 1]} ${match[1]}`;
+};
+
+/** Build the extra "Batch · Covers · Next charge" suffix for push/in-app bodies. */
+const paymentDetailSuffix = (ctx: ClassFeeNotificationContext): string => {
+  const parts: string[] = [];
+  if (ctx.slotLabel) parts.push(`Batch: ${ctx.slotLabel}`);
+  if (ctx.billingPeriodLabel) parts.push(`Covers: ${ctx.billingPeriodLabel}`);
+  const next = niceDate(ctx.nextChargeDate);
+  if (next) parts.push(`Next charge: ${next}`);
+  return parts.length ? ` ${parts.join(" · ")}.` : "";
+};
 
 const settle = (result: PromiseSettledResult<unknown>) => (
   result.status === "fulfilled"
@@ -152,8 +175,8 @@ export const sendClassFeeNotifications = async (
       adminNumber
         ? sendWhatsAppTemplate({ to: adminNumber, templateName: classFeePaidAdminTemplate(), languageCode: templateLanguage(), params: [ctx.studentName, ctx.className, amount, ctx.monthLabel, ctx.parentName], urlSuffix: ctx.feePaymentId })
         : Promise.resolve({ status: "skipped", errorMessage: "Admin WhatsApp number missing." }),
-      (async () => sendWebPush({ tokens: await parentTokensPromise, title: "Fee received", body: `₹${amount} received for ${ctx.studentName}'s ${ctx.className} (${ctx.monthLabel}).`, link, data: { feePaymentId: ctx.feePaymentId, type: "class-fee-paid", audience: "parent" } }))(),
-      (async () => sendWebPush({ tokens: await collectAdminTokens(), title: "Class fee paid", body: `${ctx.studentName} · ${ctx.className} · ₹${amount} · ${ctx.monthLabel} · ${ctx.parentName}.`, link: "/admin/fee-collections", data: { feePaymentId: ctx.feePaymentId, type: "class-fee-paid", audience: "admin" } }))(),
+      (async () => sendWebPush({ tokens: await parentTokensPromise, title: "Fee received", body: `₹${amount} received for ${ctx.studentName}'s ${ctx.className} (${ctx.billingPeriodLabel || ctx.monthLabel}).${paymentDetailSuffix(ctx)}`, link, data: { feePaymentId: ctx.feePaymentId, type: "class-fee-paid", audience: "parent" } }))(),
+      (async () => sendWebPush({ tokens: await collectAdminTokens(), title: "Class fee paid", body: `${ctx.studentName} · ${ctx.className} · ₹${amount} · ${ctx.billingPeriodLabel || ctx.monthLabel} · ${ctx.parentName}.${paymentDetailSuffix(ctx)}`, link: "/admin/fee-collections", data: { feePaymentId: ctx.feePaymentId, type: "class-fee-paid", audience: "admin" } }))(),
     ]);
     return { parentWhatsApp: settle(parentWhatsApp), adminWhatsApp: settle(adminWhatsApp), parentPush: settle(parentPush), adminPush: settle(adminPush) };
   }

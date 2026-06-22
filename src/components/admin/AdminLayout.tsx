@@ -5,7 +5,7 @@ import {
   LayoutDashboard, ClipboardList, BookOpen, Image, ShoppingBag, Users,
   Handshake, SlidersHorizontal, LogOut, Menu, X, PackageCheck,
   ChevronLeft, ChevronRight, TicketPercent, Truck,
-  GraduationCap, UserCheck, Wallet,
+  GraduationCap, UserCheck, Wallet, PiggyBank,
 } from "lucide-react";
 import logoWhite from "@/assets/logo-white.png";
 
@@ -22,6 +22,7 @@ const navItems = [
   { label: "Delivery Settings", icon: Truck, path: "/admin/delivery-settings" },
   { label: "Orders Manager", icon: PackageCheck, path: "/admin/orders" },
   { label: "Customers", icon: Users, path: "/admin/customers" },
+  { label: "Finance", icon: PiggyBank, path: "/admin/finance" },
   { label: "Partners Manager", icon: Handshake, path: "/admin/partners" },
   { label: "Faculty Manager", icon: Users, path: "/admin/faculty" },
   { label: "Site Settings", icon: SlidersHorizontal, path: "/admin/site-settings" },

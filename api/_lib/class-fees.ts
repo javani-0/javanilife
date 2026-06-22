@@ -53,6 +53,57 @@ export const dueDateFor = (monthKey: string, billingDay: number): string => {
   return `${monthKey}-${pad2(clampBillingDay(billingDay))}`;
 };
 
+// ---------------------------------------------------------------------------
+// Advance vs. arrears billing period — server mirror of the client helper in
+// src/lib/classes/feeMath.ts (which carries the unit tests). Keep in sync.
+// "manual" = Advance Fee → current month; every other rail bills in arrears.
+// ---------------------------------------------------------------------------
+
+export const isAdvanceBilling = (method?: string): boolean => method === "manual";
+
+export interface BillingPeriod {
+  startMonthKey: string;
+  endMonthKey: string;
+  nextChargeMonthKey: string;
+  monthsCovered: string[];
+  periodLabel: string;
+}
+
+export const computeBillingPeriodFromMonthKey = (
+  collectionMonthKey: string,
+  method: string | undefined,
+  durationMonths = 1,
+): BillingPeriod => {
+  const months = Math.max(1, Math.floor(Number(durationMonths) || 1));
+  const startMonthKey = isAdvanceBilling(method) ? collectionMonthKey : addMonths(collectionMonthKey, -1);
+  const endMonthKey = addMonths(startMonthKey, months - 1);
+  // Next charge = month after the covered period, but never earlier than the
+  // month after this payment (so monthly arrears billed in June recur in July).
+  const afterPeriod = addMonths(endMonthKey, 1);
+  const afterPayment = addMonths(collectionMonthKey, 1);
+  const nextChargeMonthKey = afterPeriod >= afterPayment ? afterPeriod : afterPayment;
+
+  const monthsCovered: string[] = [];
+  for (let i = 0; i < months; i += 1) {
+    const parsed = parseMonthKey(addMonths(startMonthKey, i));
+    if (parsed) monthsCovered.push(MONTH_NAMES[parsed.month - 1]);
+  }
+
+  const startParsed = parseMonthKey(startMonthKey);
+  const endParsed = parseMonthKey(endMonthKey);
+  const label = months <= 1
+    ? periodLabel(startMonthKey)
+    : (startParsed && endParsed ? `${MONTH_NAMES[startParsed.month - 1]} to ${MONTH_NAMES[endParsed.month - 1]}` : periodLabel(startMonthKey));
+
+  return { startMonthKey, endMonthKey, nextChargeMonthKey, monthsCovered, periodLabel: label };
+};
+
+export const computeBillingPeriod = (
+  method: string | undefined,
+  paymentDate: Date = new Date(),
+  durationMonths = 1,
+): BillingPeriod => computeBillingPeriodFromMonthKey(monthKeyFor(paymentDate), method, durationMonths);
+
 export const buildFeePaymentId = (enrollmentId: string, monthKey: string): string => `${enrollmentId}_${monthKey}`;
 
 /**

@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { collection, onSnapshot, addDoc, deleteDoc, doc, serverTimestamp, updateDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { CLOUDINARY_CLOUD_NAME, CLOUDINARY_UPLOAD_PRESET } from "@/lib/cloudinary";
+import { openSquareCropper } from "@/components/SquareImageCropper";
 import { Upload, Trash2, Edit2, Save, X, Link2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Progress } from "@/components/ui/progress";
@@ -53,17 +54,22 @@ const AdminPartners = () => {
     return unsub;
   }, [toast]);
 
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    e.target.value = ""; // allow re-selecting the same file after a cancel
     if (!file) return;
-    
+
     if (!file.type.startsWith("image/")) {
       toast({ title: "Invalid File", description: "Please select an image file", variant: "destructive" });
       return;
     }
 
-    setSelectedFile(file);
-    setPreview(URL.createObjectURL(file));
+    // Enforce 1:1 — crop to square before accepting the file.
+    const square = await openSquareCropper(file);
+    if (!square) return;
+
+    setSelectedFile(square);
+    setPreview(URL.createObjectURL(square));
   };
 
   const uploadPartner = async () => {
@@ -180,17 +186,21 @@ const AdminPartners = () => {
     setEditUrlPreview("");
   };
 
-  const handleEditFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleEditFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    e.target.value = "";
     if (!file) return;
-    
+
     if (!file.type.startsWith("image/")) {
       toast({ title: "Invalid File", description: "Please select an image file", variant: "destructive" });
       return;
     }
 
-    setEditFile(file);
-    setEditFilePreview(URL.createObjectURL(file));
+    const square = await openSquareCropper(file);
+    if (!square) return;
+
+    setEditFile(square);
+    setEditFilePreview(URL.createObjectURL(square));
   };
 
   const saveEdit = async (partnerId: string) => {
