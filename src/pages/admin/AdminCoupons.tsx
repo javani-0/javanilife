@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { deleteDoc, doc, serverTimestamp, setDoc } from "firebase/firestore";
 import { BadgeIndianRupee, Gift, Percent, Plus, TicketPercent, Trash2 } from "lucide-react";
 import { useCoupons } from "@/hooks/useCoupons";
+import { useProductCategories, useCourseCategories } from "@/hooks/useManagedCategories";
 import { useToast } from "@/hooks/use-toast";
 import { db } from "@/lib/firebase";
 import {
@@ -90,7 +91,20 @@ const getCouponValueInStoreUnits = (form: CouponFormState) => {
 
 const AdminCoupons = () => {
   const { coupons, loading } = useCoupons();
+  const { categories: productCategories } = useProductCategories();
+  const { categories: courseCategories } = useCourseCategories();
   const { toast } = useToast();
+
+  // Available category ids (with labels) so admins pick a valid id for a
+  // category-scoped coupon instead of guessing — the cause of the category
+  // coupon "not triggering" bug. Matching is also slug-tolerant server/client side.
+  const categoryHints = useMemo(() => {
+    const seen = new Map<string, string>();
+    [...productCategories, ...courseCategories].forEach((category) => {
+      if (category.id && !seen.has(category.id)) seen.set(category.id, category.label || category.id);
+    });
+    return Array.from(seen.entries());
+  }, [productCategories, courseCategories]);
   const [form, setForm] = useState<CouponFormState>(emptyForm);
   const [editingCode, setEditingCode] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -261,7 +275,15 @@ const AdminCoupons = () => {
               </select>
             </label>
             <label className={labelClass}>Category IDs
-              <input value={form.applicableCategoryIds} onChange={(event) => setForm({ ...form, applicableCategoryIds: event.target.value })} className={inputClass} placeholder="Optional, comma-separated" />
+              <input list="coupon-category-ids" value={form.applicableCategoryIds} onChange={(event) => setForm({ ...form, applicableCategoryIds: event.target.value })} className={inputClass} placeholder="e.g. clothing, books — comma-separated" />
+              <datalist id="coupon-category-ids">
+                {categoryHints.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+              </datalist>
+              {categoryHints.length > 0 && (
+                <span className="mt-1 block font-body text-[0.68rem] font-normal text-muted-foreground">
+                  Available: {categoryHints.map(([id]) => id).join(", ")}
+                </span>
+              )}
             </label>
             <label className={labelClass}>Product/Course IDs
               <input value={form.applicableProductIds} onChange={(event) => setForm({ ...form, applicableProductIds: event.target.value })} className={inputClass} placeholder="Optional, comma-separated" />

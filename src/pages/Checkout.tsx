@@ -381,7 +381,6 @@ const Checkout = () => {
     discount: calculateCouponDiscount(coupon, couponContext),
   })), [checkoutCoupons, couponContext]);
   const paymentEligibility = useMemo(() => getAllowedPaymentMethodsForCart(items), [items]);
-  const allowedPaymentMethodsKey = paymentEligibility.allowedMethods.join("|");
   const hasCourseItems = useMemo(() => items.some((item) => item.itemType === "course"), [items]);
   const hasShippableItems = useMemo(() => items.some((item) => item.itemType !== "course"), [items]);
   const courseInstallmentEligibility = useMemo(
@@ -397,8 +396,17 @@ const Checkout = () => {
     () => getEmiPayNowAmount({ paymentPlan: selectedCoursePaymentPlan, totalInPaise: checkoutTotals.totalInPaise, emiSettings }),
     [checkoutTotals.totalInPaise, emiSettings, selectedCoursePaymentPlan],
   );
-  const codAvailable = paymentEligibility.allowedMethods.includes("cod");
+  const isStorePickup = hasShippableItems && deliveryMethod === "store-pickup";
   const onlineAvailable = paymentEligibility.allowedMethods.includes("razorpay");
+  // Cash is available either as Cash-on-Delivery (item-gated, for shipping) OR as
+  // Cash Collection at the store for a product-only pickup. In-person cash is
+  // always acceptable, so it's offered even for products marked online-only for
+  // shipping (that flag is about delivery/COD risk, not in-store collection).
+  const codAvailable = isStorePickup ? !hasCourseItems : paymentEligibility.allowedMethods.includes("cod");
+  const effectiveAllowedMethods = useMemo<PaymentMethod[]>(() => [
+    ...(onlineAvailable ? ["razorpay" as PaymentMethod] : []),
+    ...(codAvailable ? ["cod" as PaymentMethod] : []),
+  ], [codAvailable, onlineAvailable]);
   const activeCheckoutSteps = useMemo(() => checkoutSteps.map((step) => (
     step.label === "Details"
       ? { ...step, description: hasShippableItems ? "Delivery details" : "Enrollment details" }
@@ -415,10 +423,10 @@ const Checkout = () => {
 
   useEffect(() => {
     if (items.length === 0) return;
-    if (!paymentEligibility.allowedMethods.includes(paymentMethod)) {
-      setPaymentMethod(paymentEligibility.allowedMethods[0] || "razorpay");
+    if (!effectiveAllowedMethods.includes(paymentMethod)) {
+      setPaymentMethod(effectiveAllowedMethods[0] || "razorpay");
     }
-  }, [allowedPaymentMethodsKey, items.length, paymentEligibility.allowedMethods, paymentMethod]);
+  }, [effectiveAllowedMethods, items.length, paymentMethod]);
 
   useEffect(() => {
     if (!courseInstallmentEligibility.eligible && coursePaymentPlan === "installment") {
@@ -510,8 +518,12 @@ const Checkout = () => {
       return;
     }
 
-    if (paymentEligibility.blockingReason || !paymentEligibility.allowedMethods.includes(paymentMethod)) {
-      setFormError(paymentEligibility.blockingReason || "Please choose an available payment method for this cart.");
+    if (effectiveAllowedMethods.length === 0 || !effectiveAllowedMethods.includes(paymentMethod)) {
+      setFormError(
+        effectiveAllowedMethods.length === 0
+          ? (paymentEligibility.blockingReason || "No payment method is available for this cart.")
+          : "Please choose an available payment method for this cart.",
+      );
       return;
     }
 
@@ -536,7 +548,7 @@ const Checkout = () => {
     const payNowAmountInPaise = paymentMethod === "razorpay" ? onlinePaymentAmountInPaise : checkoutTotals.totalInPaise;
     const paymentLabel = paymentMethod === "razorpay"
       ? paymentPlan === "installment" ? `Razorpay EMI (${emiSettings.upfrontPercentage}%)` : "Razorpay Online"
-      : "Cash on Delivery";
+      : isStorePickup ? "Cash Collection (Pay at Store)" : "Cash on Delivery";
     const orderCreatedAt = new Date();
     const installmentPlan = paymentMethod === "razorpay" && paymentPlan === "installment"
       ? createEmiInstallmentPlan({ totalInPaise: checkoutTotals.totalInPaise, createdAt: orderCreatedAt, emiSettings })
@@ -615,7 +627,7 @@ const Checkout = () => {
             label: "Order placed",
             note: paymentMethod === "razorpay"
               ? paymentPlan === "installment" ? "Customer selected course installment payment." : "Customer selected Razorpay online payment."
-              : "Customer selected Cash on Delivery.",
+              : isStorePickup ? "Customer selected Cash Collection (pay at store on pickup)." : "Customer selected Cash on Delivery.",
             createdAt: orderCreatedAt.toISOString(),
             createdBy: user.uid,
           },
@@ -1158,8 +1170,8 @@ const Checkout = () => {
                   {hasShippableItems && (
                     <label className={`cursor-pointer rounded-xl border p-4 transition-colors ${paymentMethod === "cod" ? "border-gold bg-gold/10" : "border-border bg-background/70 hover:border-gold/50"} ${!codAvailable ? "cursor-not-allowed opacity-50" : ""}`}>
                       <input type="radio" name="paymentMethod" value="cod" checked={paymentMethod === "cod"} onChange={() => codAvailable && setPaymentMethod("cod")} disabled={!codAvailable} className="sr-only" />
-                      <span className="font-body text-sm font-bold text-foreground">Cash on Delivery</span>
-                      <span className="mt-2 block font-body text-xs leading-relaxed text-muted-foreground">{codAvailable ? "Place the order now and collect payment at delivery." : paymentEligibility.codUnavailableReason || "COD is unavailable for this cart."}</span>
+                      <span className="font-body text-sm font-bold text-foreground">{isStorePickup ? "Cash Collection (Pay at Store)" : "Cash on Delivery"}</span>
+                      <span className="mt-2 block font-body text-xs leading-relaxed text-muted-foreground">{codAvailable ? (isStorePickup ? "Reserve your order now and pay in cash when you collect it at our store." : "Place the order now and collect payment at delivery.") : paymentEligibility.codUnavailableReason || "COD is unavailable for this cart."}</span>
                     </label>
                   )}
                   <label className={`cursor-pointer rounded-xl border p-4 transition-colors ${paymentMethod === "razorpay" ? "border-gold bg-gold/10" : "border-border bg-background/70 hover:border-gold/50"} ${!onlineAvailable ? "cursor-not-allowed opacity-50" : ""}`}>
@@ -1197,7 +1209,7 @@ const Checkout = () => {
                     )}
                   </div>
                 )}
-                {paymentEligibility.blockingReason && <p className="mt-3 rounded-xl border border-destructive/25 bg-destructive/10 p-3 font-body text-sm text-destructive">{paymentEligibility.blockingReason}</p>}
+                {effectiveAllowedMethods.length === 0 && paymentEligibility.blockingReason && <p className="mt-3 rounded-xl border border-destructive/25 bg-destructive/10 p-3 font-body text-sm text-destructive">{paymentEligibility.blockingReason}</p>}
               </div>
             </section>
 

@@ -1,4 +1,5 @@
 import { calculateLineTotal, formatPaiseAsRupees, parsePriceToPaise } from "./pricing";
+import { slugifyCategoryId } from "./categories";
 import type { CartItem, CartItemType } from "./types";
 
 export type CouponType = "percentage" | "fixed_amount" | "free_delivery";
@@ -144,7 +145,14 @@ export const isCouponActive = (coupon: Coupon, now = new Date()): boolean => {
 const itemMatchesCouponScope = (coupon: Coupon, item: CouponCartContext["items"][number]) => {
   if (coupon.applicableItemTypes?.length && !coupon.applicableItemTypes.includes(item.itemType || "product")) return false;
 
-  if (coupon.applicableCategoryIds?.length && !coupon.applicableCategoryIds.includes(item.category)) return false;
+  if (coupon.applicableCategoryIds?.length) {
+    // Categories are stored on products as a slug id (e.g. "masterclass-and-workshops").
+    // Slugify BOTH sides so an admin can enter the category id, its label, or any
+    // casing/spacing in the coupon and it still matches the item's stored category.
+    const itemCategory = slugifyCategoryId(item.category || "");
+    const allowedCategories = coupon.applicableCategoryIds.map((value) => slugifyCategoryId(value));
+    if (!allowedCategories.includes(itemCategory)) return false;
+  }
 
   if (coupon.applicableProductIds?.length) {
     const identifiers = [item.productId, item.sourceId].filter(Boolean);

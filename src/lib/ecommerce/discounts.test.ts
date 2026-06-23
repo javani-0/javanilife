@@ -109,6 +109,38 @@ describe("discount helpers", () => {
     expect(category).toEqual({ eligible: false, reason: "This coupon is not valid for the items in your cart." });
   });
 
+  it("applies a category-scoped coupon to matching items", () => {
+    const discount = calculateCouponDiscount(
+      { ...baseCoupon, applicableCategoryIds: ["clothing"] },
+      { items: [productItem], subtotalInPaise: 200000, deliveryChargeInPaise: 7000 },
+    );
+    expect(discount.discountInPaise).toBe(20000); // 10% of the clothing line total
+  });
+
+  it("matches category coupons by label, casing, or spacing (slug-tolerant)", () => {
+    const masterclassItem: CartItem = {
+      ...productItem,
+      category: "masterclass-and-workshops",
+      categoryLabel: "Masterclass & Workshops",
+    };
+    for (const entered of ["Masterclass & Workshops", "MASTERCLASS-AND-WORKSHOPS", "  masterclass and workshops  "]) {
+      const result = evaluateCouponEligibility(
+        { ...baseCoupon, applicableCategoryIds: [entered] },
+        { items: [masterclassItem], subtotalInPaise: 200000, deliveryChargeInPaise: 7000 },
+      );
+      expect(result.eligible).toBe(true);
+    }
+  });
+
+  it("only discounts items in the coupon's category within a mixed cart", () => {
+    const discount = calculateCouponDiscount(
+      { ...baseCoupon, applicableCategoryIds: ["clothing"] },
+      { items: [productItem, courseItem], subtotalInPaise: 700000, deliveryChargeInPaise: 7000 },
+    );
+    // 10% of the clothing line (₹2,000) only — the diploma course is excluded.
+    expect(discount.discountInPaise).toBe(20000);
+  });
+
   it("supports item-type scoped coupons", () => {
     const courseOnly = evaluateCouponEligibility(
       { ...baseCoupon, applicableItemTypes: ["course"] },
