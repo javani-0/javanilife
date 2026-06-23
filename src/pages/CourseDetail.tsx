@@ -152,8 +152,8 @@ const CourseDetail = () => {
                 </p>
               )}
 
-              {/* Description */}
-              <p className="font-body font-light text-[0.95rem] sm:text-base text-muted-foreground leading-relaxed">
+              {/* Description — preserve admin line breaks (one point per line). */}
+              <p className="whitespace-pre-line font-body font-light text-[0.95rem] sm:text-base text-muted-foreground leading-relaxed">
                 {course.description}
               </p>
 

@@ -61,8 +61,8 @@ const ImageViewer = ({ images, initialIndex = 0, isOpen, onClose }: ImageViewerP
         </div>
       )}
 
-      {/* Main image */}
-      <div className="relative w-full h-full flex items-center justify-center p-4 sm:p-8">
+      {/* Main image — clicking the empty area around the image closes the viewer */}
+      <div className="relative w-full h-full flex items-center justify-center p-4 sm:p-8" onClick={onClose}>
         <img
           src={images[currentIndex]}
           alt={`Product image ${currentIndex + 1}`}

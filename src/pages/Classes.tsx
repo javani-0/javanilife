@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { useEffect, useMemo, useState, type KeyboardEvent } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import { CalendarDays, GraduationCap, Search, Users } from "lucide-react";
 import Footer from "@/components/Footer";
 import PageHero from "@/components/PageHero";
@@ -23,8 +23,14 @@ const SkeletonCard = () => (
   </div>
 );
 
-const ClassCard = ({ classDoc }: { classDoc: ClassDoc }) => (
-  <div className="group flex h-full flex-col overflow-hidden rounded-lg border border-gold/15 bg-card shadow-[0_10px_28px_rgba(51,35,20,0.07)] transition-all duration-300 hover:-translate-y-1 hover:border-gold/40 hover:shadow-[0_14px_38px_rgba(51,35,20,0.12)]">
+const ClassCard = ({ classDoc }: { classDoc: ClassDoc }) => {
+  const navigate = useNavigate();
+  const openEnrol = () => navigate(`/classes/${classDoc.id}`);
+  const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === "Enter" || event.key === " ") { event.preventDefault(); openEnrol(); }
+  };
+  return (
+  <div role="link" tabIndex={0} onClick={openEnrol} onKeyDown={handleKeyDown} className="group flex h-full cursor-pointer flex-col overflow-hidden rounded-lg border border-gold/15 bg-card shadow-[0_10px_28px_rgba(51,35,20,0.07)] transition-all duration-300 hover:-translate-y-1 hover:border-gold/40 hover:shadow-[0_14px_38px_rgba(51,35,20,0.12)] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold focus-visible:ring-offset-2">
     <div className="relative aspect-square overflow-hidden bg-muted">
       {classDoc.image ? (
         <img src={classDoc.image} alt={classDoc.name} loading="lazy" className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.035]" />
@@ -65,6 +71,7 @@ const ClassCard = ({ classDoc }: { classDoc: ClassDoc }) => (
       <div className="mt-auto pt-4">
         <Link
           to={`/classes/${classDoc.id}`}
+          onClick={(event) => event.stopPropagation()}
           className="flex min-h-10 w-full items-center justify-center gap-1.5 rounded-sm bg-gradient-primary px-3 py-2.5 font-body text-[0.85rem] font-semibold text-primary-foreground transition-all hover:brightness-110"
         >
           <GraduationCap className="h-4 w-4" /> Enrol Now
@@ -72,7 +79,8 @@ const ClassCard = ({ classDoc }: { classDoc: ClassDoc }) => (
       </div>
     </div>
   </div>
-);
+  );
+};
 
 const Classes = () => {
   const [classes, setClasses] = useState<ClassDoc[]>([]);

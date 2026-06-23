@@ -363,7 +363,8 @@ const AdminCourses = () => {
               </label>
               <div className="sm:col-span-2">
                 <label className={labelClass}>Description *</label>
-                <textarea value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} rows={3} className={inputClass} />
+                <textarea value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} rows={6} className={`${inputClass} resize-y leading-relaxed`} placeholder={"One point per line, e.g.\n- Improve body alignment\n- Intensive practice\n- Rhythm & laya control"} />
+                <p className="mt-1 font-body text-[0.72rem] text-muted-foreground">Tip: put each point on its own line — line breaks are preserved on the course page.</p>
               </div>
               <div className="sm:col-span-2">
                 <label className={labelClass}>Course Image</label>

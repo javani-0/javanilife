@@ -87,25 +87,26 @@ const CoursesPreview = () => {
             {courses.map((c, i) => (
               <div
                 key={c.id}
-                className="animate-fade-up"
+                className="h-full animate-fade-up"
                 style={{ animationDelay: `${i * 0.15}s` }}
               >
-              <div className="bg-card shadow-card rounded-lg overflow-hidden transition-all duration-300 hover:-translate-y-1.5 hover:shadow-hero group">
+              <div className="flex h-full flex-col bg-card shadow-card rounded-lg overflow-hidden transition-all duration-300 hover:-translate-y-1.5 hover:shadow-hero group">
                 <div className="aspect-square relative overflow-hidden">
                   {<div className="absolute inset-0 skeleton-shimmer peer" />}
                   <img src={c.image} alt={c.title} loading="lazy" onLoad={(e) => { (e.target as HTMLElement).previousElementSibling?.remove(); }} className="w-full h-full object-cover transition-all duration-500 group-hover:scale-[1.06]" />
                 </div>
-                <div className="p-5 sm:p-6">
-                  <span className={`inline-block px-3 py-1 text-xs font-body font-medium rounded-full mb-3 ${badgeStyles[c.badgeColor] || badgeStyles.red}`}>{c.badge}</span>
-                  {c.extra && <p className="font-body text-xs text-muted-foreground mb-2">{c.extra}</p>}
-                  <h3 className="font-display font-semibold text-[1.2rem] sm:text-[1.4rem] text-foreground mb-2 transition-colors duration-300 group-hover:text-gold">{c.title}</h3>
-                  <p className="font-body text-[0.85rem] sm:text-[0.9rem] text-muted-foreground mb-4 leading-relaxed">{c.description}</p>
-                  <p className="mb-4 font-display text-[1.1rem] font-bold text-primary">{getCourseDisplayPrice(c)}</p>
+                <div className="flex flex-1 flex-col p-5 sm:p-6">
+                  <span className={`inline-block w-fit px-3 py-1 text-xs font-body font-medium rounded-full mb-3 ${badgeStyles[c.badgeColor] || badgeStyles.red}`}>{c.badge}</span>
+                  {c.extra && <p className="line-clamp-1 font-body text-xs text-muted-foreground mb-2">{c.extra}</p>}
+                  <h3 className="line-clamp-2 min-h-[3.4rem] font-display font-semibold text-[1.2rem] sm:text-[1.4rem] text-foreground mb-2 transition-colors duration-300 group-hover:text-gold">{c.title}</h3>
+                  {/* Fixed-height, scrollable so every card is the same size regardless of description length. */}
+                  <p className="h-24 overflow-y-auto whitespace-pre-line pr-1 font-body text-[0.85rem] sm:text-[0.9rem] text-muted-foreground mb-4 leading-relaxed">{c.description}</p>
+                  <p className="mt-auto mb-4 font-display text-[1.1rem] font-bold text-primary">{getCourseDisplayPrice(c)}</p>
                   <div className="flex flex-col gap-2 sm:flex-row">
                     <button type="button" onClick={() => buyCourse(c)} disabled={!isCoursePurchasable(c)} className="inline-flex items-center justify-center gap-2 rounded-sm bg-gradient-primary px-4 py-2 font-body text-[0.85rem] font-semibold text-primary-foreground transition-all hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:brightness-100">
                       <ShoppingBag className="h-4 w-4" /> {isCoursePurchasable(c) ? "Buy Now" : "Fee Soon"}
                     </button>
-                    <Link to={`/courses/${c.id}`}><PrimaryButton compact className="text-[0.85rem] w-full">Details</PrimaryButton></Link>
+                    <Link to={`/courses/${c.id}`} className="w-full"><PrimaryButton compact className="text-[0.85rem] w-full">Details</PrimaryButton></Link>
                   </div>
                 </div>
               </div>
