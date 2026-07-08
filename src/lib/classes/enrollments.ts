@@ -84,6 +84,7 @@ export const normalizeEnrollment = (id: string, data: DocumentData = {}): Enroll
     billingEndMonth: typeof data.billingEndMonth === "string" ? data.billingEndMonth : undefined,
     billingPeriodLabel: typeof data.billingPeriodLabel === "string" ? data.billingPeriodLabel : undefined,
     advancePaid: data.advancePaid === true ? true : undefined,
+    studentStatus: data.studentStatus === "existing" ? "existing" : (data.studentStatus === "new" ? "new" : undefined),
     emi: data.emi && typeof data.emi === "object" ? (data.emi as ClassEmiConfig) : undefined,
     installmentPlan: data.installmentPlan && typeof data.installmentPlan === "object"
       ? (data.installmentPlan as CourseInstallmentPlan)
@@ -122,6 +123,8 @@ export interface CreateEnrollmentInput {
   billingPeriodLabel?: string;
   // The parent pre-paid the first cycle at sign-up.
   advancePaid?: boolean;
+  // Whether the parent declared this a new or existing student at enrolment.
+  studentStatus?: "new" | "existing";
 }
 
 /** Create a pending enrollment owned by the signed-in parent. Returns the doc id. */
@@ -163,6 +166,7 @@ export const createEnrollment = async (input: CreateEnrollmentInput): Promise<st
   if (input.billingEndMonth) docData.billingEndMonth = input.billingEndMonth;
   if (input.billingPeriodLabel) docData.billingPeriodLabel = input.billingPeriodLabel;
   if (input.advancePaid) docData.advancePaid = true;
+  if (input.studentStatus) docData.studentStatus = input.studentStatus;
   if (isTerm) {
     docData.termFeeInPaise = Math.max(0, Math.round(input.termFeeInPaise || 0));
     if (input.termStartDate) docData.termStartDate = input.termStartDate;

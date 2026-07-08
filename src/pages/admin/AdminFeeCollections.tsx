@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { BellRing, Banknote, Download, IndianRupee, Search, XCircle, Trash2, LayoutGrid, List, X } from "lucide-react";
+import { BellRing, Banknote, Download, IndianRupee, Search, XCircle, Trash2, LayoutGrid, List, X, Check, ExternalLink, Loader2 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { useScrollHighlight } from "@/hooks/useScrollHighlight";
@@ -13,12 +13,14 @@ import {
   deleteFee,
   formatMonthRange,
   formatNiceDate,
+  approveUpiPayment,
   markFeeCash,
   monthKeyFor,
   notifyClassFee,
   periodLabel,
   subscribeToEnrollmentsAdmin,
   subscribeToFeesAdmin,
+  subscribeToPendingUpiApprovals,
   summarizeFees,
   waiveFee,
   type EnrollmentDoc,
@@ -81,11 +83,35 @@ const AdminFeeCollections = () => {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [enrollmentsById, setEnrollmentsById] = useState<Map<string, EnrollmentDoc>>(new Map());
   const [selectedFee, setSelectedFee] = useState<FeePaymentDoc | null>(null);
+  const [approvals, setApprovals] = useState<FeePaymentDoc[]>([]);
+  const [busyApprovalId, setBusyApprovalId] = useState<string | null>(null);
 
   useEffect(() => {
     setLoading(true);
     return subscribeToFeesAdmin(monthKey, (items) => { setFees(items); setLoading(false); }, () => setLoading(false));
   }, [monthKey]);
+
+  // Manual-UPI payments awaiting approval (across all months).
+  useEffect(() => subscribeToPendingUpiApprovals(
+    (items) => setApprovals(items),
+    (error) => console.error("Unable to load UPI approvals", error),
+  ), []);
+
+  const handleApproval = async (fee: FeePaymentDoc, approve: boolean) => {
+    if (!user) return;
+    if (!approve && !confirm(`Reject ${fee.studentName}'s payment for ${fee.periodLabel}? They'll be asked to pay again.`)) return;
+    setBusyApprovalId(fee.id);
+    try {
+      const idToken = await user.getIdToken();
+      const note = approve ? undefined : (prompt("Reason for rejection (optional):") || undefined);
+      await approveUpiPayment(idToken, fee.id, approve, note);
+      toast({ title: approve ? "Payment approved" : "Payment rejected", description: `${fee.studentName} · ${fee.periodLabel}` });
+    } catch (error) {
+      toast({ title: "Action failed", description: error instanceof Error ? error.message : undefined, variant: "destructive" });
+    } finally {
+      setBusyApprovalId(null);
+    }
+  };
 
   // Enrolments carry the batch time + next charge date + term span the fee
   // detail popup shows; keep a live id→enrolment map.
@@ -189,6 +215,44 @@ const AdminFeeCollections = () => {
         <Tile label="Pending" value={formatPaiseAsRupees(totals.pendingInPaise)} sub={`${totals.pendingCount} pending`} accent="text-amber-600" />
         <Tile label="Overdue" value={formatPaiseAsRupees(totals.overdueInPaise)} sub={`${totals.overdueCount} overdue · ${totals.failedCount} failed`} accent="text-red-600" />
       </div>
+
+      {/* Manual-UPI payments awaiting approval (across all months) */}
+      {approvals.length > 0 && (
+        <div className="rounded-xl border border-blue-200 bg-blue-50/60 p-4 shadow-card">
+          <h2 className="flex items-center gap-2 font-display text-lg text-foreground">
+            <Banknote className="h-5 w-5 text-blue-600" /> UPI payments to approve
+            <span className="rounded-full bg-blue-600 px-2 py-0.5 font-body text-xs font-bold text-white">{approvals.length}</span>
+          </h2>
+          <p className="mt-1 font-body text-sm text-muted-foreground">Students paid by UPI and uploaded a receipt. Verify the screenshot, then approve to mark it paid and confirm the enrolment.</p>
+          <div className="mt-3 space-y-2">
+            {approvals.map((fee) => (
+              <div key={fee.id} className="flex flex-col gap-3 rounded-lg border border-border/60 bg-card px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-center gap-3">
+                  {fee.upiProofUrl && (
+                    <a href={fee.upiProofUrl} target="_blank" rel="noreferrer" className="group relative shrink-0">
+                      <img src={fee.upiProofUrl} alt="Receipt" className="h-14 w-14 rounded object-cover" />
+                      <span className="absolute inset-0 flex items-center justify-center rounded bg-black/40 opacity-0 transition-opacity group-hover:opacity-100"><ExternalLink className="h-4 w-4 text-white" /></span>
+                    </a>
+                  )}
+                  <div>
+                    <p className="font-body text-sm font-semibold text-foreground">{fee.studentName} <span className="font-normal text-muted-foreground">· {fee.className}</span></p>
+                    <p className="font-body text-xs text-muted-foreground">{fee.periodLabel} · <span className="font-semibold text-foreground">{formatPaiseAsRupees(fee.amountInPaise)}</span>{fee.upiRef ? ` · Ref ${fee.upiRef}` : ""}</p>
+                    <p className="font-body text-[0.7rem] text-muted-foreground">{fee.parentName} · {fee.parentPhone}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button onClick={() => handleApproval(fee, true)} disabled={busyApprovalId === fee.id} className="flex items-center gap-1.5 rounded-md bg-green-600 px-3 py-1.5 font-body text-sm font-semibold text-white hover:bg-green-700 disabled:opacity-50">
+                    {busyApprovalId === fee.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} Approve
+                  </button>
+                  <button onClick={() => handleApproval(fee, false)} disabled={busyApprovalId === fee.id} className="flex items-center gap-1.5 rounded-md border border-destructive/40 px-3 py-1.5 font-body text-sm font-semibold text-destructive hover:bg-destructive/10 disabled:opacity-50">
+                    <XCircle className="h-4 w-4" /> Reject
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="flex flex-col gap-3 rounded-xl border border-border/60 bg-card p-4 shadow-card sm:flex-row sm:items-center">
         <label className="relative block flex-1">

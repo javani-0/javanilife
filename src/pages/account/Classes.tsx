@@ -2,10 +2,12 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { CalendarClock, Clock, GraduationCap, Loader2, Repeat, Wallet, XCircle } from "lucide-react";
 import AccountLayout from "@/components/account/AccountLayout";
+import UpiPaymentDialog from "@/components/classes/UpiPaymentDialog";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { useScrollHighlight } from "@/hooks/useScrollHighlight";
 import {
+  addMonths,
   cancelSubscription,
   deriveDisplayFeeStatus,
   ENROLLMENT_STATUS_LABELS,
@@ -15,12 +17,15 @@ import {
   formatNiceDate,
   getClassFeeLabel,
   isFeePayable,
+  monthKeyFor,
   payFeeNow,
+  periodLabel,
   subscribeToMyEnrollments,
   subscribeToMyFees,
   type EnrollmentDoc,
   type FeePaymentDoc,
   type FeeStatus,
+  type UpiPaymentTarget,
 } from "@/lib/classes";
 
 const feeStatusStyles: Record<FeeStatus, string> = {
@@ -40,6 +45,7 @@ const Classes = () => {
   const [loadingEnrollments, setLoadingEnrollments] = useState(true);
   const [loadingFees, setLoadingFees] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [upiDialog, setUpiDialog] = useState<{ target: UpiPaymentTarget; amount: number; title: string } | null>(null);
 
   useEffect(() => {
     if (!user) return;
@@ -58,8 +64,13 @@ const Classes = () => {
     return map;
   }, [fees]);
 
+  // EMI installments stay on Razorpay (auto-pay); everything else (monthly
+  // pre-payment, term "pay full") uses the low-commission manual UPI flow.
+  const isEmiFee = (fee: FeePaymentDoc): boolean => fee.paymentPlan === "emi" || /_emi-\d+$/.test(fee.id);
+
   const handlePayNow = async (fee: FeePaymentDoc) => {
     if (!user) return;
+    if (!isEmiFee(fee)) { setUpiDialog({ target: { feePaymentId: fee.id }, amount: fee.amountInPaise, title: `${fee.className} — ${fee.periodLabel}` }); return; }
     setBusyId(fee.id);
     try {
       const idToken = await user.getIdToken();
@@ -90,6 +101,25 @@ const Classes = () => {
     } finally {
       setBusyId(null);
     }
+  };
+
+  // The next uncovered month for a monthly enrolment — pay it early ("advance").
+  const nextAdvanceMonthKey = (enrollment: EnrollmentDoc): string => {
+    const list = feesByEnrollment.get(enrollment.id) || [];
+    const highest = list
+      .filter((fee) => fee.monthKey && !/_(full|advance|emi-\d+)$/.test(fee.id))
+      .reduce((max, fee) => (fee.monthKey > max ? fee.monthKey : max), "");
+    const base = highest || addMonths(monthKeyFor(new Date()), -1);
+    return addMonths(base, 1);
+  };
+
+  const handlePayAdvance = (enrollment: EnrollmentDoc) => {
+    const monthKey = nextAdvanceMonthKey(enrollment);
+    setUpiDialog({
+      target: { enrollmentId: enrollment.id, kind: "monthly", monthKey },
+      amount: enrollment.monthlyFeeInPaise,
+      title: `${enrollment.className} — ${periodLabel(monthKey)} (advance)`,
+    });
   };
 
   const loading = loadingEnrollments || loadingFees;
@@ -192,6 +222,26 @@ const Classes = () => {
                   </div>
                 )}
 
+                {/* Actions: pay in advance (monthly, non-autopay) + switch class */}
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  {enrollment.feeType !== "term" && enrollment.status === "active" && !autopayOn && (
+                    <button
+                      onClick={() => handlePayAdvance(enrollment)}
+                      className="flex items-center gap-1.5 rounded-md border border-gold/40 px-3 py-1.5 font-body text-xs font-semibold text-gold transition-colors hover:bg-gold/10"
+                    >
+                      <CalendarClock className="h-3.5 w-3.5" /> Pay {periodLabel(nextAdvanceMonthKey(enrollment))} in advance
+                    </button>
+                  )}
+                  {enrollment.status !== "cancelled" && (
+                    <Link
+                      to="/classes"
+                      className="flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 font-body text-xs font-semibold text-muted-foreground transition-colors hover:border-gold/40 hover:text-gold"
+                    >
+                      <Repeat className="h-3.5 w-3.5" /> Switch to another class
+                    </Link>
+                  )}
+                </div>
+
                 {/* History */}
                 <div className="mt-4">
                   <p className="mb-2 font-body text-xs font-semibold uppercase tracking-wider text-muted-foreground">Payment history</p>
@@ -206,6 +256,12 @@ const Classes = () => {
                             <div>
                               <p className="font-body text-sm font-medium text-foreground">{fee.periodLabel}</p>
                               <p className="font-body text-xs text-muted-foreground">{formatFeeAmount(fee)}{fee.paymentMethod ? ` · ${fee.paymentMethod}` : ""}</p>
+                              {displayStatus === "processing" && fee.paymentMethod === "upi" && (
+                                <p className="mt-0.5 font-body text-[0.7rem] text-blue-600">⏳ Awaiting admin approval</p>
+                              )}
+                              {fee.upiRejectedReason && isFeePayable({ status: displayStatus }) && (
+                                <p className="mt-0.5 font-body text-[0.7rem] text-destructive">Rejected: {fee.upiRejectedReason}</p>
+                              )}
                             </div>
                             <div className="flex items-center gap-2">
                               <span className={`rounded-full px-2.5 py-1 font-body text-xs font-semibold ${feeStatusStyles[displayStatus]}`}>{FEE_STATUS_LABELS[displayStatus]}</span>
@@ -226,6 +282,14 @@ const Classes = () => {
           })
         )}
       </div>
+      <UpiPaymentDialog
+        open={Boolean(upiDialog)}
+        target={upiDialog?.target || null}
+        amountInPaise={upiDialog?.amount || 0}
+        title={upiDialog?.title || ""}
+        onClose={() => setUpiDialog(null)}
+        onSuccess={() => setUpiDialog(null)}
+      />
     </AccountLayout>
   );
 };

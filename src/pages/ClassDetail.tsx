@@ -9,9 +9,11 @@ import PageHero from "@/components/PageHero";
 import SEO from "@/components/SEO";
 import ShareButton from "@/components/ShareButton";
 import ImageViewer from "@/components/ImageViewer";
+import UpiPaymentDialog from "@/components/classes/UpiPaymentDialog";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
-import { formatPaiseAsRupees } from "@/lib/ecommerce";
+import { useCoupons } from "@/hooks/useCoupons";
+import { calculateCouponDiscount, evaluateCouponEligibility, formatPaiseAsRupees, normalizeCouponCode } from "@/lib/ecommerce";
 import {
   AUTOPAY_AFA_CAP_IN_PAISE,
   buildClassEmiPlan,
@@ -23,6 +25,8 @@ import {
   DEFAULT_CLASS_EMI_CONFIG,
   deleteEnrollment,
   dueDateFor,
+  getClassEmiSurchargeInPaise,
+  getClassEmiTotalInPaise,
   getAutopayFeeInPaise,
   getAutopayFeeLabel,
   formatNiceDate,
@@ -46,7 +50,7 @@ import heroTemple from "@/assets/hero-temple.jpg";
 
 const PAYMENT_METHOD_META: Record<ClassPaymentMethod, { title: string; blurb: string; icon: typeof Repeat; recommended?: boolean }> = {
   autopay: { title: "Autopay", blurb: "Authorise once; the fee is auto-debited each month. We notify you on every debit.", icon: Repeat, recommended: true },
-  manual: { title: "Advance Fee", blurb: "Pay this cycle now as an advance. We'll show your next charge date; pay later months from My Classes.", icon: Wallet },
+  manual: { title: "Pre-payment", blurb: "Pre-pay this cycle now. We'll show your next charge date; pay later months from My Classes.", icon: Wallet },
   full: { title: "Pay Full", blurb: "Pay the entire course fee once. No further payments.", icon: Wallet },
   emi: { title: "EMI", blurb: "Pay a part upfront now, then the rest in installments. We'll remind you before each due date.", icon: CreditCard },
   cash: { title: "Pay Cash", blurb: "Pay in cash at the centre. Your enrolment will be confirmed once the admin collects the payment.", icon: Banknote },
@@ -82,10 +86,13 @@ const ClassDetail = () => {
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<ClassPaymentMethod | null>(null);
+  // New students shouldn't be pushed into autopay right away (client-confirmed).
+  const [studentStatus, setStudentStatus] = useState<"new" | "existing">("new");
   const [track, setTrack] = useState<ClassTrack | null>(null);
   const [selectedSlotId, setSelectedSlotId] = useState<string>("");
   const [submitting, setSubmitting] = useState(false);
   const [viewerOpen, setViewerOpen] = useState(false);
+  const [upiDialog, setUpiDialog] = useState<{ open: boolean; target: { enrollmentId: string; kind: "monthly" | "full" }; amount: number; title: string; couponCode?: string } | null>(null);
 
   const availableTracks = useMemo(() => (classDoc ? classTracks(classDoc) : []), [classDoc]);
   // The active track: the parent's choice, or the only available one.
@@ -97,20 +104,77 @@ const ClassDetail = () => {
   const slots = useMemo(() => classDoc?.timeSlots || [], [classDoc]);
   const isTerm = activeTrack === "term";
   const emiConfig = classDoc?.emi || DEFAULT_CLASS_EMI_CONFIG;
+  const emiSurchargeInPaise = getClassEmiSurchargeInPaise(emiConfig);
   const emiPlan = useMemo(
-    () => (classDoc && isTerm ? buildClassEmiPlan(getClassFeeInPaise(classDoc, "term"), emiConfig) : null),
+    () => (classDoc && isTerm ? buildClassEmiPlan(getClassEmiTotalInPaise(getClassFeeInPaise(classDoc, "term"), emiConfig), emiConfig) : null),
     [classDoc, isTerm, emiConfig],
   );
+
+  // Coupons (req 2) — only apply to the one-time UPI rails (pre-payment + pay
+  // full). Autopay/EMI/cash don't take a coupon.
+  const { redeemableCoupons } = useCoupons();
+  const [couponInput, setCouponInput] = useState("");
+  const [appliedCouponCode, setAppliedCouponCode] = useState("");
+  const couponEligible = paymentMethod === "manual" || paymentMethod === "full";
+  const payableBaseInPaise = useMemo(() => {
+    if (!classDoc) return 0;
+    if (paymentMethod === "full") return getTermPayFullPriceInPaise(classDoc);
+    if (paymentMethod === "manual") return classDoc.monthlyFeeInPaise;
+    return 0;
+  }, [classDoc, paymentMethod]);
+  const couponContext = useMemo(() => ({
+    items: classDoc ? [{ productId: classDoc.id, sourceId: classDoc.id, itemType: "course" as const, category: classDoc.category, quantity: 1, amountInPaise: payableBaseInPaise }] : [],
+    subtotalInPaise: payableBaseInPaise,
+    deliveryChargeInPaise: 0,
+  }), [classDoc, payableBaseInPaise]);
+  const appliedCoupon = useMemo(() => redeemableCoupons.find((c) => c.code === appliedCouponCode) || null, [redeemableCoupons, appliedCouponCode]);
+  const couponDiscountInPaise = useMemo(() => {
+    if (!appliedCoupon || !couponEligible || payableBaseInPaise <= 0) return 0;
+    return calculateCouponDiscount(appliedCoupon, couponContext).discountInPaise;
+  }, [appliedCoupon, couponEligible, payableBaseInPaise, couponContext]);
+  const discountedAmountInPaise = Math.max(100, payableBaseInPaise - couponDiscountInPaise);
+
+  const applyCoupon = () => {
+    const code = normalizeCouponCode(couponInput);
+    if (!code) return;
+    const coupon = redeemableCoupons.find((item) => item.code === code);
+    if (!coupon) { toast({ title: "Coupon not available", description: "This coupon is inactive, hidden, or does not exist.", variant: "destructive" }); return; }
+    const eligibility = evaluateCouponEligibility(coupon, couponContext);
+    if (!eligibility.eligible) { toast({ title: "Coupon not eligible", description: eligibility.reason || "This coupon cannot be used here.", variant: "destructive" }); return; }
+    setAppliedCouponCode(coupon.code);
+    setCouponInput("");
+    toast({ title: "Coupon applied", description: `${coupon.code} applied.` });
+  };
 
   // Default the track to the first available once the class loads.
   useEffect(() => {
     if (availableTracks.length > 0) setTrack((current) => (current && availableTracks.includes(current) ? current : availableTracks[0]));
   }, [availableTracks]);
 
-  // Default the payment method to the first enabled one for the active track.
+  // Default the payment method. Keep the parent's current pick if still valid;
+  // otherwise pick the first enabled one — but a NEW student is never defaulted
+  // into autopay (they can still choose it), only nudged to pre-pay/cash first.
   useEffect(() => {
-    if (enabledMethods.length > 0) setPaymentMethod((current) => (current && enabledMethods.includes(current) ? current : enabledMethods[0]));
-  }, [enabledMethods]);
+    if (enabledMethods.length === 0) return;
+    setPaymentMethod((current) => {
+      if (current && enabledMethods.includes(current)) return current;
+      if (studentStatus === "new") {
+        const nonAutopay = enabledMethods.find((method) => method !== "autopay");
+        return nonAutopay || enabledMethods[0];
+      }
+      return enabledMethods[0];
+    });
+  }, [enabledMethods, studentStatus]);
+
+  // When a parent flips to "New student" while autopay was selected, move them
+  // off autopay so they aren't forced into it (requirement 3).
+  const handleStudentStatusChange = (next: "new" | "existing") => {
+    setStudentStatus(next);
+    if (next === "new" && paymentMethod === "autopay") {
+      const nonAutopay = enabledMethods.find((method) => method !== "autopay");
+      if (nonAutopay) setPaymentMethod(nonAutopay);
+    }
+  };
 
   const { register, handleSubmit, reset, formState: { errors } } = useForm<EnrollFormValues>({
     resolver: zodResolver(enrollSchema),
@@ -177,7 +241,7 @@ const ClassDetail = () => {
     setSubmitting(true);
     let enrollmentId: string | undefined;
     try {
-      const installmentPlan = method === "emi" ? buildClassEmiPlan(getClassFeeInPaise(classDoc, "term"), emiConfig) : undefined;
+      const installmentPlan = method === "emi" ? buildClassEmiPlan(getClassEmiTotalInPaise(getClassFeeInPaise(classDoc, "term"), emiConfig), emiConfig) : undefined;
 
       const enrollmentMonthlyFee = method === "autopay" && classDoc && hasAutopayDiscount(classDoc)
         ? getAutopayFeeInPaise(classDoc)
@@ -217,8 +281,9 @@ const ClassDetail = () => {
         billingStartMonth: billing.startMonthKey,
         billingEndMonth: billing.endMonthKey,
         billingPeriodLabel: billing.periodLabel,
-        // "Advance Fee" = the manual monthly option pays this cycle upfront.
+        // "Pre-payment" = the manual monthly option pays this cycle upfront.
         advancePaid: method === "manual" ? true : undefined,
+        studentStatus,
         emi: method === "emi" ? emiConfig : undefined,
         installmentPlan,
       });
@@ -257,18 +322,28 @@ const ClassDetail = () => {
           console.error("Autopay confirmation sync failed (webhook will reconcile)", confirmError);
         }
         toast({ title: "Autopay set up", description: `We'll auto-debit the monthly fee and notify you each time.${defaultNextCharge ? ` Next charge: ${formatNiceDate(defaultNextCharge)}.` : ""}` });
-      } else if (method === "full") {
-        await payFeeNow({ idToken, feePaymentIdOrEnrollment: { enrollmentId, kind: "full" }, name: "Javani Spiritual Hub", description: `${classDoc.name} — full course fee`, prefill });
-        toast({ title: "Payment received", description: "Your course fee is being confirmed." });
+        navigate("/account/classes");
       } else if (method === "emi") {
+        // EMI stays on Razorpay (auto-pay installments) — client-confirmed.
         await payFeeNow({ idToken, feePaymentIdOrEnrollment: { enrollmentId, kind: "emi", installmentNumber: 1 }, name: "Javani Spiritual Hub", description: `${classDoc.name} — EMI first installment`, prefill });
         toast({ title: "First installment received", description: "Pay the remaining installments from My Classes before their due dates." });
+        navigate("/account/classes");
       } else {
-        await payFeeNow({ idToken, feePaymentIdOrEnrollment: { enrollmentId, kind: "monthly" }, name: "Javani Spiritual Hub", description: `${classDoc.name} — advance fee`, prefill });
-        toast({ title: "Advance paid", description: `Your advance fee is being confirmed.${defaultNextCharge ? ` Next charge: ${formatNiceDate(defaultNextCharge)}.` : ""}` });
+        // manual (pre-payment) + full (pay in one shot) → low-commission manual
+        // UPI QR + screenshot + admin approval. Open the dialog and let it drive
+        // submission; the enrolment stays pending until an admin approves.
+        const upiBase = method === "full" ? getTermPayFullPriceInPaise(classDoc) : enrollmentMonthlyFee;
+        // Apply the coupon discount to the shown amount; the server re-validates
+        // and applies the same coupon authoritatively to the fee doc.
+        const upiAmount = couponDiscountInPaise > 0 ? Math.max(100, upiBase - couponDiscountInPaise) : upiBase;
+        setUpiDialog({
+          open: true,
+          target: { enrollmentId, kind: method === "full" ? "full" : "monthly" },
+          amount: upiAmount,
+          title: `${classDoc.name} — ${method === "full" ? "full course fee" : "pre-payment"}`,
+          couponCode: couponDiscountInPaise > 0 ? appliedCouponCode : undefined,
+        });
       }
-
-      navigate("/account/classes");
     } catch (error) {
       console.error("Enrolment failed", error);
 
@@ -434,6 +509,37 @@ const ClassDetail = () => {
                 </>
               )}
 
+              {/* New vs existing student — new students aren't forced into autopay */}
+              {enabledMethods.includes("autopay") && (
+                <>
+                  <h3 className="mt-7 font-display text-lg text-foreground">Is this a new or existing student?</h3>
+                  <div className="mt-3 grid grid-cols-2 gap-3">
+                    {(["new", "existing"] as const).map((option) => {
+                      const active = studentStatus === option;
+                      return (
+                        <button
+                          type="button"
+                          key={option}
+                          onClick={() => handleStudentStatusChange(option)}
+                          className={`flex flex-col gap-1 rounded-xl border p-4 text-left transition-colors ${active ? "border-gold bg-gold/10" : "border-border hover:border-gold/40"}`}
+                        >
+                          <span className="flex items-center gap-2 font-body font-semibold text-foreground">
+                            {option === "new" ? <GraduationCap className="h-4 w-4 text-gold" /> : <Users className="h-4 w-4 text-gold" />}
+                            {option === "new" ? "New student" : "Existing student"}
+                          </span>
+                          <span className="font-body text-[0.74rem] text-muted-foreground">
+                            {option === "new" ? "Start with a pre-payment or cash — set up autopay later." : "Already enrolled — autopay is available."}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {studentStatus === "new" && (
+                    <p className="mt-2 font-body text-[0.75rem] text-muted-foreground">You can enable autopay anytime later from <span className="font-semibold">My Classes</span>.</p>
+                  )}
+                </>
+              )}
+
               {/* Payment method */}
               <h3 className="mt-7 font-display text-lg text-foreground">How would you like to pay?</h3>
               {enabledMethods.length === 0 ? (
@@ -485,11 +591,18 @@ const ClassDetail = () => {
               {paymentMethod === "emi" && emiPlan && (
                 <div className="mt-3 rounded-xl border border-gold/20 bg-gold/5 p-4">
                   <p className="font-body text-[0.82rem] font-semibold text-foreground">EMI schedule</p>
+                  {emiSurchargeInPaise > 0 && (
+                    <div className="mt-2 flex items-center justify-between gap-3 rounded-lg bg-amber-50 px-3 py-1.5 font-body text-[0.74rem]">
+                      <span className="text-amber-800">Course fee {formatPaiseAsRupees(getClassFeeInPaise(classDoc, "term"))} + EMI convenience fee</span>
+                      <span className="font-semibold text-amber-800">+{formatPaiseAsRupees(emiSurchargeInPaise)}</span>
+                    </div>
+                  )}
                   <div className="mt-2 space-y-1 font-body text-[0.78rem] text-muted-foreground">
                     <div className="flex justify-between gap-3"><span>Pay now ({emiConfig.upfrontPercentage}%)</span><span className="font-semibold text-gold">{formatPaiseAsRupees(emiPlan.initialPaymentInPaise)}</span></div>
                     {emiPlan.installments.slice(1).map((inst) => (
                       <div key={inst.installmentNumber} className="flex justify-between gap-3"><span>{inst.label} on {inst.dueDate}</span><span className="font-semibold">{formatPaiseAsRupees(inst.amountInPaise)}</span></div>
                     ))}
+                    <div className="mt-1 flex justify-between gap-3 border-t border-gold/20 pt-1.5"><span className="font-semibold text-foreground">EMI total</span><span className="font-semibold text-foreground">{formatPaiseAsRupees(emiPlan.totalInPaise)}</span></div>
                   </div>
                   <p className="mt-2 font-body text-[0.72rem] text-muted-foreground">Remaining installments can be paid from <span className="font-semibold">My Classes</span> before each due date.</p>
                 </div>
@@ -501,13 +614,46 @@ const ClassDetail = () => {
                 </p>
               )}
 
+              {/* Coupon code — applies to pre-payment & pay-full (paid by UPI) */}
+              {couponEligible && payableBaseInPaise > 0 && (
+                <div className="mt-4 rounded-xl border border-gold/20 bg-gold/5 p-4">
+                  <p className="font-body text-[0.82rem] font-semibold text-foreground">Have a coupon?</p>
+                  {appliedCoupon && couponDiscountInPaise > 0 ? (
+                    <div className="mt-2">
+                      <div className="flex items-center justify-between gap-2 rounded-md border border-green-200 bg-green-50 px-3 py-2">
+                        <span className="font-body text-[0.82rem] font-semibold text-green-800">🎉 {appliedCoupon.code} applied — you save {formatPaiseAsRupees(couponDiscountInPaise)}</span>
+                        <button type="button" onClick={() => setAppliedCouponCode("")} className="font-body text-xs font-semibold text-destructive hover:underline">Remove</button>
+                      </div>
+                      <div className="mt-2 flex items-baseline justify-between">
+                        <span className="font-body text-[0.8rem] text-muted-foreground">Total to pay</span>
+                        <span className="flex items-baseline gap-2">
+                          <span className="font-body text-[0.78rem] text-muted-foreground line-through">{formatPaiseAsRupees(payableBaseInPaise)}</span>
+                          <span className="font-display text-lg font-bold text-green-700">{formatPaiseAsRupees(discountedAmountInPaise)}</span>
+                        </span>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="mt-2 flex gap-2">
+                      <input
+                        value={couponInput}
+                        onChange={(e) => setCouponInput(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); applyCoupon(); } }}
+                        placeholder="Enter coupon code"
+                        className="h-10 flex-1 rounded-md border border-border bg-background px-3 font-body text-sm uppercase outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                      />
+                      <button type="button" onClick={applyCoupon} disabled={!couponInput.trim()} className="rounded-md bg-gold px-4 font-body text-sm font-semibold text-white transition-colors hover:brightness-110 disabled:opacity-50">Apply</button>
+                    </div>
+                  )}
+                </div>
+              )}
+
               <button type="submit" disabled={submitting || enabledMethods.length === 0} className="mt-6 flex min-h-11 w-full items-center justify-center gap-2 rounded-sm bg-gradient-primary px-4 py-3 font-body text-[0.9rem] font-semibold text-primary-foreground transition-all hover:brightness-110 disabled:opacity-60">
                 {submitting ? <><Loader2 className="h-4 w-4 animate-spin" /> Processing…</>
                   : paymentMethod === "autopay" ? "Enrol & Set Up Autopay"
                   : paymentMethod === "full" ? "Enrol & Pay Full Fee"
                   : paymentMethod === "emi" ? "Enrol & Pay First Installment"
                   : paymentMethod === "cash" ? "Enrol & Pay Cash"
-                  : "Enrol & Pay Advance"}
+                  : "Enrol & Pre-pay"}
               </button>
               {!user && <p className="mt-2 text-center font-body text-[0.78rem] text-muted-foreground">You'll be asked to sign in to complete enrolment.</p>}
             </form>
@@ -564,6 +710,15 @@ const ClassDetail = () => {
       </main>
       <Footer />
       {classDoc.image && <ImageViewer images={[classDoc.image]} isOpen={viewerOpen} onClose={() => setViewerOpen(false)} />}
+      <UpiPaymentDialog
+        open={Boolean(upiDialog?.open)}
+        target={upiDialog?.target || null}
+        amountInPaise={upiDialog?.amount || 0}
+        title={upiDialog?.title || classDoc.name}
+        couponCode={upiDialog?.couponCode}
+        onClose={() => { setUpiDialog(null); navigate("/account/classes"); }}
+        onSuccess={() => { setUpiDialog(null); navigate("/account/classes"); }}
+      />
     </>
   );
 };

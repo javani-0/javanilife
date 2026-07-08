@@ -4,6 +4,7 @@ import {
   orderCollectedInPaise,
   sumClassIncomeInPaise,
   sumExpensesInPaise,
+  sumManualIncomeInPaise,
   sumOrderIncomeInPaise,
 } from "./income";
 
@@ -47,6 +48,7 @@ describe("sumOrderIncomeInPaise / sumClassIncomeInPaise / sumExpensesInPaise", (
       { status: "overdue", amountInPaise: 5000 },
     ])).toBe(5000);
     expect(sumExpensesInPaise([{ amountInPaise: 3000 }, { amountInPaise: 2000 }])).toBe(5000);
+    expect(sumManualIncomeInPaise([{ amountInPaise: 1500 }, { amountInPaise: 2500 }])).toBe(4000);
   });
 });
 
@@ -61,6 +63,20 @@ describe("buildFinanceSummary", () => {
     expect(summary.incomeInPaise).toBe(150000);
     expect(summary.netProfitInPaise).toBe(120000);
     expect(summary.partnerShareInPaise).toBe(48000); // 40% of 120000
+  });
+
+  it("adds manually-entered extra income to the total", () => {
+    const summary = buildFinanceSummary({
+      productIncomeInPaise: 100000,
+      classIncomeInPaise: 50000,
+      otherIncomeInPaise: 25000,
+      expensesInPaise: 30000,
+      profitSharePercent: 40,
+    });
+    expect(summary.otherIncomeInPaise).toBe(25000);
+    expect(summary.incomeInPaise).toBe(175000);
+    expect(summary.netProfitInPaise).toBe(145000);
+    expect(summary.partnerShareInPaise).toBe(58000); // 40% of 145000
   });
 
   it("never pays a share on a loss and clamps the percent", () => {

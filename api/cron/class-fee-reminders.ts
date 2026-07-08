@@ -1,6 +1,6 @@
 import { getFirebaseAdminDb, FieldValue } from "../_lib/firebase-admin.js";
 import { sendError, sendJson, type ApiRequest, type ApiResponse } from "../_lib/http.js";
-import { collectDueReminders, isOverdue, monthKeyFor } from "../_lib/class-fees.js";
+import { collectDueReminders, daysUntil, isOverdue, monthKeyFor } from "../_lib/class-fees.js";
 import {
   ensureFeePayment,
   ENROLLMENTS_COLLECTION,
@@ -89,7 +89,7 @@ export default async function handler(request: ApiRequest, response: ApiResponse
       monthKey: getString(data.monthKey),
       status: getString(data.status),
       dueDate: getString(data.dueDate),
-      reminders: (data.reminders || {}) as { preDebitMonthKey?: string },
+      reminders: (data.reminders || {}) as { preDebitMonthKey?: string; preDebitDateKey?: string },
     };
   });
 
@@ -100,11 +100,17 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     const feeDoc = candidate.id ? docById.get(candidate.id) : undefined;
     if (!feeDoc) continue;
     const fee = feeDoc.data() || {};
+    const todayKey = now.toISOString().slice(0, 10);
+    const daysLeft = daysUntil(getString(fee.dueDate), now);
     try {
-      await sendClassFeeNotifications("reminder", notificationContextFromFee(feeDoc.id, fee));
+      await sendClassFeeNotifications("reminder", {
+        ...notificationContextFromFee(feeDoc.id, fee),
+        daysUntilDue: daysLeft ?? undefined,
+      });
       await feeDoc.ref.update({
         "reminders.preDebitSentAt": now.toISOString(),
         "reminders.preDebitMonthKey": getString(fee.monthKey),
+        "reminders.preDebitDateKey": todayKey,
         "reminders.count": FieldValue.increment(1),
         updatedAt: FieldValue.serverTimestamp(),
       });

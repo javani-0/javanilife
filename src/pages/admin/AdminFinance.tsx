@@ -6,18 +6,24 @@ import { useToast } from "@/hooks/use-toast";
 import { formatPaiseAsRupees } from "@/lib/ecommerce";
 import {
   EXPENSE_CATEGORIES,
+  INCOME_CATEGORIES,
   addExpense,
+  addManualIncome,
   buildFinanceSummary,
   deleteExpense,
+  deleteManualIncome,
   grantPartnerRoleByEmail,
   revokePartnerRole,
   savePartnerSettings,
   subscribeToExpenses,
+  subscribeToManualIncome,
   subscribeToPartnerSettings,
   sumExpensesInPaise,
   sumClassIncomeInPaise,
+  sumManualIncomeInPaise,
   sumOrderIncomeInPaise,
   type ExpenseDoc,
+  type IncomeDoc,
   type PartnerSettings,
 } from "@/lib/finance";
 import { IndianRupee, Loader2, Plus, Trash2, TrendingUp, TrendingDown, Wallet, Handshake, ShieldCheck } from "lucide-react";
@@ -40,6 +46,7 @@ const AdminFinance = () => {
   const [orders, setOrders] = useState<Record<string, unknown>[]>([]);
   const [fees, setFees] = useState<Record<string, unknown>[]>([]);
   const [expenses, setExpenses] = useState<ExpenseDoc[]>([]);
+  const [incomeEntries, setIncomeEntries] = useState<IncomeDoc[]>([]);
   const [settings, setSettings] = useState<PartnerSettings>({ profitSharePercent: 0 });
   const [loading, setLoading] = useState(true);
 
@@ -52,6 +59,15 @@ const AdminFinance = () => {
   const [savingExpense, setSavingExpense] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
 
+  // Extra income form
+  const [incomeTitle, setIncomeTitle] = useState("");
+  const [incomeCategory, setIncomeCategory] = useState<string>(INCOME_CATEGORIES[0]);
+  const [incomeAmount, setIncomeAmount] = useState("");
+  const [receivedOn, setReceivedOn] = useState(() => new Date().toISOString().slice(0, 10));
+  const [incomeNote, setIncomeNote] = useState("");
+  const [savingIncome, setSavingIncome] = useState(false);
+  const [busyIncomeId, setBusyIncomeId] = useState<string | null>(null);
+
   // Partner access form
   const [partnerEmail, setPartnerEmail] = useState("");
   const [partnerName, setPartnerName] = useState("");
@@ -62,21 +78,23 @@ const AdminFinance = () => {
     const unsubOrders = onSnapshot(collection(db, "orders"), (snap) => { setOrders(snap.docs.map((d) => d.data())); setLoading(false); }, () => setLoading(false));
     const unsubFees = onSnapshot(collection(db, "feePayments"), (snap) => setFees(snap.docs.map((d) => d.data())), () => undefined);
     const unsubExpenses = subscribeToExpenses((items) => setExpenses(items), () => undefined);
+    const unsubIncome = subscribeToManualIncome((items) => setIncomeEntries(items), () => undefined);
     const unsubSettings = subscribeToPartnerSettings((value) => {
       setSettings(value);
       setPartnerEmail((current) => current || value.partnerEmail || "");
       setPartnerName((current) => current || value.partnerName || "");
       setSharePercent((current) => current || (value.profitSharePercent ? String(value.profitSharePercent) : ""));
     }, () => undefined);
-    return () => { unsubOrders(); unsubFees(); unsubExpenses(); unsubSettings(); };
+    return () => { unsubOrders(); unsubFees(); unsubExpenses(); unsubIncome(); unsubSettings(); };
   }, []);
 
   const summary = useMemo(() => buildFinanceSummary({
     productIncomeInPaise: sumOrderIncomeInPaise(orders),
     classIncomeInPaise: sumClassIncomeInPaise(fees.map((fee) => ({ status: String(fee.status || ""), amountInPaise: Number(fee.amountInPaise || 0) }))),
+    otherIncomeInPaise: sumManualIncomeInPaise(incomeEntries),
     expensesInPaise: sumExpensesInPaise(expenses),
     profitSharePercent: settings.profitSharePercent,
-  }), [orders, fees, expenses, settings.profitSharePercent]);
+  }), [orders, fees, incomeEntries, expenses, settings.profitSharePercent]);
 
   const handleAddExpense = async () => {
     const rupees = Number(amount);
@@ -91,6 +109,35 @@ const AdminFinance = () => {
       toast({ title: "Could not add expense", description: error instanceof Error ? error.message : undefined, variant: "destructive" });
     } finally {
       setSavingExpense(false);
+    }
+  };
+
+  const handleAddIncome = async () => {
+    const rupees = Number(incomeAmount);
+    if (!incomeTitle.trim()) { toast({ title: "Add a title for the income", variant: "destructive" }); return; }
+    if (!Number.isFinite(rupees) || rupees <= 0) { toast({ title: "Enter a valid amount", variant: "destructive" }); return; }
+    setSavingIncome(true);
+    try {
+      await addManualIncome({ title: incomeTitle, category: incomeCategory, amountInPaise: Math.round(rupees * 100), note: incomeNote, receivedOn, createdBy: user?.uid });
+      toast({ title: "Income added" });
+      setIncomeTitle(""); setIncomeAmount(""); setIncomeNote("");
+    } catch (error) {
+      toast({ title: "Could not add income", description: error instanceof Error ? error.message : undefined, variant: "destructive" });
+    } finally {
+      setSavingIncome(false);
+    }
+  };
+
+  const handleDeleteIncome = async (entry: IncomeDoc) => {
+    if (!confirm(`Delete income "${entry.title}"?`)) return;
+    setBusyIncomeId(entry.id);
+    try {
+      await deleteManualIncome(entry.id);
+      toast({ title: "Income deleted" });
+    } catch (error) {
+      toast({ title: "Could not delete", description: error instanceof Error ? error.message : undefined, variant: "destructive" });
+    } finally {
+      setBusyIncomeId(null);
     }
   };
 
@@ -154,13 +201,68 @@ const AdminFinance = () => {
 
       {/* Summary tiles */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <Tile label="Total Income" value={formatPaiseAsRupees(summary.incomeInPaise)} sub={`Products ${formatPaiseAsRupees(summary.productIncomeInPaise)} · Classes ${formatPaiseAsRupees(summary.classIncomeInPaise)}`} accent="text-green-600" icon={TrendingUp} />
+        <Tile label="Total Income" value={formatPaiseAsRupees(summary.incomeInPaise)} sub={`Products ${formatPaiseAsRupees(summary.productIncomeInPaise)} · Classes ${formatPaiseAsRupees(summary.classIncomeInPaise)} · Other ${formatPaiseAsRupees(summary.otherIncomeInPaise)}`} accent="text-green-600" icon={TrendingUp} />
         <Tile label="Total Expenses" value={formatPaiseAsRupees(summary.expensesInPaise)} sub={`${expenses.length} entr${expenses.length === 1 ? "y" : "ies"}`} accent="text-red-600" icon={TrendingDown} />
         <Tile label="Net Profit" value={formatPaiseAsRupees(summary.netProfitInPaise)} sub="Income − Expenses" accent={summary.netProfitInPaise >= 0 ? "text-primary" : "text-red-600"} icon={Wallet} />
         <Tile label="Partner Share" value={formatPaiseAsRupees(summary.partnerShareInPaise)} sub={`${summary.profitSharePercent}% of net profit`} accent="text-gold" icon={Handshake} />
       </div>
 
       {loading && <p className="font-body text-sm text-muted-foreground"><Loader2 className="mr-2 inline h-4 w-4 animate-spin" />Loading financials…</p>}
+
+      {/* Extra income */}
+      <div className="rounded-xl border border-border/60 bg-card p-5 shadow-card">
+        <h2 className="flex items-center gap-2 font-display text-xl text-foreground"><TrendingUp className="h-5 w-5 text-green-600" /> Other Income</h2>
+        <p className="mt-1 font-body text-sm text-muted-foreground">Record income that doesn't come from a product order or class fee — donations, workshops, hall rentals, etc. These add to total income.</p>
+
+        <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          <div className="lg:col-span-2">
+            <label className="mb-1 block font-body text-xs font-medium text-foreground">Title *</label>
+            <input value={incomeTitle} onChange={(e) => setIncomeTitle(e.target.value)} placeholder="e.g. Weekend workshop" className={inputClass} />
+          </div>
+          <div>
+            <label className="mb-1 block font-body text-xs font-medium text-foreground">Category</label>
+            <select value={incomeCategory} onChange={(e) => setIncomeCategory(e.target.value)} className={inputClass}>
+              {INCOME_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="mb-1 block font-body text-xs font-medium text-foreground">Amount (₹) *</label>
+            <input value={incomeAmount} onChange={(e) => setIncomeAmount(e.target.value)} inputMode="decimal" placeholder="0" className={inputClass} />
+          </div>
+          <div>
+            <label className="mb-1 block font-body text-xs font-medium text-foreground">Date</label>
+            <input type="date" value={receivedOn} onChange={(e) => setReceivedOn(e.target.value)} className={inputClass} />
+          </div>
+          <div className="sm:col-span-2 lg:col-span-4">
+            <label className="mb-1 block font-body text-xs font-medium text-foreground">Note</label>
+            <input value={incomeNote} onChange={(e) => setIncomeNote(e.target.value)} placeholder="Optional" className={inputClass} />
+          </div>
+          <div className="flex items-end">
+            <button onClick={handleAddIncome} disabled={savingIncome} className="flex h-10 w-full items-center justify-center gap-2 rounded-md bg-gradient-primary px-4 font-body text-sm font-semibold text-primary-foreground hover:brightness-110 disabled:opacity-60">
+              {savingIncome ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Add
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-5 space-y-2">
+          {incomeEntries.length === 0 ? (
+            <p className="rounded-lg border border-dashed border-border/60 p-6 text-center font-body text-sm text-muted-foreground">No manual income entries yet.</p>
+          ) : incomeEntries.map((entry) => (
+            <div key={entry.id} className="flex items-center justify-between rounded-lg border border-border/60 bg-background/70 px-3 py-2">
+              <div>
+                <p className="font-body text-sm font-medium text-foreground">{entry.title}</p>
+                <p className="font-body text-xs text-muted-foreground">{entry.category}{entry.receivedOn ? ` · ${entry.receivedOn}` : ""}{entry.note ? ` · ${entry.note}` : ""}</p>
+              </div>
+              <div className="flex items-center gap-3">
+                <span className="font-display text-sm font-bold text-green-600">{formatPaiseAsRupees(entry.amountInPaise)}</span>
+                <button onClick={() => handleDeleteIncome(entry)} disabled={busyIncomeId === entry.id} className="rounded p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50" title="Delete">
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1.4fr_1fr]">
         {/* Expenses */}

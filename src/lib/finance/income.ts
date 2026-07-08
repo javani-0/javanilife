@@ -52,17 +52,25 @@ export interface ExpenseLike { amountInPaise?: number }
 export const sumExpensesInPaise = (expenses: ExpenseLike[]): number =>
   expenses.reduce((sum, expense) => sum + Math.max(0, Math.round(num(expense.amountInPaise))), 0);
 
+export interface IncomeLike { amountInPaise?: number }
+
+/** Sum manually-entered extra income entries. */
+export const sumManualIncomeInPaise = (entries: IncomeLike[]): number =>
+  entries.reduce((sum, entry) => sum + Math.max(0, Math.round(num(entry.amountInPaise))), 0);
+
 /** Roll income + expenses + share% into the summary shown to admin + partner. */
 export const buildFinanceSummary = (params: {
   productIncomeInPaise: number;
   classIncomeInPaise: number;
+  otherIncomeInPaise?: number;
   expensesInPaise: number;
   profitSharePercent: number;
 }): FinanceSummary => {
   const productIncomeInPaise = Math.max(0, Math.round(num(params.productIncomeInPaise)));
   const classIncomeInPaise = Math.max(0, Math.round(num(params.classIncomeInPaise)));
+  const otherIncomeInPaise = Math.max(0, Math.round(num(params.otherIncomeInPaise)));
   const expensesInPaise = Math.max(0, Math.round(num(params.expensesInPaise)));
-  const incomeInPaise = productIncomeInPaise + classIncomeInPaise;
+  const incomeInPaise = productIncomeInPaise + classIncomeInPaise + otherIncomeInPaise;
   const netProfitInPaise = incomeInPaise - expensesInPaise;
   const profitSharePercent = Math.max(0, Math.min(100, num(params.profitSharePercent)));
   // Never pay a share on a loss.
@@ -70,6 +78,7 @@ export const buildFinanceSummary = (params: {
   return {
     productIncomeInPaise,
     classIncomeInPaise,
+    otherIncomeInPaise,
     incomeInPaise,
     expensesInPaise,
     netProfitInPaise,

@@ -152,17 +152,23 @@ export interface FeeReminderCandidate {
   monthKey?: string;
   status?: string;
   dueDate?: string;
-  reminders?: { preDebitMonthKey?: string };
+  reminders?: { preDebitMonthKey?: string; preDebitDateKey?: string };
 }
 
+// Mirror of src/lib/classes/feeMath.ts collectDueReminders (req 6): send a daily
+// "pay in N days" countdown across the whole window (daysBefore → due day) and
+// stop once paid, using a per-calendar-day idempotency guard. Keep the two in
+// sync.
 export const collectDueReminders = <T extends FeeReminderCandidate>(
   docs: T[],
   now: Date = new Date(),
   daysBefore: number = DEFAULT_REMINDER_DAYS,
-): T[] =>
-  docs.filter((doc) => {
-    if (doc.status !== "pending" && doc.status !== "processing") return false;
+): T[] => {
+  const todayKey = dateKeyFor(now);
+  return docs.filter((doc) => {
+    if (doc.status !== "pending") return false;
     const remaining = daysUntil(doc.dueDate || "", now);
-    if (remaining === null || remaining !== daysBefore) return false;
-    return doc.reminders?.preDebitMonthKey !== doc.monthKey;
+    if (remaining === null || remaining < 0 || remaining > daysBefore) return false;
+    return doc.reminders?.preDebitDateKey !== todayKey;
   });
+};

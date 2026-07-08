@@ -44,10 +44,11 @@ export default async function partnerSummary(request: ApiRequest, response: ApiR
       return;
     }
 
-    const [ordersSnap, feesSnap, expensesSnap, settingsSnap] = await Promise.all([
+    const [ordersSnap, feesSnap, expensesSnap, incomeSnap, settingsSnap] = await Promise.all([
       db.collection("orders").get(),
       db.collection("feePayments").where("status", "==", "paid").get(),
       db.collection("expenses").get(),
+      db.collection("manualIncome").get(),
       db.doc("finance/settings").get(),
     ]);
 
@@ -63,11 +64,15 @@ export default async function partnerSummary(request: ApiRequest, response: ApiR
       (sum, expenseDoc) => sum + Math.max(0, Math.round(num((expenseDoc.data() || {}).amountInPaise))),
       0,
     );
+    const otherIncomeInPaise = incomeSnap.docs.reduce(
+      (sum, incomeDoc) => sum + Math.max(0, Math.round(num((incomeDoc.data() || {}).amountInPaise))),
+      0,
+    );
 
     const settings = settingsSnap.exists ? settingsSnap.data() || {} : {};
     const profitSharePercent = Math.max(0, Math.min(100, num(settings.profitSharePercent)));
 
-    const summary = buildFinanceSummary({ productIncomeInPaise, classIncomeInPaise, expensesInPaise, profitSharePercent });
+    const summary = buildFinanceSummary({ productIncomeInPaise, classIncomeInPaise, otherIncomeInPaise, expensesInPaise, profitSharePercent });
 
     sendJson(response, 200, {
       ...summary,

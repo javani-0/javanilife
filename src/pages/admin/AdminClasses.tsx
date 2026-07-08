@@ -17,6 +17,7 @@ import {
   composeSchedule,
   DEFAULT_CLASS_EMI_CONFIG,
   getAutopayFeeLabel,
+  getClassEmiTotalInPaise,
   getClassFeeLabel,
   getTermPayFullOfferLabel,
   getTermPayFullPriceInPaise,
@@ -69,6 +70,7 @@ interface ClassFormState {
   payCash: boolean;
   emiUpfront: string;        // "50"
   emiInstallments: string;   // "25, 25"
+  emiSurchargeRupees: string; // flat ₹ convenience fee added once for EMI
   timeSlots: SlotFormState[];
 }
 
@@ -100,14 +102,15 @@ const defaultForm: ClassFormState = {
   payCash: false,
   emiUpfront: String(DEFAULT_CLASS_EMI_CONFIG.upfrontPercentage),
   emiInstallments: DEFAULT_CLASS_EMI_CONFIG.installmentPercentages.join(", "),
+  emiSurchargeRupees: "",
   timeSlots: [],
 };
 
 let slotIdCounter = 0;
 const newSlot = (): SlotFormState => ({ id: `slot-${Date.now()}-${slotIdCounter++}`, days: [], start: "", end: "", seats: "" });
 
-/** Parse "50" + "25, 25" into a ClassEmiConfig; returns null if the split is invalid. */
-const parseEmiConfig = (upfrontStr: string, installmentsStr: string): { config: ClassEmiConfig | null; sum: number } => {
+/** Parse "50" + "25, 25" (+ optional surcharge ₹) into a ClassEmiConfig; returns null if the split is invalid. */
+const parseEmiConfig = (upfrontStr: string, installmentsStr: string, surchargeRupees = ""): { config: ClassEmiConfig | null; sum: number } => {
   const upfront = Math.round(Number(upfrontStr));
   const installments = installmentsStr
     .split(/[,\s]+/)
@@ -118,7 +121,8 @@ const parseEmiConfig = (upfrontStr: string, installmentsStr: string): { config: 
   if (installments.length === 0 || installments.some((value) => !Number.isFinite(value) || value <= 0)) return { config: null, sum: NaN };
   const sum = upfront + installments.reduce((a, b) => a + b, 0);
   if (sum !== 100) return { config: null, sum };
-  return { config: { upfrontPercentage: upfront, installmentPercentages: installments }, sum };
+  const emiSurchargeInPaise = Math.max(0, parsePriceToPaise(surchargeRupees) || 0);
+  return { config: { upfrontPercentage: upfront, installmentPercentages: installments, emiSurchargeInPaise }, sum };
 };
 
 const inputClass = "w-full px-3 py-2 rounded-md border border-border font-body text-[0.875rem] outline-none focus:border-gold focus:ring-2 focus:ring-gold/20 bg-background";
@@ -181,10 +185,10 @@ const AdminClasses = () => {
   const termFeePreviewInPaise = parsePriceToPaise(form.termFeeRupees) || 0;
   const overAfaCap = form.offersMonthly && monthlyFeePreviewInPaise > AUTOPAY_AFA_CAP_IN_PAISE;
 
-  const emiParsed = useMemo(() => parseEmiConfig(form.emiUpfront, form.emiInstallments), [form.emiUpfront, form.emiInstallments]);
+  const emiParsed = useMemo(() => parseEmiConfig(form.emiUpfront, form.emiInstallments, form.emiSurchargeRupees), [form.emiUpfront, form.emiInstallments, form.emiSurchargeRupees]);
   const emiPreview = useMemo(() => {
     if (!form.offersTerm || !form.payEmi || !emiParsed.config || termFeePreviewInPaise <= 0) return null;
-    return buildClassEmiPlan(termFeePreviewInPaise, emiParsed.config);
+    return buildClassEmiPlan(getClassEmiTotalInPaise(termFeePreviewInPaise, emiParsed.config), emiParsed.config);
   }, [form.offersTerm, form.payEmi, emiParsed.config, termFeePreviewInPaise]);
   const durationMonths = useMemo(() => monthsBetween(form.startDate, form.endDate), [form.startDate, form.endDate]);
 
@@ -229,6 +233,7 @@ const AdminClasses = () => {
       payCash: classDoc.payment?.cash ?? false,
       emiUpfront: String(classDoc.emi?.upfrontPercentage ?? DEFAULT_CLASS_EMI_CONFIG.upfrontPercentage),
       emiInstallments: (classDoc.emi?.installmentPercentages ?? DEFAULT_CLASS_EMI_CONFIG.installmentPercentages).join(", "),
+      emiSurchargeRupees: (classDoc.emi?.emiSurchargeInPaise || 0) > 0 ? String((classDoc.emi?.emiSurchargeInPaise || 0) / 100) : "",
       timeSlots: (classDoc.timeSlots || []).map((slot) => ({
         id: slot.id,
         days: slot.days || [],
@@ -626,6 +631,10 @@ const AdminClasses = () => {
                           <label className={labelClass}>Installments % (comma-separated)</label>
                           <input value={form.emiInstallments} onChange={(event) => setForm({ ...form, emiInstallments: event.target.value })} className={inputClass} placeholder="25, 25" />
                         </div>
+                        <div className="col-span-2">
+                          <label className={labelClass}>EMI convenience fee (₹, optional) — added once to the total when a parent chooses EMI</label>
+                          <input value={form.emiSurchargeRupees} onChange={(event) => setForm({ ...form, emiSurchargeRupees: event.target.value })} className={inputClass} inputMode="numeric" placeholder="e.g. 500" />
+                        </div>
                       </div>
                       {!emiParsed.config ? (
                         <p className="mt-2 font-body text-[0.72rem] text-destructive">
@@ -633,6 +642,9 @@ const AdminClasses = () => {
                         </p>
                       ) : emiPreview ? (
                         <div className="mt-2 space-y-0.5 font-body text-[0.72rem] text-muted-foreground">
+                          {(emiParsed.config.emiSurchargeInPaise || 0) > 0 && (
+                            <p className="text-amber-700">Term fee {formatPaiseAsRupees(termFeePreviewInPaise)} + convenience fee {formatPaiseAsRupees(emiParsed.config.emiSurchargeInPaise || 0)} = <span className="font-semibold">{formatPaiseAsRupees(emiPreview.totalInPaise)}</span></p>
+                          )}
                           <p>Pay now ({emiParsed.config.upfrontPercentage}%): <span className="font-semibold text-gold">{formatPaiseAsRupees(emiPreview.initialPaymentInPaise)}</span></p>
                           {emiPreview.installments.slice(1).map((inst) => (
                             <p key={inst.installmentNumber}>{inst.label} ({inst.percentage}%) on {inst.dueDate}: <span className="font-semibold">{formatPaiseAsRupees(inst.amountInPaise)}</span></p>

@@ -157,43 +157,47 @@ describe("computeBillingPeriod", () => {
 });
 
 describe("collectDueReminders", () => {
-  const now = new Date("2026-06-01T08:00:00Z"); // due 5 days out → 2026-06-06
+  const now = new Date("2026-06-01T08:00:00Z"); // today = 2026-06-01
 
-  it("selects pending fees exactly 5 days out without a prior reminder", () => {
+  it("selects pending fees anywhere in the 5-day window (5 days out → due today)", () => {
     const docs = [
-      { id: "a", monthKey: "2026-06", status: "pending", dueDate: "2026-06-06" },
-      { id: "b", monthKey: "2026-06", status: "processing", dueDate: "2026-06-06" },
+      { id: "a", monthKey: "2026-06", status: "pending", dueDate: "2026-06-06" }, // 5 days out
+      { id: "b", monthKey: "2026-06", status: "pending", dueDate: "2026-06-03" }, // 2 days out
+      { id: "c", monthKey: "2026-06", status: "pending", dueDate: "2026-06-01" }, // due today
     ];
-    expect(collectDueReminders(docs, now).map((d) => d.id)).toEqual(["a", "b"]);
+    expect(collectDueReminders(docs, now).map((d) => d.id)).toEqual(["a", "b", "c"]);
   });
 
-  it("ignores fees not exactly 5 days out", () => {
+  it("ignores fees outside the window (more than 5 days out or already past due)", () => {
     const docs = [
-      { id: "c", monthKey: "2026-06", status: "pending", dueDate: "2026-06-07" },
-      { id: "d", monthKey: "2026-06", status: "pending", dueDate: "2026-06-05" },
+      { id: "d", monthKey: "2026-06", status: "pending", dueDate: "2026-06-07" }, // 6 days out
+      { id: "e", monthKey: "2026-06", status: "pending", dueDate: "2026-05-31" }, // overdue
     ];
     expect(collectDueReminders(docs, now)).toEqual([]);
   });
 
-  it("ignores paid / waived / overdue fees", () => {
+  it("skips fees under UPI approval (processing) and settled fees", () => {
     const docs = [
-      { id: "e", monthKey: "2026-06", status: "paid", dueDate: "2026-06-06" },
-      { id: "f", monthKey: "2026-06", status: "waived", dueDate: "2026-06-06" },
+      { id: "f", monthKey: "2026-06", status: "processing", dueDate: "2026-06-06" },
+      { id: "g", monthKey: "2026-06", status: "paid", dueDate: "2026-06-06" },
+      { id: "h", monthKey: "2026-06", status: "waived", dueDate: "2026-06-06" },
     ];
     expect(collectDueReminders(docs, now)).toEqual([]);
   });
 
-  it("does not re-send once preDebitMonthKey matches the fee month", () => {
+  it("sends at most once per calendar day (per-day idempotency)", () => {
     const docs = [
-      { id: "g", monthKey: "2026-06", status: "pending", dueDate: "2026-06-06", reminders: { preDebitMonthKey: "2026-06" } },
+      { id: "i", monthKey: "2026-06", status: "pending", dueDate: "2026-06-06", reminders: { preDebitDateKey: "2026-06-01" } },
+      { id: "j", monthKey: "2026-06", status: "pending", dueDate: "2026-06-06", reminders: { preDebitDateKey: "2026-05-31" } },
     ];
-    expect(collectDueReminders(docs, now)).toEqual([]);
+    // i was already reminded today → skipped; j was reminded yesterday → sent again today.
+    expect(collectDueReminders(docs, now).map((d) => d.id)).toEqual(["j"]);
   });
 
   it("honours a custom daysBefore window", () => {
     const docs = [
-      { id: "h", monthKey: "2026-06", status: "pending", dueDate: "2026-06-04" },
+      { id: "k", monthKey: "2026-06", status: "pending", dueDate: "2026-06-10" }, // 9 days out
     ];
-    expect(collectDueReminders(docs, now, 3).map((d) => d.id)).toEqual(["h"]);
+    expect(collectDueReminders(docs, now, 10).map((d) => d.id)).toEqual(["k"]);
   });
 });

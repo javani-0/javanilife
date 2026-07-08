@@ -5,7 +5,7 @@ import {
   LayoutDashboard, ClipboardList, BookOpen, Image, ShoppingBag, Users,
   Handshake, SlidersHorizontal, LogOut, Menu, X, PackageCheck,
   ChevronLeft, ChevronRight, TicketPercent, Truck,
-  GraduationCap, UserCheck, Wallet, PiggyBank,
+  GraduationCap, UserCheck, Wallet, PiggyBank, QrCode,
 } from "lucide-react";
 import logoWhite from "@/assets/logo-white.png";
 
@@ -16,6 +16,7 @@ const navItems = [
   { label: "Classes Manager", icon: GraduationCap, path: "/admin/classes" },
   { label: "Sign Up", icon: UserCheck, path: "/admin/enrollments" },
   { label: "Fee Collections", icon: Wallet, path: "/admin/fee-collections" },
+  { label: "Payment Settings", icon: QrCode, path: "/admin/payment-settings" },
   { label: "Gallery Manager", icon: Image, path: "/admin/gallery" },
   { label: "Products Manager", icon: ShoppingBag, path: "/admin/products" },
   { label: "Coupons", icon: TicketPercent, path: "/admin/coupons" },

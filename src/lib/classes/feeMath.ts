@@ -181,22 +181,27 @@ export interface FeeReminderCandidate {
   monthKey?: string;
   status?: string;
   dueDate?: string;
-  reminders?: { preDebitMonthKey?: string };
+  reminders?: { preDebitMonthKey?: string; preDebitDateKey?: string };
 }
 
 /**
- * Select pending/processing fee docs whose due date is exactly `daysBefore`
- * days away and that have not yet had a pre-debit reminder recorded for their
- * monthKey. The monthKey guard makes a re-run idempotent.
+ * Select pending fee docs to remind today (req 6). We send a daily "pay in N
+ * days" countdown across the whole window — from `daysBefore` days before the
+ * due date down to the due day itself — and stop once paid. A per-calendar-day
+ * guard (`reminders.preDebitDateKey`) makes each day's run idempotent, so the
+ * cron can run repeatedly without spamming. Fees already submitted for approval
+ * ("processing") or settled are skipped.
  */
 export const collectDueReminders = <T extends FeeReminderCandidate>(
   docs: T[],
   now: Date = new Date(),
   daysBefore: number = DEFAULT_REMINDER_DAYS,
-): T[] =>
-  docs.filter((doc) => {
-    if (doc.status !== "pending" && doc.status !== "processing") return false;
+): T[] => {
+  const todayKey = dateKeyFor(now);
+  return docs.filter((doc) => {
+    if (doc.status !== "pending") return false;
     const remaining = daysUntil(doc.dueDate || "", now);
-    if (remaining === null || remaining !== daysBefore) return false;
-    return doc.reminders?.preDebitMonthKey !== doc.monthKey;
+    if (remaining === null || remaining < 0 || remaining > daysBefore) return false;
+    return doc.reminders?.preDebitDateKey !== todayKey;
   });
+};

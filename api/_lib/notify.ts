@@ -126,6 +126,9 @@ export interface ClassFeeNotificationContext {
   slotLabel?: string;
   billingPeriodLabel?: string;
   nextChargeDate?: string;
+  // Whole days until the fee is due — drives the "pay in N days" countdown in
+  // the daily reminder push (req 6). Filled by the reminder cron.
+  daysUntilDue?: number;
 }
 
 /** "5 Sep 2026" → friendly date for a "YYYY-MM-DD" string (or "" if unparseable). */
@@ -182,11 +185,18 @@ export const sendClassFeeNotifications = async (
   }
 
   if (event === "reminder") {
+    // "Pay in N days" countdown for the daily reminder (req 6). The push body is
+    // free-form so it carries the countdown + a Pay Now deep link; the WhatsApp
+    // template keeps its approved params (dueDate).
+    const days = typeof ctx.daysUntilDue === "number" ? ctx.daysUntilDue : undefined;
+    const countdown = days === undefined ? "" : days <= 0 ? "Due today" : days === 1 ? "Due tomorrow" : `Pay in ${days} days`;
+    const pushTitle = countdown || "Upcoming fee";
+    const pushBody = `${countdown ? `${countdown} — ` : ""}₹${amount} for ${ctx.studentName}'s ${ctx.className}${ctx.dueDate ? ` (due ${niceDate(ctx.dueDate)})` : ""}. Tap to pay now.`;
     const [parentWhatsApp, parentPush] = await Promise.allSettled([
       parentNumber
         ? sendWhatsAppTemplate({ to: parentNumber, templateName: classFeeReminderTemplate(), languageCode: templateLanguage(), params: [firstName(ctx.parentName), ctx.studentName, ctx.className, amount, ctx.dueDate || ""], urlSuffix: ctx.feePaymentId })
         : Promise.resolve({ status: "skipped", errorMessage: "Parent WhatsApp number missing." }),
-      (async () => sendWebPush({ tokens: await parentTokensPromise, title: "Upcoming fee", body: `On ${ctx.dueDate}, ₹${amount} is due for ${ctx.studentName}'s ${ctx.className}.`, link, data: { feePaymentId: ctx.feePaymentId, type: "class-fee-reminder", audience: "parent" } }))(),
+      (async () => sendWebPush({ tokens: await parentTokensPromise, title: pushTitle, body: pushBody, link, data: { feePaymentId: ctx.feePaymentId, type: "class-fee-reminder", audience: "parent" } }))(),
     ]);
     return { parentWhatsApp: settle(parentWhatsApp), parentPush: settle(parentPush) };
   }

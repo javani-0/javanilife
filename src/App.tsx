@@ -65,6 +65,7 @@ const AdminPartners = lazy(() => import("./pages/admin/AdminPartners"));
 const AdminFaculty = lazy(() => import("./pages/admin/AdminFaculty"));
 const AdminFinance = lazy(() => import("./pages/admin/AdminFinance"));
 const AdminSiteSettings = lazy(() => import("./pages/admin/AdminSiteSettings"));
+const AdminPaymentSettings = lazy(() => import("./pages/admin/AdminPaymentSettings"));
 const AdminDeliverySettings = lazy(() => import("./pages/admin/AdminDeliverySettings"));
 const PartnerDashboard = lazy(() => import("./pages/PartnerDashboard"));
 
@@ -193,6 +194,7 @@ const App = () => {
                       <Route path="classes" element={<AdminClasses />} />
                       <Route path="enrollments" element={<AdminEnrollments />} />
                       <Route path="fee-collections" element={<AdminFeeCollections />} />
+                      <Route path="payment-settings" element={<AdminPaymentSettings />} />
                       <Route path="gallery" element={<AdminGallery />} />
                       <Route path="products" element={<AdminProducts />} />
                       <Route path="coupons" element={<AdminCoupons />} />

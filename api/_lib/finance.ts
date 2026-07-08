@@ -32,6 +32,7 @@ export const orderCollectedInPaise = (order: OrderLike): number => {
 export interface FinanceSummary {
   productIncomeInPaise: number;
   classIncomeInPaise: number;
+  otherIncomeInPaise: number;
   incomeInPaise: number;
   expensesInPaise: number;
   netProfitInPaise: number;
@@ -42,19 +43,22 @@ export interface FinanceSummary {
 export const buildFinanceSummary = (params: {
   productIncomeInPaise: number;
   classIncomeInPaise: number;
+  otherIncomeInPaise?: number;
   expensesInPaise: number;
   profitSharePercent: number;
 }): FinanceSummary => {
   const productIncomeInPaise = Math.max(0, Math.round(num(params.productIncomeInPaise)));
   const classIncomeInPaise = Math.max(0, Math.round(num(params.classIncomeInPaise)));
+  const otherIncomeInPaise = Math.max(0, Math.round(num(params.otherIncomeInPaise)));
   const expensesInPaise = Math.max(0, Math.round(num(params.expensesInPaise)));
-  const incomeInPaise = productIncomeInPaise + classIncomeInPaise;
+  const incomeInPaise = productIncomeInPaise + classIncomeInPaise + otherIncomeInPaise;
   const netProfitInPaise = incomeInPaise - expensesInPaise;
   const profitSharePercent = Math.max(0, Math.min(100, num(params.profitSharePercent)));
   const partnerShareInPaise = Math.round((Math.max(0, netProfitInPaise) * profitSharePercent) / 100);
   return {
     productIncomeInPaise,
     classIncomeInPaise,
+    otherIncomeInPaise,
     incomeInPaise,
     expensesInPaise,
     netProfitInPaise,

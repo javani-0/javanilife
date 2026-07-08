@@ -103,6 +103,12 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    // Manually-entered extra income — same access model as expenses.
+    match /manualIncome/{id} {
+      allow read: if isAdmin() || isPartner();
+      allow write: if isAdmin();
+    }
+
     match /courses/{id} {
       allow read: if true;
       allow write: if signedIn();

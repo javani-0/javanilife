@@ -133,8 +133,17 @@ const normalizeEmiConfig = (raw: unknown): ClassEmiConfig | undefined => {
   return {
     upfrontPercentage: Math.min(100, Math.max(1, upfront)),
     installmentPercentages: pcts.length > 0 ? pcts : [...DEFAULT_CLASS_EMI_CONFIG.installmentPercentages],
+    emiSurchargeInPaise: Math.max(0, Math.round(toNumber(data.emiSurchargeInPaise, 0))),
   };
 };
+
+/** The flat EMI convenience fee (paise) configured for a class's EMI split. */
+export const getClassEmiSurchargeInPaise = (emi?: Pick<ClassEmiConfig, "emiSurchargeInPaise">): number =>
+  Math.max(0, Math.round(Number(emi?.emiSurchargeInPaise || 0)));
+
+/** The total a parent pays via EMI: base term fee + the flat EMI surcharge. */
+export const getClassEmiTotalInPaise = (termFeeInPaise: number, emi?: Pick<ClassEmiConfig, "emiSurchargeInPaise">): number =>
+  Math.max(0, Math.round(Number(termFeeInPaise || 0))) + getClassEmiSurchargeInPaise(emi);
 
 /** Adapt a per-class EMI split into the ecommerce EmiSettings shape (for the math helpers). */
 export const classEmiToSettings = (emi: ClassEmiConfig): EmiSettings => ({
@@ -492,6 +501,7 @@ const buildClassPayload = (payload: ClassWritePayload) => {
     emi: payload.emi ? {
       upfrontPercentage: payload.emi.upfrontPercentage,
       installmentPercentages: payload.emi.installmentPercentages,
+      emiSurchargeInPaise: Math.max(0, Math.round(Number(payload.emi.emiSurchargeInPaise || 0))),
     } : null,
     timeSlots,
     updatedAt: serverTimestamp(),

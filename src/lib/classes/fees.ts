@@ -43,6 +43,9 @@ export const normalizeFeePayment = (id: string, data: DocumentData = {}): FeePay
     monthKey,
     periodLabel: typeof data.periodLabel === "string" && data.periodLabel ? data.periodLabel : periodLabelFor(monthKey),
     amountInPaise: Math.max(0, Math.round(toNumber(data.amountInPaise))),
+    originalAmountInPaise: data.originalAmountInPaise != null ? Math.max(0, Math.round(toNumber(data.originalAmountInPaise))) : undefined,
+    couponCode: typeof data.couponCode === "string" ? data.couponCode : undefined,
+    couponDiscountInPaise: data.couponDiscountInPaise != null ? Math.max(0, Math.round(toNumber(data.couponDiscountInPaise))) : undefined,
     dueDate: typeof data.dueDate === "string" ? data.dueDate : "",
     status: (data.status as FeeStatus) || "pending",
     paymentMethod: data.paymentMethod as FeePaymentMethod | undefined,
@@ -56,6 +59,12 @@ export const normalizeFeePayment = (id: string, data: DocumentData = {}): FeePay
     razorpaySubscriptionId: data.razorpaySubscriptionId,
     razorpayOrderId: data.razorpayOrderId,
     razorpayPaymentId: data.razorpayPaymentId,
+    upiProofUrl: typeof data.upiProofUrl === "string" ? data.upiProofUrl : undefined,
+    upiRef: typeof data.upiRef === "string" ? data.upiRef : undefined,
+    upiSubmittedAt: data.upiSubmittedAt,
+    upiRejectedReason: typeof data.upiRejectedReason === "string" ? data.upiRejectedReason : undefined,
+    approvedBy: typeof data.approvedBy === "string" ? data.approvedBy : undefined,
+    approvedAt: data.approvedAt,
     paidAt: data.paidAt,
     reminders: data.reminders,
     notifiedParentAt: data.notifiedParentAt,
@@ -118,6 +127,25 @@ export const listFeesAdmin = async (monthKey: string): Promise<FeePaymentDoc[]> 
   const snapshot = await getDocs(query(collection(db, FEE_PAYMENTS_COLLECTION), where("monthKey", "==", monthKey)));
   return snapshot.docs.map((feeDoc) => normalizeFeePayment(feeDoc.id, feeDoc.data()));
 };
+
+/**
+ * Admin: live queue of manual-UPI payments awaiting approval. Queries the single
+ * `status == "processing"` field (no composite index) and filters to the UPI
+ * rail client-side. Ordered newest submission first.
+ */
+export const subscribeToPendingUpiApprovals = (
+  onChange: (fees: FeePaymentDoc[]) => void,
+  onError?: (error: unknown) => void,
+) => onSnapshot(
+  query(collection(db, FEE_PAYMENTS_COLLECTION), where("status", "==", "processing")),
+  (snapshot) => {
+    const fees = snapshot.docs
+      .map((feeDoc) => normalizeFeePayment(feeDoc.id, feeDoc.data()))
+      .filter((fee) => fee.paymentMethod === "upi" && Boolean(fee.upiProofUrl));
+    onChange(fees);
+  },
+  (error) => onError?.(error),
+);
 
 /** Admin: record an offline cash payment against a month. */
 export const markFeeCash = async (feeId: string, adminNote?: string): Promise<void> => {

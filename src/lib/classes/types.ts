@@ -8,7 +8,7 @@ export * from "./feeMath";
 export type Gender = "male" | "female" | "other";
 export type EnrollmentStatus = "pending" | "active" | "paused" | "cancelled";
 export type FeeStatus = "pending" | "processing" | "paid" | "overdue" | "failed" | "waived";
-export type FeePaymentMethod = "autopay" | "manual" | "cash";
+export type FeePaymentMethod = "autopay" | "manual" | "cash" | "upi";
 export type AutopayMethod = "upi" | "card" | "emandate";
 export type MandateStatus = "created" | "authenticated" | "active" | "halted" | "cancelled";
 
@@ -39,6 +39,9 @@ export interface ClassPaymentOptions {
 export interface ClassEmiConfig {
   upfrontPercentage: number;        // e.g. 50 (paid now)
   installmentPercentages: number[]; // e.g. [25, 25] (each later)
+  // Flat convenience fee (paise) added ONCE to the term total when a parent
+  // chooses to pay by EMI instead of in one shot. 0 / undefined = no surcharge.
+  emiSurchargeInPaise?: number;
 }
 
 // One bookable time slot. Admin can create several per class; parent picks one.
@@ -172,6 +175,8 @@ export interface EnrollmentDoc {
   billingPeriodLabel?: string;
   // True once the parent has pre-paid the first cycle in advance at sign-up.
   advancePaid?: boolean;
+  // Parent-declared enrolment status: a "new" student is not forced into autopay.
+  studentStatus?: "new" | "existing";
   createdAt?: Timestamp;
   updatedAt?: Timestamp;
 }
@@ -179,6 +184,9 @@ export interface EnrollmentDoc {
 export interface FeeReminderInfo {
   preDebitSentAt?: string;
   preDebitMonthKey?: string;
+  // The calendar day ("YYYY-MM-DD") a reminder was last sent — guards the daily
+  // countdown so the cron sends at most one reminder per day per fee.
+  preDebitDateKey?: string;
   count?: number;
 }
 
@@ -196,6 +204,10 @@ export interface FeePaymentDoc {
   monthKey: string;
   periodLabel: string;
   amountInPaise: number;
+  // The pre-discount amount, kept when a coupon reduces `amountInPaise` (req 2).
+  originalAmountInPaise?: number;
+  couponCode?: string;
+  couponDiscountInPaise?: number;
   dueDate: string;
   status: FeeStatus;
   paymentMethod?: FeePaymentMethod;
@@ -215,6 +227,15 @@ export interface FeePaymentDoc {
   razorpaySubscriptionId?: string;
   razorpayOrderId?: string;
   razorpayPaymentId?: string;
+  // Manual-UPI flow: the student's uploaded receipt + reference, pending admin
+  // approval. When a UPI proof is submitted the fee sits at status "processing"
+  // until an admin approves (→ paid) or rejects (→ back to pending).
+  upiProofUrl?: string;
+  upiRef?: string;
+  upiSubmittedAt?: Timestamp;
+  upiRejectedReason?: string;
+  approvedBy?: string;
+  approvedAt?: Timestamp;
   paidAt?: Timestamp;
   reminders?: FeeReminderInfo;
   notifiedParentAt?: Timestamp;
@@ -244,6 +265,7 @@ export const FEE_PAYMENT_METHOD_LABELS: Record<FeePaymentMethod, string> = {
   autopay: "Autopay",
   manual: "Manual",
   cash: "Cash",
+  upi: "UPI",
 };
 
 export const MANDATE_STATUS_LABELS: Record<MandateStatus, string> = {
