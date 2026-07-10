@@ -58,6 +58,39 @@ The manager already existed (income auto-derived from orders + class fees; expen
 8. **Pay in advance** — in My Classes, a monthly (non-autopay) enrolment shows **"Pay {month} in advance"** → opens the UPI dialog for the next month.
 9. **EMI** — enrol in a term class by **EMI** → the schedule preview includes the convenience fee and the EMI total; the first installment still goes through Razorpay.
 
+---
+
+# Round 2 (2026-07-09)
+
+## Why July showed only 5 payments vs 34 in June
+July's fee rows are only created by (a) an autopay charge, or (b) the daily cron's roll-forward. The cron clearly isn't running — **check on Vercel that the `CRON_SECRET` environment variable is set and that the Cron Job `/api/cron/class-fee-reminders` (daily 4:00 UTC) is succeeding**. Without it: no monthly roll-forward AND no automatic WhatsApp reminders.
+
+**Self-heal shipped:** opening Admin → Fee Collections now auto-creates the month's pending dues for every **active monthly** student (toast: "Generated N pending dues"). So Pending/Overdue and the reminder pipeline are correct even if the cron missed days. Use **Waive** (not Delete) to excuse a student's month — deleted rows regenerate on the next visit because an active student owes every month.
+
+## What changed
+1. **Fee Collections**: new **Total Students** tile (active monthly · term split), "Paid This Month — X of N students", auto-generated dues, and a **History** button on every card/row/popup showing that student's complete payment history (all months, amounts, methods, paid dates + total collected). User side already shows full history in My Classes.
+2. **Coupons**: Admin → Coupons now supports classes — scope "Courses & classes only" and tap-to-add chips that limit a coupon to specific classes.
+3. **Partner Access** (grant/revoke, profit share %) moved from Finance to **Partners Manager**; Finance keeps a pointer note.
+4. **Finance**: period toggle — **This Month (default) / Today / All Time / calendar day picker**. Income (products, classes, other) and expenses are all filtered by the chosen period.
+5. **WhatsApp reminder**: the approved `class_fee_reminder` template is reused unchanged — the due-date variable now carries the countdown, so the message reads "Due date: 10 Jul 2026 — pay in 3 days". Sent daily in the 5-day window by the cron (see CRON_SECRET above).
+6. **Verified**: parents pay entirely from their profile (My Classes) — Pay Now, pay-in-advance, history — without visiting the public Classes page.
+
+## Round-2 testing
+- Admin → Fee Collections (July): expect a "Generated N pending dues" toast, Total Students tile, Pending no longer ₹0, and History on each card.
+- Admin → Coupons: create a coupon scoped to a class via the chips; apply it in that class's enrolment as a user.
+- Admin → Partners Manager: Partner Access card at top (grant/update/revoke).
+- Admin → Finance: toggle This Month / Today / All Time / pick a date — tiles and lists follow.
+- Vercel: confirm `CRON_SECRET` env + cron success; then reminders go out daily automatically.
+
+---
+
+# Round 3 (2026-07-10)
+
+1. **Partners Manager — one section.** The duplicate "Partner Access" card is gone. A single **Add Partner** form takes the name, an optional logo (file/URL), and optional **financial access** (email + profit share %). Every partner appears once in the list with badges ("Website logo" / "Financial access · N%"), and can be **edited** (name, logo, email, share — clearing the email revokes access) or **deleted** (also revokes access). Only one partner can hold financial access at a time — granting it to another replaces the previous one. Finance-only partners (no logo) never appear on the public website.
+2. **Fee Collections — tiles are filters.** Click **Paid This Month / Pending / Overdue** to filter the list (click again to clear); **Total Students** shows all. The active tile is highlighted. The Payment Status dropdown still works too.
+3. **Overdue students now keep getting reminders (bug fix).** Previously, once a fee passed its due date and flipped to "overdue", the daily reminder loop skipped it forever. Now students are nudged daily from 5 days before the due date **through 7 days after it** ("Overdue by N days — pay now"), then it stops (use the Remind button for older cases). No WhatsApp template change needed.
+4. **Testing:** production build ✓, typecheck ✓, 63 unit tests ✓ (including new overdue-window tests).
+
 ### Notes / not yet done
 - One-click "switch class that auto-cancels the old enrolment" isn't built — the link sends you to browse classes; old history is retained.
 - Paying more than one month ahead in a single action isn't built (advance pays the next uncovered month).

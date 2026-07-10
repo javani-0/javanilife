@@ -73,16 +73,18 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     console.error("Class fee cron: roll-forward failed", error);
   }
 
-  // --- Steps B & C: scan pending fees for reminders + overdue ---------------
-  const pendingSnapshot = await db
-    .collection(FEE_PAYMENTS_COLLECTION)
-    .where("status", "==", "pending")
-    .orderBy("dueDate", "asc")
-    .limit(limit)
-    .get();
+  // --- Steps B & C: scan pending + overdue fees for reminders ---------------
+  // Overdue fees keep getting the daily nudge for OVERDUE_REMINDER_GRACE_DAYS
+  // after the due date (collectDueReminders enforces the window). Two queries
+  // share the existing (status, dueDate) composite index.
+  const [pendingSnapshot, overdueSnapshot] = await Promise.all([
+    db.collection(FEE_PAYMENTS_COLLECTION).where("status", "==", "pending").orderBy("dueDate", "asc").limit(limit).get(),
+    db.collection(FEE_PAYMENTS_COLLECTION).where("status", "==", "overdue").orderBy("dueDate", "desc").limit(limit).get(),
+  ]);
+  const scannedFeeDocs = [...pendingSnapshot.docs, ...overdueSnapshot.docs];
 
-  const docById = new Map(pendingSnapshot.docs.map((feeDoc) => [feeDoc.id, feeDoc] as const));
-  const pendingDocs = pendingSnapshot.docs.map((feeDoc) => {
+  const docById = new Map(scannedFeeDocs.map((feeDoc) => [feeDoc.id, feeDoc] as const));
+  const pendingDocs = scannedFeeDocs.map((feeDoc) => {
     const data = feeDoc.data() || {};
     return {
       id: feeDoc.id,
@@ -124,6 +126,7 @@ export default async function handler(request: ApiRequest, response: ApiResponse
   // Step C: mark overdue (admin visibility; no separate WhatsApp template).
   let overdueMarked = 0;
   for (const doc of pendingDocs) {
+    if (doc.status !== "pending") continue; // already overdue — nothing to flip
     if (!isOverdue(getString(doc.dueDate), now)) continue;
     const feeDoc = docById.get(doc.id);
     if (!feeDoc) continue;

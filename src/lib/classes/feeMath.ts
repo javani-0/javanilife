@@ -184,13 +184,18 @@ export interface FeeReminderCandidate {
   reminders?: { preDebitMonthKey?: string; preDebitDateKey?: string };
 }
 
+// After the due date passes, keep nudging daily for this many days, then stop
+// (avoids nagging forever; the admin can still Remind manually).
+export const OVERDUE_REMINDER_GRACE_DAYS = 7;
+
 /**
- * Select pending fee docs to remind today (req 6). We send a daily "pay in N
- * days" countdown across the whole window — from `daysBefore` days before the
- * due date down to the due day itself — and stop once paid. A per-calendar-day
- * guard (`reminders.preDebitDateKey`) makes each day's run idempotent, so the
- * cron can run repeatedly without spamming. Fees already submitted for approval
- * ("processing") or settled are skipped.
+ * Select fee docs to remind today (req 6). We send a daily "pay in N days"
+ * countdown across the whole window — from `daysBefore` days before the due
+ * date through OVERDUE_REMINDER_GRACE_DAYS past it — and stop once paid. A
+ * per-calendar-day guard (`reminders.preDebitDateKey`) makes each day's run
+ * idempotent, so the cron can run repeatedly without spamming. Fees already
+ * submitted for approval ("processing") or settled are skipped. Mirrored in
+ * api/_lib/class-fees.ts — keep the two in sync.
  */
 export const collectDueReminders = <T extends FeeReminderCandidate>(
   docs: T[],
@@ -199,9 +204,9 @@ export const collectDueReminders = <T extends FeeReminderCandidate>(
 ): T[] => {
   const todayKey = dateKeyFor(now);
   return docs.filter((doc) => {
-    if (doc.status !== "pending") return false;
+    if (doc.status !== "pending" && doc.status !== "overdue") return false;
     const remaining = daysUntil(doc.dueDate || "", now);
-    if (remaining === null || remaining < 0 || remaining > daysBefore) return false;
+    if (remaining === null || remaining < -OVERDUE_REMINDER_GRACE_DAYS || remaining > daysBefore) return false;
     return doc.reminders?.preDebitDateKey !== todayKey;
   });
 };

@@ -3,9 +3,16 @@ import { collection, onSnapshot, addDoc, deleteDoc, doc, serverTimestamp, update
 import { db } from "@/lib/firebase";
 import { CLOUDINARY_CLOUD_NAME, CLOUDINARY_UPLOAD_PRESET } from "@/lib/cloudinary";
 import { openSquareCropper } from "@/components/SquareImageCropper";
-import { Upload, Trash2, Edit2, Save, X, Link2 } from "lucide-react";
+import { Upload, Trash2, Edit2, Save, X, Link2, ShieldCheck, Handshake } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Progress } from "@/components/ui/progress";
+import {
+  grantPartnerRoleByEmail,
+  revokePartnerRole,
+  savePartnerSettings,
+  subscribeToPartnerSettings,
+  type PartnerSettings,
+} from "@/lib/finance";
 
 interface Partner {
   id: string;
@@ -14,6 +21,11 @@ interface Partner {
   publicId: string;
   order: number;
   timestamp: any;
+  // Optional financial access: when set, this partner can sign in and see the
+  // finance summary with this profit share. Only ONE partner holds access at a
+  // time (mirrored in finance/settings) — granting to another replaces it.
+  email?: string;
+  sharePercent?: number;
 }
 
 const AdminPartners = () => {
@@ -38,6 +50,62 @@ const AdminPartners = () => {
   const editFileRef = useRef<HTMLInputElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
+
+  // Business-partner financial access (read-only finance view + profit share).
+  // Unified into the single partner form/list — a partner entry may have a
+  // website logo, financial access, or both. `accessSettings` (finance/settings)
+  // is the single source of truth for WHO currently holds access.
+  const [accessSettings, setAccessSettings] = useState<PartnerSettings>({ profitSharePercent: 0 });
+  const [addEmail, setAddEmail] = useState("");
+  const [addShare, setAddShare] = useState("");
+  const [editEmail, setEditEmail] = useState("");
+  const [editShare, setEditShare] = useState("");
+
+  useEffect(() => subscribeToPartnerSettings((value) => setAccessSettings(value), () => undefined), []);
+
+  /** Does this partner entry currently hold the financial access? (email match) */
+  const holdsAccess = (partner: Partner): boolean =>
+    Boolean(partner.email && accessSettings.partnerEmail && partner.email.trim().toLowerCase() === accessSettings.partnerEmail.trim().toLowerCase());
+
+  /** Validate optional access inputs. Returns null when invalid (with a toast). */
+  const parseAccessInputs = (email: string, shareStr: string): { email: string; pct: number } | null | undefined => {
+    const trimmed = email.trim();
+    if (!trimmed) return undefined; // no access requested
+    const pct = Number(shareStr);
+    if (!Number.isFinite(pct) || pct < 0 || pct > 100) {
+      toast({ title: "Profit share must be between 0 and 100", description: "Enter a share % to grant financial access.", variant: "destructive" });
+      return null;
+    }
+    return { email: trimmed, pct };
+  };
+
+  /**
+   * Grant (or update) financial access for a partner. Replaces any previous
+   * access holder — only one partner can view the finance summary at a time.
+   * Returns true on success.
+   */
+  const applyFinancialAccess = async (name: string, email: string, pct: number): Promise<boolean> => {
+    const uid = await grantPartnerRoleByEmail(email);
+    if (!uid) {
+      toast({ title: "No account found for financial access", description: `Ask the partner to sign up with ${email} first, then edit this partner to grant access.`, variant: "destructive" });
+      return false;
+    }
+    // Replacing a different partner? Revoke the old role so only one has access.
+    if (accessSettings.partnerUid && accessSettings.partnerUid !== uid) {
+      try { await revokePartnerRole(accessSettings.partnerUid); } catch (error) { console.error("Could not revoke previous partner role", error); }
+    }
+    await savePartnerSettings({ partnerEmail: email, partnerName: name, partnerUid: uid, profitSharePercent: pct });
+    toast({ title: "Financial access granted", description: `${email} can sign in and view the financial summary (${pct}% share).` });
+    return true;
+  };
+
+  /** Remove the current financial access entirely. */
+  const clearFinancialAccess = async () => {
+    if (accessSettings.partnerUid) {
+      try { await revokePartnerRole(accessSettings.partnerUid); } catch (error) { console.error("Could not revoke partner role", error); }
+    }
+    await savePartnerSettings({ partnerEmail: "", partnerName: "", partnerUid: "", profitSharePercent: 0 });
+  };
 
   useEffect(() => {
     const unsub = onSnapshot(
@@ -72,52 +140,79 @@ const AdminPartners = () => {
     setPreview(URL.createObjectURL(square));
   };
 
+  /** Shared create: writes the partner doc, then grants access if requested. */
+  const createPartnerDoc = async (logo: { logoUrl: string; publicId: string }) => {
+    const access = parseAccessInputs(addEmail, addShare);
+    if (access === null) return false; // invalid share — toast already shown
+
+    await addDoc(collection(db, "partners"), {
+      name: partnerName.trim(),
+      logoUrl: logo.logoUrl,
+      publicId: logo.publicId,
+      email: access ? access.email : "",
+      sharePercent: access ? access.pct : 0,
+      order: partners.length,
+      timestamp: serverTimestamp(),
+    });
+
+    if (access) await applyFinancialAccess(partnerName.trim() || access.email, access.email, access.pct);
+    return true;
+  };
+
+  const resetAddForm = () => {
+    setSelectedFile(null);
+    setPreview("");
+    setPartnerName("");
+    setLogoUrl("");
+    setUrlPreview("");
+    setAddEmail("");
+    setAddShare("");
+    if (fileRef.current) fileRef.current.value = "";
+  };
+
   const uploadPartner = async () => {
-    if (!selectedFile) {
-      toast({ title: "Missing Information", description: "Please select a logo image", variant: "destructive" });
+    // A partner needs a logo (for the website) and/or financial access details.
+    if (!selectedFile && !addEmail.trim()) {
+      toast({ title: "Missing Information", description: "Add a logo image and/or a financial-access email.", variant: "destructive" });
       return;
     }
+    // Validate the access inputs BEFORE uploading so an invalid share % doesn't
+    // leave an orphaned Cloudinary image.
+    if (parseAccessInputs(addEmail, addShare) === null) return;
 
     setUploading(true);
     setProgress(0);
 
     try {
-      const formData = new FormData();
-      formData.append("file", selectedFile);
-      formData.append("upload_preset", CLOUDINARY_UPLOAD_PRESET);
-      formData.append("folder", "partners");
+      let logo = { logoUrl: "", publicId: "" };
+      if (selectedFile) {
+        const formData = new FormData();
+        formData.append("file", selectedFile);
+        formData.append("upload_preset", CLOUDINARY_UPLOAD_PRESET);
+        formData.append("folder", "partners");
 
-      setProgress(30);
+        setProgress(30);
 
-      const res = await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`, {
-        method: "POST",
-        body: formData,
-      });
-      
-      const data = await res.json();
-      setProgress(60);
+        const res = await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`, {
+          method: "POST",
+          body: formData,
+        });
 
-      if (!data.secure_url) {
-        throw new Error(data.error?.message || "Upload failed");
+        const data = await res.json();
+        setProgress(60);
+
+        if (!data.secure_url) {
+          throw new Error(data.error?.message || "Upload failed");
+        }
+        logo = { logoUrl: data.secure_url, publicId: data.public_id };
       }
 
-      await addDoc(collection(db, "partners"), {
-        name: partnerName.trim(),
-        logoUrl: data.secure_url,
-        publicId: data.public_id,
-        order: partners.length,
-        timestamp: serverTimestamp(),
-      });
+      const created = await createPartnerDoc(logo);
+      if (!created) return;
 
       setProgress(100);
       toast({ title: "Success", description: "Partner added successfully" });
-      
-      // Reset form
-      setSelectedFile(null);
-      setPreview("");
-      setPartnerName("");
-      if (fileRef.current) fileRef.current.value = "";
-      
+      resetAddForm();
     } catch (err: any) {
       console.error("[Upload Error]", err);
       toast({ title: "Upload Failed", description: err.message, variant: "destructive" });
@@ -128,25 +223,17 @@ const AdminPartners = () => {
   };
 
   const addPartnerByUrl = async () => {
-    if (!logoUrl.trim()) {
-      toast({ title: "Missing Information", description: "Please provide a logo URL", variant: "destructive" });
+    if (!logoUrl.trim() && !addEmail.trim()) {
+      toast({ title: "Missing Information", description: "Add a logo URL and/or a financial-access email.", variant: "destructive" });
       return;
     }
 
     setAddingUrl(true);
     try {
-      await addDoc(collection(db, "partners"), {
-        name: partnerName.trim(),
-        logoUrl: logoUrl.trim(),
-        publicId: "",
-        order: partners.length,
-        timestamp: serverTimestamp(),
-      });
-
+      const created = await createPartnerDoc({ logoUrl: logoUrl.trim(), publicId: "" });
+      if (!created) return;
       toast({ title: "Success", description: "Partner added successfully" });
-      setPartnerName("");
-      setLogoUrl("");
-      setUrlPreview("");
+      resetAddForm();
     } catch (err: any) {
       console.error("[URL Add Error]", err);
       toast({ title: "Failed", description: err.message, variant: "destructive" });
@@ -156,7 +243,8 @@ const AdminPartners = () => {
   };
 
   const deletePartner = async (partner: Partner) => {
-    if (!confirm(`Delete ${partner.name}?`)) return;
+    const hasAccess = holdsAccess(partner);
+    if (!confirm(`Delete ${partner.name || partner.email || "this partner"}?${hasAccess ? " Their financial access will also be revoked." : ""}`)) return;
 
     try {
       // Delete from Cloudinary
@@ -168,8 +256,9 @@ const AdminPartners = () => {
         });
       }
 
+      if (hasAccess) await clearFinancialAccess();
       await deleteDoc(doc(db, "partners", partner.id));
-      toast({ title: "Deleted", description: `${partner.name} removed` });
+      toast({ title: "Deleted", description: `${partner.name || partner.email || "Partner"} removed` });
     } catch (err: any) {
       console.error("[Delete Error]", err);
       toast({ title: "Delete Failed", description: err.message, variant: "destructive" });
@@ -184,6 +273,12 @@ const AdminPartners = () => {
     setEditFilePreview("");
     setEditLogoUrl("");
     setEditUrlPreview("");
+    setEditEmail(partner.email || (holdsAccess(partner) ? accessSettings.partnerEmail || "" : ""));
+    setEditShare(
+      partner.sharePercent ? String(partner.sharePercent)
+        : holdsAccess(partner) && accessSettings.profitSharePercent ? String(accessSettings.profitSharePercent)
+        : "",
+    );
   };
 
   const handleEditFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -206,6 +301,11 @@ const AdminPartners = () => {
   const saveEdit = async (partnerId: string) => {
     const partner = partners.find(p => p.id === partnerId);
     if (!partner) return;
+
+    // Validate access inputs BEFORE any logo upload/delete so an invalid share
+    // % can't leave the doc pointing at a destroyed Cloudinary image.
+    const access = parseAccessInputs(editEmail, editShare);
+    if (access === null) return; // invalid share — keep editing
 
     setEditUploading(true);
 
@@ -257,11 +357,22 @@ const AdminPartners = () => {
         }
       }
 
+      // Financial access reconciliation (unified section): email set → grant or
+      // update; email cleared while this partner held access → revoke.
+      if (access) {
+        await applyFinancialAccess(editName.trim() || access.email, access.email, access.pct);
+      } else if (holdsAccess(partner)) {
+        await clearFinancialAccess();
+        toast({ title: "Financial access revoked", description: `${partner.email} can no longer view the finance summary.` });
+      }
+
       // Update Firestore
       await updateDoc(doc(db, "partners", partnerId), {
         name: editName.trim(),
         logoUrl: newLogoUrl,
         publicId: newPublicId,
+        email: access ? access.email : "",
+        sharePercent: access ? access.pct : 0,
       });
 
       toast({ title: "Updated", description: "Partner updated successfully" });
@@ -270,6 +381,8 @@ const AdminPartners = () => {
       setEditFilePreview("");
       setEditLogoUrl("");
       setEditUrlPreview("");
+      setEditEmail("");
+      setEditShare("");
       if (editFileRef.current) editFileRef.current.value = "";
     } catch (err: any) {
       console.error("[Update Error]", err);
@@ -286,6 +399,8 @@ const AdminPartners = () => {
     setEditFilePreview("");
     setEditLogoUrl("");
     setEditUrlPreview("");
+    setEditEmail("");
+    setEditShare("");
     if (editFileRef.current) editFileRef.current.value = "";
   };
 
@@ -293,12 +408,13 @@ const AdminPartners = () => {
     <div className="p-4 sm:p-6 lg:p-8">
       <div className="mb-8">
         <h1 className="font-display text-2xl sm:text-3xl font-semibold text-foreground mb-2">Partners Manager</h1>
-        <p className="font-body text-sm text-muted-foreground">Manage partner logos displayed on the website</p>
+        <p className="font-body text-sm text-muted-foreground">One place for every partner — website logo, financial access &amp; profit share. Edit or delete any partner from the list below.</p>
       </div>
 
-      {/* Upload Section */}
+      {/* Add partner — logo and/or financial access in ONE form */}
       <div className="bg-card border border-border rounded-lg p-6 mb-8 shadow-sm">
-        <h2 className="font-display text-lg font-semibold text-foreground mb-4">Add New Partner</h2>
+        <h2 className="font-display text-lg font-semibold text-foreground mb-1">Add Partner</h2>
+        <p className="font-body text-sm text-muted-foreground mb-4">Add a logo to show them on the website, fill the financial-access fields to let them view income &amp; expenses — or both.</p>
 
         {/* Mode Toggle */}
         <div className="flex gap-2 mb-6">
@@ -339,6 +455,37 @@ const AdminPartners = () => {
           />
         </div>
 
+        {/* Financial access (shared, optional) */}
+        <div className="mb-4 rounded-lg border border-gold/25 bg-gold/5 p-4">
+          <p className="flex items-center gap-2 font-body text-sm font-semibold text-foreground"><ShieldCheck className="h-4 w-4 text-gold" /> Financial access <span className="font-normal text-muted-foreground">(optional)</span></p>
+          <p className="mt-0.5 font-body text-xs text-muted-foreground">Lets this partner sign in and see a read-only view of income, expenses &amp; their profit share. Only one partner can have access — granting it here replaces the previous one.</p>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <div>
+              <label className="mb-1 block font-body text-xs font-medium text-foreground">Partner email</label>
+              <input
+                type="email"
+                value={addEmail}
+                onChange={(e) => setAddEmail(e.target.value)}
+                placeholder="partner@email.com"
+                className="h-10 w-full rounded-md border border-border bg-background px-3 font-body text-sm outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                disabled={uploading || addingUrl}
+              />
+              <p className="mt-1 font-body text-[0.7rem] text-muted-foreground">They must sign up with this email first.</p>
+            </div>
+            <div>
+              <label className="mb-1 block font-body text-xs font-medium text-foreground">Profit share (%)</label>
+              <input
+                value={addShare}
+                onChange={(e) => setAddShare(e.target.value.replace(/[^0-9.]/g, ""))}
+                inputMode="decimal"
+                placeholder="e.g. 40"
+                className="h-10 w-full rounded-md border border-border bg-background px-3 font-body text-sm outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                disabled={uploading || addingUrl}
+              />
+            </div>
+          </div>
+        </div>
+
         {uploadMode === "file" ? (
           /* File Upload Mode */
           <>
@@ -370,7 +517,7 @@ const AdminPartners = () => {
 
             <button
               onClick={uploadPartner}
-              disabled={uploading || !selectedFile}
+              disabled={uploading || (!selectedFile && !addEmail.trim())}
               className="mt-4 px-6 py-2.5 bg-gold text-white rounded-md font-body text-sm font-medium hover:bg-gold/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
             >
               <Upload className="w-4 h-4" />
@@ -409,7 +556,7 @@ const AdminPartners = () => {
 
             <button
               onClick={addPartnerByUrl}
-              disabled={addingUrl || !logoUrl.trim()}
+              disabled={addingUrl || (!logoUrl.trim() && !addEmail.trim())}
               className="mt-4 px-6 py-2.5 bg-gold text-white rounded-md font-body text-sm font-medium hover:bg-gold/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
             >
               <Link2 className="w-4 h-4" />
@@ -440,11 +587,15 @@ const AdminPartners = () => {
               >
                 {editingId !== partner.id && (
                   <div className="flex items-center justify-center h-24 mb-3">
-                    <img
-                      src={partner.logoUrl}
-                      alt={partner.name}
-                      className="max-h-full max-w-full object-contain"
-                    />
+                    {partner.logoUrl ? (
+                      <img
+                        src={partner.logoUrl}
+                        alt={partner.name}
+                        className="max-h-full max-w-full object-contain"
+                      />
+                    ) : (
+                      <span className="flex h-16 w-16 items-center justify-center rounded-full bg-gold/10 text-gold"><Handshake className="h-8 w-8" /></span>
+                    )}
                   </div>
                 )}
 
@@ -459,11 +610,15 @@ const AdminPartners = () => {
                         <div>
                           <p className="font-body text-sm text-muted-foreground mb-2">Current Logo</p>
                           <div className="border border-border rounded-lg p-6 bg-card flex items-center justify-center h-48">
-                            <img
-                              src={partner.logoUrl}
-                              alt={partner.name}
-                              className="max-h-full max-w-full object-contain"
-                            />
+                            {partner.logoUrl ? (
+                              <img
+                                src={partner.logoUrl}
+                                alt={partner.name}
+                                className="max-h-full max-w-full object-contain"
+                              />
+                            ) : (
+                              <span className="font-body text-sm text-muted-foreground">No logo — financial-access partner</span>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -556,6 +711,30 @@ const AdminPartners = () => {
                           )}
                         </div>
 
+                        {/* Financial access */}
+                        <div className="rounded-lg border border-gold/25 bg-gold/5 p-3">
+                          <p className="flex items-center gap-1.5 font-body text-sm font-semibold text-foreground"><ShieldCheck className="h-4 w-4 text-gold" /> Financial access <span className="font-normal text-muted-foreground">(optional)</span></p>
+                          <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                            <input
+                              type="email"
+                              value={editEmail}
+                              onChange={(e) => setEditEmail(e.target.value)}
+                              placeholder="partner@email.com"
+                              className="h-10 w-full rounded-md border border-border bg-background px-3 font-body text-sm outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                              disabled={editUploading}
+                            />
+                            <input
+                              value={editShare}
+                              onChange={(e) => setEditShare(e.target.value.replace(/[^0-9.]/g, ""))}
+                              inputMode="decimal"
+                              placeholder="Profit share %"
+                              className="h-10 w-full rounded-md border border-border bg-background px-3 font-body text-sm outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                              disabled={editUploading}
+                            />
+                          </div>
+                          <p className="mt-1.5 font-body text-[0.7rem] text-muted-foreground">Clear the email to revoke this partner's access to the finance summary.</p>
+                        </div>
+
                         {/* Action Buttons */}
                         <div className="flex gap-3 pt-4">
                           <button
@@ -580,7 +759,15 @@ const AdminPartners = () => {
                   </div>
                 ) : (
                   <>
-                    <p className="font-body text-sm font-medium text-foreground text-center mb-3">{partner.name}</p>
+                    <p className="font-body text-sm font-medium text-foreground text-center mb-1">{partner.name || partner.email || "Partner"}</p>
+                    <div className="mb-3 flex flex-wrap items-center justify-center gap-1.5">
+                      {partner.logoUrl && <span className="rounded-full bg-muted px-2 py-0.5 font-body text-[0.65rem] font-semibold text-muted-foreground">Website logo</span>}
+                      {holdsAccess(partner) && (
+                        <span className="rounded-full bg-green-100 px-2 py-0.5 font-body text-[0.65rem] font-semibold text-green-700" title={accessSettings.partnerEmail}>
+                          Financial access · {accessSettings.profitSharePercent}%
+                        </span>
+                      )}
+                    </div>
                     <div className="flex gap-2">
                       <button
                         onClick={() => startEdit(partner)}

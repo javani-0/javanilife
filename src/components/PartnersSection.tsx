@@ -19,7 +19,11 @@ const PartnersSection = () => {
     const unsub = onSnapshot(
       collection(db, "partners"),
       (snap) => {
-        const data = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Partner));
+        const data = snap.docs
+          .map((d) => ({ id: d.id, ...d.data() } as Partner))
+          // Finance-only partners (no logo) are managed in the admin but never
+          // rendered on the public site.
+          .filter((partner) => Boolean(partner.logoUrl));
         setPartners(data.sort((a, b) => (a.order || 0) - (b.order || 0)));
         setLoading(false);
       },

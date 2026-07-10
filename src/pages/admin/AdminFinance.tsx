@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { collection, onSnapshot } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/contexts/AuthContext";
@@ -12,9 +13,6 @@ import {
   buildFinanceSummary,
   deleteExpense,
   deleteManualIncome,
-  grantPartnerRoleByEmail,
-  revokePartnerRole,
-  savePartnerSettings,
   subscribeToExpenses,
   subscribeToManualIncome,
   subscribeToPartnerSettings,
@@ -38,6 +36,28 @@ const Tile = ({ label, value, sub, accent, icon: Icon }: { label: string; value:
     {sub && <p className="font-body text-xs text-muted-foreground">{sub}</p>}
   </div>
 );
+
+// "YYYY-MM-DD" from a Firestore Timestamp, {seconds}, Date, or ISO/date string.
+// Empty string when there's no usable date.
+const dateKeyOf = (value: unknown): string => {
+  if (!value) return "";
+  if (typeof value === "string") {
+    const match = /^(\d{4}-\d{2}-\d{2})/.exec(value);
+    if (match) return match[1];
+    const parsed = new Date(value);
+    return Number.isFinite(parsed.getTime()) ? parsed.toISOString().slice(0, 10) : "";
+  }
+  if (value instanceof Date) return Number.isFinite(value.getTime()) ? value.toISOString().slice(0, 10) : "";
+  const record = value as { toDate?: () => Date; seconds?: number };
+  if (typeof record.toDate === "function") {
+    const date = record.toDate();
+    return date instanceof Date && Number.isFinite(date.getTime()) ? date.toISOString().slice(0, 10) : "";
+  }
+  if (typeof record.seconds === "number") return new Date(record.seconds * 1000).toISOString().slice(0, 10);
+  return "";
+};
+
+type FinancePeriod = "all" | "month" | "today" | "day";
 
 const AdminFinance = () => {
   const { user } = useAuth();
@@ -68,33 +88,54 @@ const AdminFinance = () => {
   const [savingIncome, setSavingIncome] = useState(false);
   const [busyIncomeId, setBusyIncomeId] = useState<string | null>(null);
 
-  // Partner access form
-  const [partnerEmail, setPartnerEmail] = useState("");
-  const [partnerName, setPartnerName] = useState("");
-  const [sharePercent, setSharePercent] = useState("");
-  const [savingPartner, setSavingPartner] = useState(false);
-
   useEffect(() => {
     const unsubOrders = onSnapshot(collection(db, "orders"), (snap) => { setOrders(snap.docs.map((d) => d.data())); setLoading(false); }, () => setLoading(false));
     const unsubFees = onSnapshot(collection(db, "feePayments"), (snap) => setFees(snap.docs.map((d) => d.data())), () => undefined);
     const unsubExpenses = subscribeToExpenses((items) => setExpenses(items), () => undefined);
     const unsubIncome = subscribeToManualIncome((items) => setIncomeEntries(items), () => undefined);
-    const unsubSettings = subscribeToPartnerSettings((value) => {
-      setSettings(value);
-      setPartnerEmail((current) => current || value.partnerEmail || "");
-      setPartnerName((current) => current || value.partnerName || "");
-      setSharePercent((current) => current || (value.profitSharePercent ? String(value.profitSharePercent) : ""));
-    }, () => undefined);
+    const unsubSettings = subscribeToPartnerSettings((value) => setSettings(value), () => undefined);
     return () => { unsubOrders(); unsubFees(); unsubExpenses(); unsubIncome(); unsubSettings(); };
   }, []);
 
+  // Period filter (default: this month). "day" uses the calendar-picked date.
+  const [period, setPeriod] = useState<FinancePeriod>("month");
+  const [customDay, setCustomDay] = useState(() => new Date().toISOString().slice(0, 10));
+
+  const inPeriod = useMemo(() => {
+    const todayKey = new Date().toISOString().slice(0, 10);
+    const monthKey = todayKey.slice(0, 7);
+    return (dateKey: string): boolean => {
+      if (period === "all") return true;
+      if (!dateKey) return false; // undated records only count in "All time"
+      if (period === "month") return dateKey.startsWith(monthKey);
+      if (period === "today") return dateKey === todayKey;
+      return dateKey === customDay;
+    };
+  }, [period, customDay]);
+
+  const filteredOrders = useMemo(
+    () => orders.filter((order) => inPeriod(dateKeyOf((order.payment as Record<string, unknown> | undefined)?.paidAt || order.createdAt))),
+    [orders, inPeriod],
+  );
+  const filteredFees = useMemo(
+    () => fees.filter((fee) => inPeriod(dateKeyOf(fee.paidAt || fee.updatedAt || fee.createdAt))),
+    [fees, inPeriod],
+  );
+  const filteredIncome = useMemo(() => incomeEntries.filter((entry) => inPeriod(entry.receivedOn || "")), [incomeEntries, inPeriod]);
+  const filteredExpenses = useMemo(() => expenses.filter((expense) => inPeriod(expense.spentOn || "")), [expenses, inPeriod]);
+
   const summary = useMemo(() => buildFinanceSummary({
-    productIncomeInPaise: sumOrderIncomeInPaise(orders),
-    classIncomeInPaise: sumClassIncomeInPaise(fees.map((fee) => ({ status: String(fee.status || ""), amountInPaise: Number(fee.amountInPaise || 0) }))),
-    otherIncomeInPaise: sumManualIncomeInPaise(incomeEntries),
-    expensesInPaise: sumExpensesInPaise(expenses),
+    productIncomeInPaise: sumOrderIncomeInPaise(filteredOrders),
+    classIncomeInPaise: sumClassIncomeInPaise(filteredFees.map((fee) => ({ status: String(fee.status || ""), amountInPaise: Number(fee.amountInPaise || 0) }))),
+    otherIncomeInPaise: sumManualIncomeInPaise(filteredIncome),
+    expensesInPaise: sumExpensesInPaise(filteredExpenses),
     profitSharePercent: settings.profitSharePercent,
-  }), [orders, fees, incomeEntries, expenses, settings.profitSharePercent]);
+  }), [filteredOrders, filteredFees, filteredIncome, filteredExpenses, settings.profitSharePercent]);
+
+  const periodLabel = period === "all" ? "All time"
+    : period === "month" ? `This month (${new Date().toLocaleDateString("en-IN", { month: "long", year: "numeric" })})`
+    : period === "today" ? "Today"
+    : new Date(`${customDay}T00:00:00`).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
 
   const handleAddExpense = async () => {
     const rupees = Number(amount);
@@ -154,41 +195,6 @@ const AdminFinance = () => {
     }
   };
 
-  const handleSavePartner = async () => {
-    const pct = Number(sharePercent);
-    if (!partnerEmail.trim()) { toast({ title: "Enter the partner's email", variant: "destructive" }); return; }
-    if (!Number.isFinite(pct) || pct < 0 || pct > 100) { toast({ title: "Share % must be between 0 and 100", variant: "destructive" }); return; }
-    setSavingPartner(true);
-    try {
-      const uid = await grantPartnerRoleByEmail(partnerEmail);
-      if (!uid) {
-        toast({ title: "No account found", description: "Ask the partner to sign up with this email first, then try again.", variant: "destructive" });
-        return;
-      }
-      await savePartnerSettings({ partnerEmail, partnerName, partnerUid: uid, profitSharePercent: pct });
-      toast({ title: "Partner access granted", description: `${partnerEmail} can now sign in and view the financial summary.` });
-    } catch (error) {
-      toast({ title: "Could not save partner access", description: error instanceof Error ? error.message : undefined, variant: "destructive" });
-    } finally {
-      setSavingPartner(false);
-    }
-  };
-
-  const handleRevokePartner = async () => {
-    if (!settings.partnerUid) return;
-    if (!confirm("Revoke partner access? They will lose access to the financial summary.")) return;
-    setSavingPartner(true);
-    try {
-      await revokePartnerRole(settings.partnerUid);
-      await savePartnerSettings({ partnerUid: "", profitSharePercent: 0 });
-      toast({ title: "Partner access revoked" });
-    } catch (error) {
-      toast({ title: "Could not revoke", description: error instanceof Error ? error.message : undefined, variant: "destructive" });
-    } finally {
-      setSavingPartner(false);
-    }
-  };
-
   const inputClass = "h-10 w-full rounded-md border border-border bg-background px-3 font-body text-sm outline-none focus:border-gold focus:ring-2 focus:ring-gold/20";
 
   return (
@@ -199,10 +205,33 @@ const AdminFinance = () => {
         <p className="mt-1 font-body text-sm text-muted-foreground">Live income from product orders + class fees, your manual expenses, and the partner's profit share.</p>
       </div>
 
+      {/* Period filter — default "This month"; calendar picks a specific day */}
+      <div className="flex flex-col gap-3 rounded-xl border border-border/60 bg-card p-4 shadow-card sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-wrap items-center gap-2">
+          {([["month", "This Month"], ["today", "Today"], ["all", "All Time"]] as [FinancePeriod, string][]).map(([value, label]) => (
+            <button
+              key={value}
+              onClick={() => setPeriod(value)}
+              className={`rounded-md border px-4 py-2 font-body text-sm font-semibold transition-colors ${period === value ? "border-gold bg-gold/10 text-gold" : "border-border text-muted-foreground hover:border-gold/40"}`}
+            >
+              {label}
+            </button>
+          ))}
+          <input
+            type="date"
+            value={customDay}
+            onChange={(e) => { if (e.target.value) { setCustomDay(e.target.value); setPeriod("day"); } }}
+            className={`h-10 rounded-md border px-3 font-body text-sm outline-none focus:border-gold focus:ring-2 focus:ring-gold/20 ${period === "day" ? "border-gold bg-gold/10 text-gold" : "border-border bg-background text-muted-foreground"}`}
+            title="Pick a specific day"
+          />
+        </div>
+        <p className="font-body text-sm text-muted-foreground">Showing: <span className="font-semibold text-foreground">{periodLabel}</span></p>
+      </div>
+
       {/* Summary tiles */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <Tile label="Total Income" value={formatPaiseAsRupees(summary.incomeInPaise)} sub={`Products ${formatPaiseAsRupees(summary.productIncomeInPaise)} · Classes ${formatPaiseAsRupees(summary.classIncomeInPaise)} · Other ${formatPaiseAsRupees(summary.otherIncomeInPaise)}`} accent="text-green-600" icon={TrendingUp} />
-        <Tile label="Total Expenses" value={formatPaiseAsRupees(summary.expensesInPaise)} sub={`${expenses.length} entr${expenses.length === 1 ? "y" : "ies"}`} accent="text-red-600" icon={TrendingDown} />
+        <Tile label="Total Expenses" value={formatPaiseAsRupees(summary.expensesInPaise)} sub={`${filteredExpenses.length} entr${filteredExpenses.length === 1 ? "y" : "ies"}`} accent="text-red-600" icon={TrendingDown} />
         <Tile label="Net Profit" value={formatPaiseAsRupees(summary.netProfitInPaise)} sub="Income − Expenses" accent={summary.netProfitInPaise >= 0 ? "text-primary" : "text-red-600"} icon={Wallet} />
         <Tile label="Partner Share" value={formatPaiseAsRupees(summary.partnerShareInPaise)} sub={`${summary.profitSharePercent}% of net profit`} accent="text-gold" icon={Handshake} />
       </div>
@@ -245,9 +274,9 @@ const AdminFinance = () => {
         </div>
 
         <div className="mt-5 space-y-2">
-          {incomeEntries.length === 0 ? (
-            <p className="rounded-lg border border-dashed border-border/60 p-6 text-center font-body text-sm text-muted-foreground">No manual income entries yet.</p>
-          ) : incomeEntries.map((entry) => (
+          {filteredIncome.length === 0 ? (
+            <p className="rounded-lg border border-dashed border-border/60 p-6 text-center font-body text-sm text-muted-foreground">No manual income entries for {periodLabel.toLowerCase()}.</p>
+          ) : filteredIncome.map((entry) => (
             <div key={entry.id} className="flex items-center justify-between rounded-lg border border-border/60 bg-background/70 px-3 py-2">
               <div>
                 <p className="font-body text-sm font-medium text-foreground">{entry.title}</p>
@@ -264,9 +293,8 @@ const AdminFinance = () => {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1.4fr_1fr]">
-        {/* Expenses */}
-        <div className="rounded-xl border border-border/60 bg-card p-5 shadow-card">
+      {/* Expenses */}
+      <div className="rounded-xl border border-border/60 bg-card p-5 shadow-card">
           <h2 className="font-display text-xl text-foreground">Expenses</h2>
           <p className="mt-1 font-body text-sm text-muted-foreground">Manually record business expenses. These reduce net profit.</p>
 
@@ -299,9 +327,9 @@ const AdminFinance = () => {
           </button>
 
           <div className="mt-5 space-y-2">
-            {expenses.length === 0 ? (
-              <p className="rounded-lg border border-dashed border-border/60 p-6 text-center font-body text-sm text-muted-foreground">No expenses yet.</p>
-            ) : expenses.map((expense) => (
+            {filteredExpenses.length === 0 ? (
+              <p className="rounded-lg border border-dashed border-border/60 p-6 text-center font-body text-sm text-muted-foreground">No expenses for {periodLabel.toLowerCase()}.</p>
+            ) : filteredExpenses.map((expense) => (
               <div key={expense.id} className="flex items-center justify-between rounded-lg border border-border/60 bg-background/70 px-3 py-2">
                 <div>
                   <p className="font-body text-sm font-medium text-foreground">{expense.title}</p>
@@ -316,47 +344,13 @@ const AdminFinance = () => {
               </div>
             ))}
           </div>
-        </div>
 
-        {/* Partner access */}
-        <div className="rounded-xl border border-border/60 bg-card p-5 shadow-card">
-          <h2 className="flex items-center gap-2 font-display text-xl text-foreground"><ShieldCheck className="h-5 w-5 text-gold" /> Partner Access</h2>
-          <p className="mt-1 font-body text-sm text-muted-foreground">Grant a business partner a read-only view of income, expenses, and their profit share. They can sign in but cannot edit anything.</p>
-
-          {settings.partnerUid ? (
-            <div className="mt-4 rounded-lg border border-green-200 bg-green-50 p-3">
-              <p className="font-body text-sm font-semibold text-green-800">Active partner</p>
-              <p className="font-body text-sm text-foreground">{settings.partnerName || "Partner"} · {settings.partnerEmail}</p>
-              <p className="font-body text-xs text-muted-foreground">Profit share: {settings.profitSharePercent}%</p>
-            </div>
-          ) : (
-            <p className="mt-4 rounded-lg border border-dashed border-border/60 p-3 font-body text-sm text-muted-foreground">No partner configured yet.</p>
-          )}
-
-          <div className="mt-4 space-y-3">
-            <div>
-              <label className="mb-1 block font-body text-xs font-medium text-foreground">Partner name</label>
-              <input value={partnerName} onChange={(e) => setPartnerName(e.target.value)} placeholder="e.g. Ramesh" className={inputClass} />
-            </div>
-            <div>
-              <label className="mb-1 block font-body text-xs font-medium text-foreground">Partner email *</label>
-              <input value={partnerEmail} onChange={(e) => setPartnerEmail(e.target.value)} type="email" placeholder="partner@email.com" className={inputClass} />
-              <p className="mt-1 font-body text-[0.7rem] text-muted-foreground">They must sign up with this email first.</p>
-            </div>
-            <div>
-              <label className="mb-1 block font-body text-xs font-medium text-foreground">Profit share (%) *</label>
-              <input value={sharePercent} onChange={(e) => setSharePercent(e.target.value)} inputMode="decimal" placeholder="e.g. 40" className={inputClass} />
-            </div>
-          </div>
-          <div className="mt-4 flex flex-wrap gap-2">
-            <button onClick={handleSavePartner} disabled={savingPartner} className="flex items-center gap-2 rounded-md bg-gradient-primary px-4 py-2.5 font-body text-sm font-semibold text-primary-foreground hover:brightness-110 disabled:opacity-60">
-              {savingPartner ? <Loader2 className="h-4 w-4 animate-spin" /> : <Handshake className="h-4 w-4" />} {settings.partnerUid ? "Update Partner" : "Grant Access"}
-            </button>
-            {settings.partnerUid && (
-              <button onClick={handleRevokePartner} disabled={savingPartner} className="rounded-md border border-border px-4 py-2.5 font-body text-sm font-semibold text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-60">Revoke</button>
-            )}
-          </div>
-        </div>
+          <p className="mt-5 rounded-lg border border-border/60 bg-muted/40 p-3 font-body text-sm text-muted-foreground">
+            <ShieldCheck className="mr-1.5 inline h-4 w-4 text-gold" />
+            Partner access (read-only financial view + profit share) is now managed in{" "}
+            <Link to="/admin/partners" className="font-semibold text-gold hover:underline">Partners Manager</Link>.
+            {settings.partnerUid && <> Current partner: <span className="font-semibold text-foreground">{settings.partnerName || settings.partnerEmail}</span> · {settings.profitSharePercent}% share.</>}
+          </p>
       </div>
     </div>
   );

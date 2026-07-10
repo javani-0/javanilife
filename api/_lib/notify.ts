@@ -186,15 +186,26 @@ export const sendClassFeeNotifications = async (
 
   if (event === "reminder") {
     // "Pay in N days" countdown for the daily reminder (req 6). The push body is
-    // free-form so it carries the countdown + a Pay Now deep link; the WhatsApp
-    // template keeps its approved params (dueDate).
+    // free-form; for WhatsApp we enrich the due-date VARIABLE ({{5}}) with the
+    // countdown — same param count as the approved class_fee_reminder template,
+    // so no Meta re-approval is needed. Reads: "Due date: 10 Jul 2026 — pay in 3 days".
     const days = typeof ctx.daysUntilDue === "number" ? ctx.daysUntilDue : undefined;
-    const countdown = days === undefined ? "" : days <= 0 ? "Due today" : days === 1 ? "Due tomorrow" : `Pay in ${days} days`;
+    const countdown = days === undefined ? ""
+      : days < 0 ? `Overdue by ${Math.abs(days)} day${Math.abs(days) === 1 ? "" : "s"}`
+      : days === 0 ? "Due today"
+      : days === 1 ? "Due tomorrow"
+      : `Pay in ${days} days`;
+    const dueNice = niceDate(ctx.dueDate) || ctx.dueDate || "";
+    const dueParam = days === undefined ? dueNice
+      : days < 0 ? `${dueNice} — OVERDUE, please pay now`
+      : days === 0 ? `${dueNice} — due TODAY, pay now`
+      : days === 1 ? `${dueNice} — due tomorrow`
+      : `${dueNice} — pay in ${days} days`;
     const pushTitle = countdown || "Upcoming fee";
     const pushBody = `${countdown ? `${countdown} — ` : ""}₹${amount} for ${ctx.studentName}'s ${ctx.className}${ctx.dueDate ? ` (due ${niceDate(ctx.dueDate)})` : ""}. Tap to pay now.`;
     const [parentWhatsApp, parentPush] = await Promise.allSettled([
       parentNumber
-        ? sendWhatsAppTemplate({ to: parentNumber, templateName: classFeeReminderTemplate(), languageCode: templateLanguage(), params: [firstName(ctx.parentName), ctx.studentName, ctx.className, amount, ctx.dueDate || ""], urlSuffix: ctx.feePaymentId })
+        ? sendWhatsAppTemplate({ to: parentNumber, templateName: classFeeReminderTemplate(), languageCode: templateLanguage(), params: [firstName(ctx.parentName), ctx.studentName, ctx.className, amount, dueParam], urlSuffix: ctx.feePaymentId })
         : Promise.resolve({ status: "skipped", errorMessage: "Parent WhatsApp number missing." }),
       (async () => sendWebPush({ tokens: await parentTokensPromise, title: pushTitle, body: pushBody, link, data: { feePaymentId: ctx.feePaymentId, type: "class-fee-reminder", audience: "parent" } }))(),
     ]);

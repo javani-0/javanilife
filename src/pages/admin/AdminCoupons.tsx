@@ -5,6 +5,7 @@ import { useCoupons } from "@/hooks/useCoupons";
 import { useProductCategories, useCourseCategories } from "@/hooks/useManagedCategories";
 import { useToast } from "@/hooks/use-toast";
 import { db } from "@/lib/firebase";
+import { subscribeToClasses, type ClassDoc } from "@/lib/classes";
 import {
   formatCouponBenefit,
   formatPaiseAsRupees,
@@ -109,6 +110,20 @@ const AdminCoupons = () => {
   const [editingCode, setEditingCode] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
+  // Classes so an admin can scope a coupon to specific classes (req: coupons in
+  // class enrolment). Class fees count as the "course" item type in the coupon
+  // engine; a class-specific coupon lists the class id in applicableProductIds.
+  const [classes, setClasses] = useState<ClassDoc[]>([]);
+  useEffect(() => subscribeToClasses((items) => setClasses(items.filter((item) => item.active)), () => undefined), []);
+
+  const appendClassId = (classId: string) => {
+    setForm((current) => {
+      const ids = splitList(current.applicableProductIds);
+      if (ids.includes(classId)) return current;
+      return { ...current, applicableProductIds: [...ids, classId].join(", ") };
+    });
+  };
+
   const sortedCoupons = useMemo(() => [...coupons].sort((first, second) => Number(second.active) - Number(first.active) || first.code.localeCompare(second.code)), [coupons]);
   const activeCount = useMemo(() => coupons.filter((coupon) => coupon.active).length, [coupons]);
   const visibleCount = useMemo(() => coupons.filter((coupon) => coupon.visibleAtCheckout).length, [coupons]);
@@ -209,7 +224,7 @@ const AdminCoupons = () => {
           <p className="font-body text-xs font-semibold uppercase tracking-[0.18em] text-gold">Promotions</p>
           <h2 className="mt-2 font-display text-2xl font-semibold text-foreground sm:text-3xl">Discount Coupons</h2>
           <p className="mt-2 max-w-2xl font-body text-sm leading-relaxed text-muted-foreground">
-            Create checkout-visible coupon offers for percentage discounts, fixed amount discounts, or free delivery.
+            Create coupons for the shop checkout and for class enrolment (pre-payment / pay-full). Scope to "Courses &amp; classes" or pick specific classes below.
           </p>
         </div>
         <button type="button" onClick={resetForm} className="inline-flex w-fit items-center gap-2 rounded-sm bg-gold px-5 py-3 font-display text-sm font-semibold tracking-[0.08em] text-charcoal transition-colors hover:bg-gold-light">
@@ -269,9 +284,9 @@ const AdminCoupons = () => {
             </label>
             <label className={labelClass}>Item scope
               <select value={form.applicableItemScope} onChange={(event) => setForm({ ...form, applicableItemScope: event.target.value as CouponFormState["applicableItemScope"] })} className={inputClass}>
-                <option value="all">Products and courses</option>
+                <option value="all">Products, courses & classes</option>
                 <option value="product">Products only</option>
-                <option value="course">Courses only</option>
+                <option value="course">Courses & classes only</option>
               </select>
             </label>
             <label className={labelClass}>Category IDs
@@ -285,8 +300,29 @@ const AdminCoupons = () => {
                 </span>
               )}
             </label>
-            <label className={labelClass}>Product/Course IDs
+            <label className={labelClass}>Product / Course / Class IDs
               <input value={form.applicableProductIds} onChange={(event) => setForm({ ...form, applicableProductIds: event.target.value })} className={inputClass} placeholder="Optional, comma-separated" />
+              {classes.length > 0 && (
+                <span className="mt-2 block font-body text-[0.72rem] font-normal text-muted-foreground">
+                  Limit to specific classes (tap to add):
+                  <span className="mt-1 flex flex-wrap gap-1.5">
+                    {classes.map((classDoc) => {
+                      const added = splitList(form.applicableProductIds).includes(classDoc.id);
+                      return (
+                        <button
+                          type="button"
+                          key={classDoc.id}
+                          onClick={() => appendClassId(classDoc.id)}
+                          disabled={added}
+                          className={`rounded-full border px-2.5 py-1 font-body text-[0.7rem] transition-colors ${added ? "border-gold bg-gold/15 font-semibold text-gold" : "border-border text-muted-foreground hover:border-gold/50 hover:text-gold"}`}
+                        >
+                          {added ? "✓ " : "+ "}{classDoc.name}
+                        </button>
+                      );
+                    })}
+                  </span>
+                </span>
+              )}
             </label>
             <label className={labelClass}>Starts
               <input type="date" value={form.startsAt} onChange={(event) => setForm({ ...form, startsAt: event.target.value })} className={inputClass} />

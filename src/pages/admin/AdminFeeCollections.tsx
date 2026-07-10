@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { BellRing, Banknote, Download, IndianRupee, Search, XCircle, Trash2, LayoutGrid, List, X, Check, ExternalLink, Loader2 } from "lucide-react";
+import { BellRing, Banknote, Download, IndianRupee, Search, XCircle, Trash2, LayoutGrid, List, X, Check, ExternalLink, Loader2, History } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { useScrollHighlight } from "@/hooks/useScrollHighlight";
@@ -14,6 +14,8 @@ import {
   formatMonthRange,
   formatNiceDate,
   approveUpiPayment,
+  ensureMonthlyDueFee,
+  listFeesForEnrollment,
   markFeeCash,
   monthKeyFor,
   notifyClassFee,
@@ -56,12 +58,17 @@ const formatTimestamp = (value: unknown): string => {
   return "";
 };
 
-const Tile = ({ label, value, sub, accent }: { label: string; value: string; sub: string; accent: string }) => (
-  <div className="rounded-xl border border-border/60 bg-card p-4 shadow-card">
-    <p className="font-body text-xs uppercase tracking-wider text-muted-foreground">{label}</p>
+const Tile = ({ label, value, sub, accent, onClick, active }: { label: string; value: string; sub: string; accent: string; onClick?: () => void; active?: boolean }) => (
+  <button
+    type="button"
+    onClick={onClick}
+    disabled={!onClick}
+    className={`rounded-xl border bg-card p-4 text-left shadow-card transition-all ${active ? "border-gold ring-2 ring-gold/40" : "border-border/60"} ${onClick ? "cursor-pointer hover:border-gold/50 hover:shadow-md" : "cursor-default"}`}
+  >
+    <p className="font-body text-xs uppercase tracking-wider text-muted-foreground">{label}{active ? " · filtering" : ""}</p>
     <p className={`mt-1 font-display text-2xl font-bold ${accent}`}>{value}</p>
     <p className="font-body text-xs text-muted-foreground">{sub}</p>
-  </div>
+  </button>
 );
 
 const AdminFeeCollections = () => {
@@ -85,6 +92,14 @@ const AdminFeeCollections = () => {
   const [selectedFee, setSelectedFee] = useState<FeePaymentDoc | null>(null);
   const [approvals, setApprovals] = useState<FeePaymentDoc[]>([]);
   const [busyApprovalId, setBusyApprovalId] = useState<string | null>(null);
+  // Per-student full payment history dialog.
+  const [historyFee, setHistoryFee] = useState<FeePaymentDoc | null>(null);
+  const [historyRows, setHistoryRows] = useState<FeePaymentDoc[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  // Months this session already ran the dues generator for (avoid re-running
+  // and fighting an intentional admin Delete during the same visit).
+  const generatedMonthsRef = useRef<Set<string>>(new Set());
+  const [generatingDues, setGeneratingDues] = useState(false);
 
   useEffect(() => {
     setLoading(true);
@@ -122,6 +137,68 @@ const AdminFeeCollections = () => {
 
   // Deep link from WhatsApp admin fee notifications: /admin/fee-collections?fee=<feePaymentId>
   useScrollHighlight("fee", !loading);
+
+  // Active enrolments split by track — drives the Total Students tile and the
+  // dues generator ("students pay every month until they quit").
+  const activeEnrollments = useMemo(
+    () => Array.from(enrollmentsById.values()).filter((enrollment) => enrollment.status === "active"),
+    [enrollmentsById],
+  );
+  const activeMonthly = useMemo(
+    () => activeEnrollments.filter((enrollment) => enrollment.feeType !== "term" && (enrollment.monthlyFeeInPaise || 0) > 0),
+    [activeEnrollments],
+  );
+
+  // Self-heal the month's ledger: every ACTIVE monthly enrolment must have a fee
+  // row for the viewed month (the server cron does this too, but if it hasn't
+  // run the month shows almost empty — the "34 paid in June, 5 in July" gap).
+  // Creating the pending rows is also what makes the daily WhatsApp reminders
+  // fire, since the cron scans pending fee docs. Never runs for future months,
+  // and only once per month per visit (so an intentional Delete isn't fought;
+  // use Waive for a student who shouldn't pay a month).
+  useEffect(() => {
+    if (loading || generatingDues) return;
+    if (monthKey > monthKeyFor(new Date())) return;
+    if (generatedMonthsRef.current.has(monthKey)) return;
+    if (activeMonthly.length === 0) return;
+
+    const existingIds = new Set(fees.map((fee) => fee.id));
+    const missing = activeMonthly.filter((enrollment) => {
+      if ((enrollment.startMonthKey || "") > monthKey) return false;
+      return !existingIds.has(`${enrollment.id}_${monthKey}`);
+    });
+    generatedMonthsRef.current.add(monthKey);
+    if (missing.length === 0) return;
+
+    setGeneratingDues(true);
+    (async () => {
+      let created = 0;
+      for (const enrollment of missing) {
+        try {
+          if (await ensureMonthlyDueFee(enrollment, monthKey)) created += 1;
+        } catch (error) {
+          console.error("Unable to create monthly due", { enrollmentId: enrollment.id, monthKey, error });
+        }
+      }
+      if (created > 0) {
+        toast({ title: `Generated ${created} pending due${created === 1 ? "" : "s"}`, description: `Every active monthly student now has a ${periodLabel(monthKey)} fee row.` });
+      }
+    })().finally(() => setGeneratingDues(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, monthKey, activeMonthly, fees]);
+
+  const openHistory = async (fee: FeePaymentDoc) => {
+    setHistoryFee(fee);
+    setHistoryLoading(true);
+    try {
+      setHistoryRows(await listFeesForEnrollment(fee.enrollmentId));
+    } catch (error) {
+      console.error("Unable to load payment history", error);
+      toast({ title: "Could not load history", variant: "destructive" });
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
 
   const classOptions = useMemo(() => {
     const map = new Map<string, string>();
@@ -210,10 +287,40 @@ const AdminFeeCollections = () => {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <Tile label="Collected" value={formatPaiseAsRupees(totals.collectedInPaise)} sub={`${totals.paidCount} paid`} accent="text-green-600" />
-        <Tile label="Pending" value={formatPaiseAsRupees(totals.pendingInPaise)} sub={`${totals.pendingCount} pending`} accent="text-amber-600" />
-        <Tile label="Overdue" value={formatPaiseAsRupees(totals.overdueInPaise)} sub={`${totals.overdueCount} overdue · ${totals.failedCount} failed`} accent="text-red-600" />
+      {/* Tiles double as filters — click one to filter the list below, click again to clear. */}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <Tile
+          label="Total Students"
+          value={String(activeEnrollments.length)}
+          sub={`${activeMonthly.length} monthly · ${activeEnrollments.length - activeMonthly.length} term${generatingDues ? " · generating dues…" : " · show all"}`}
+          accent="text-foreground"
+          active={statusFilter === "all"}
+          onClick={() => setStatusFilter("all")}
+        />
+        <Tile
+          label="Paid This Month"
+          value={formatPaiseAsRupees(totals.collectedInPaise)}
+          sub={`${totals.paidCount} of ${activeMonthly.length || totals.total} students paid`}
+          accent="text-green-600"
+          active={statusFilter === "paid"}
+          onClick={() => setStatusFilter((current) => (current === "paid" ? "all" : "paid"))}
+        />
+        <Tile
+          label="Pending"
+          value={formatPaiseAsRupees(totals.pendingInPaise)}
+          sub={`${totals.pendingCount} pending`}
+          accent="text-amber-600"
+          active={statusFilter === "pending"}
+          onClick={() => setStatusFilter((current) => (current === "pending" ? "all" : "pending"))}
+        />
+        <Tile
+          label="Overdue"
+          value={formatPaiseAsRupees(totals.overdueInPaise)}
+          sub={`${totals.overdueCount} overdue · ${totals.failedCount} failed`}
+          accent="text-red-600"
+          active={statusFilter === "overdue"}
+          onClick={() => setStatusFilter((current) => (current === "overdue" ? "all" : "overdue"))}
+        />
       </div>
 
       {/* Manual-UPI payments awaiting approval (across all months) */}
@@ -321,6 +428,9 @@ const AdminFeeCollections = () => {
                       <td className="px-4 py-3 font-body text-xs text-muted-foreground">{feeMethodLabel(fee)}</td>
                       <td className="px-4 py-3" onClick={(event) => event.stopPropagation()}>
                         <div className="flex flex-wrap gap-1">
+                          <button onClick={() => openHistory(fee)} className="flex items-center gap-1 rounded border border-border px-2 py-1 font-body text-[0.7rem] text-muted-foreground hover:bg-muted" title="Full payment history">
+                            <History className="h-3.5 w-3.5" /> History
+                          </button>
                           {!settled && (
                             <button onClick={() => runAction("Marked as cash paid", fee.id, () => markFeeCash(fee.id))} disabled={busyId === fee.id} className="flex items-center gap-1 rounded border border-green-300 px-2 py-1 font-body text-[0.7rem] text-green-700 hover:bg-green-50 disabled:opacity-50" title="Mark cash paid">
                               <Banknote className="h-3.5 w-3.5" /> Cash
@@ -391,6 +501,9 @@ const AdminFeeCollections = () => {
                   </div>
                 </div>
                 <div className="mt-4 flex flex-wrap gap-2" onClick={(event) => event.stopPropagation()}>
+                  <button onClick={() => openHistory(fee)} className="flex flex-1 items-center justify-center gap-1 rounded border border-border px-2 py-1.5 font-body text-[0.75rem] font-semibold text-muted-foreground hover:bg-muted" title="Full payment history">
+                    <History className="h-3.5 w-3.5" /> History
+                  </button>
                   {!settled && (
                     <button onClick={() => runAction("Marked as cash paid", fee.id, () => markFeeCash(fee.id))} disabled={busyId === fee.id} className="flex flex-1 items-center justify-center gap-1 rounded border border-green-300 px-2 py-1.5 font-body text-[0.75rem] font-semibold text-green-700 hover:bg-green-50 disabled:opacity-50">
                       <Banknote className="h-3.5 w-3.5" /> Cash
@@ -458,10 +571,62 @@ const AdminFeeCollections = () => {
                     </div>
                   ))}
                 </dl>
+                <button
+                  onClick={() => { setSelectedFee(null); openHistory(fee); }}
+                  className="mt-4 flex w-full items-center justify-center gap-1.5 rounded-md border border-gold/40 px-3 py-2 font-body text-sm font-semibold text-gold hover:bg-gold/10"
+                >
+                  <History className="h-4 w-4" /> Full payment history
+                </button>
               </div>
             </div>
           );
         })(),
+        document.body
+      )}
+
+      {/* Full payment history for one student's enrolment */}
+      {historyFee && createPortal(
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center overflow-y-auto p-4">
+          <div className="fixed inset-0 bg-black/40" onClick={() => setHistoryFee(null)} />
+          <div className="relative mx-4 flex max-h-[85vh] w-full max-w-lg flex-col rounded-xl bg-card p-6 shadow-hero">
+            <div className="mb-1 flex items-center justify-between">
+              <h3 className="flex items-center gap-2 font-display text-xl text-foreground"><History className="h-5 w-5 text-gold" /> Payment history</h3>
+              <button onClick={() => setHistoryFee(null)} aria-label="Close"><X className="h-5 w-5" /></button>
+            </div>
+            <p className="font-body text-sm text-muted-foreground">{historyFee.studentName} · {historyFee.className}</p>
+            <div className="mt-4 flex-1 overflow-y-auto">
+              {historyLoading ? (
+                <div className="flex items-center justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-gold" /></div>
+              ) : historyRows.length === 0 ? (
+                <p className="py-6 text-center font-body text-sm text-muted-foreground">No fee records found for this enrolment.</p>
+              ) : (
+                <div className="space-y-2">
+                  {historyRows.map((row) => {
+                    const rowStatus = deriveDisplayFeeStatus(row);
+                    return (
+                      <div key={row.id} className="flex items-center justify-between rounded-lg border border-border/60 bg-background/70 px-3 py-2">
+                        <div>
+                          <p className="font-body text-sm font-medium text-foreground">{row.periodLabel}</p>
+                          <p className="font-body text-xs text-muted-foreground">
+                            {formatPaiseAsRupees(row.amountInPaise)}
+                            {row.paymentMethod ? ` · ${feeMethodLabel(row)}` : ""}
+                            {formatTimestamp(row.paidAt) ? ` · paid ${formatTimestamp(row.paidAt)}` : row.dueDate ? ` · due ${formatNiceDate(row.dueDate)}` : ""}
+                          </p>
+                        </div>
+                        <span className={`rounded-full px-2.5 py-1 font-body text-xs font-semibold ${statusStyles[rowStatus]}`}>{FEE_STATUS_LABELS[rowStatus]}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+            {historyRows.length > 0 && (
+              <p className="mt-3 border-t border-border/50 pt-2 text-right font-body text-sm text-muted-foreground">
+                Total collected: <span className="font-semibold text-green-700">{formatPaiseAsRupees(historyRows.filter((row) => row.status === "paid").reduce((sum, row) => sum + row.amountInPaise, 0))}</span>
+              </p>
+            )}
+          </div>
+        </div>,
         document.body
       )}
     </div>

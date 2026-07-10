@@ -1,5 +1,6 @@
 import { getFirebaseAdminAuth, getFirebaseAdminDb, FieldValue } from "../_lib/firebase-admin.js";
 import { getBearerToken, readJsonBody, requirePost, sendError, sendJson, type ApiRequest, type ApiResponse } from "../_lib/http.js";
+import { daysUntil } from "../_lib/class-fees.js";
 import { FEE_PAYMENTS_COLLECTION, notificationContextFromFee } from "../_lib/fee-store.js";
 import { sendClassFeeNotifications, type ClassFeeNotificationEvent } from "../_lib/notify.js";
 
@@ -52,7 +53,11 @@ export default async function handler(request: ApiRequest, response: ApiResponse
       return;
     }
 
-    const result = await sendClassFeeNotifications(event, notificationContextFromFee(feePaymentId, fee));
+    const daysLeft = daysUntil(String(fee.dueDate || ""), new Date());
+    const result = await sendClassFeeNotifications(event, {
+      ...notificationContextFromFee(feePaymentId, fee),
+      daysUntilDue: daysLeft ?? undefined,
+    });
 
     if (event === "reminder") {
       await feeSnapshot.ref.update({

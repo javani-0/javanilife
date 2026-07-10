@@ -2,6 +2,7 @@ import {
   collection,
   deleteDoc,
   doc,
+  getDoc,
   getDocs,
   onSnapshot,
   query,
@@ -14,6 +15,10 @@ import {
 import { db } from "@/lib/firebase";
 import { formatPaiseAsRupees } from "@/lib/ecommerce";
 import {
+  buildFeePaymentId,
+  clampBillingDay,
+  computeBillingPeriodFromMonthKey,
+  dueDateFor,
   isOverdue,
   periodLabel as periodLabelFor,
   type EnrollmentDoc,
@@ -126,6 +131,61 @@ export const subscribeToFeesAdmin = (
 export const listFeesAdmin = async (monthKey: string): Promise<FeePaymentDoc[]> => {
   const snapshot = await getDocs(query(collection(db, FEE_PAYMENTS_COLLECTION), where("monthKey", "==", monthKey)));
   return snapshot.docs.map((feeDoc) => normalizeFeePayment(feeDoc.id, feeDoc.data()));
+};
+
+/** Every fee record for one enrolment (admin or owner) — the full payment history. */
+export const listFeesForEnrollment = async (enrollmentId: string): Promise<FeePaymentDoc[]> => {
+  const snapshot = await getDocs(query(collection(db, FEE_PAYMENTS_COLLECTION), where("enrollmentId", "==", enrollmentId)));
+  return sortFeesByMonthDesc(snapshot.docs.map((feeDoc) => normalizeFeePayment(feeDoc.id, feeDoc.data())));
+};
+
+/**
+ * Admin: create the pending fee due for (enrollment, monthKey) if it doesn't
+ * exist yet. Client mirror of the server cron's roll-forward (api/_lib/fee-store
+ * buildFeePaymentSeed) with the same deterministic id, so the two never
+ * duplicate. Lets the Fee Collections page self-heal when the cron hasn't run:
+ * every active monthly student gets their month's due row (and therefore
+ * appears in Pending totals and receives the daily WhatsApp reminders).
+ * Returns true when a doc was created, false when it already existed.
+ */
+export const ensureMonthlyDueFee = async (
+  enrollment: Pick<
+    EnrollmentDoc,
+    "id" | "classId" | "className" | "parentUserId" | "student" | "parent" | "monthlyFeeInPaise" | "billingDayOfMonth" | "paymentPlan" | "slotId" | "slotLabel"
+  >,
+  monthKey: string,
+): Promise<boolean> => {
+  const id = buildFeePaymentId(enrollment.id, monthKey);
+  const ref = doc(db, FEE_PAYMENTS_COLLECTION, id);
+  const existing = await getDoc(ref);
+  if (existing.exists()) return false;
+
+  const billingDay = clampBillingDay(enrollment.billingDayOfMonth);
+  const billing = computeBillingPeriodFromMonthKey(monthKey, enrollment.paymentPlan, 1);
+  await setDoc(ref, {
+    enrollmentId: enrollment.id,
+    classId: enrollment.classId || "",
+    className: enrollment.className || "",
+    parentUserId: enrollment.parentUserId || "",
+    studentName: enrollment.student?.name || "",
+    parentName: enrollment.parent?.name || "",
+    parentPhone: enrollment.parent?.whatsappNumber || enrollment.parent?.phone || "",
+    paymentPlan: enrollment.paymentPlan || "",
+    slotId: enrollment.slotId || "",
+    slotLabel: enrollment.slotLabel || "",
+    monthKey,
+    periodLabel: billing.periodLabel,
+    billingPeriodLabel: billing.periodLabel,
+    billingStartMonth: billing.startMonthKey,
+    billingEndMonth: billing.endMonthKey,
+    nextChargeDate: dueDateFor(billing.nextChargeMonthKey, billingDay),
+    amountInPaise: Math.max(0, Math.round(enrollment.monthlyFeeInPaise || 0)),
+    dueDate: dueDateFor(monthKey, billingDay),
+    status: "pending",
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+  return true;
 };
 
 /**
