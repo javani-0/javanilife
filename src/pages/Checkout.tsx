@@ -1025,8 +1025,11 @@ const Checkout = () => {
               ))}
             </ol>
 
+            {/* min-w-0 on both grid items: CSS grid items default to
+                min-width:auto, so without this a wide child (e.g. the coupon
+                row) forces the column past the viewport on small screens. */}
             <div className="grid gap-8 lg:grid-cols-[1fr_380px]">
-            <section className="space-y-6">
+            <section className="min-w-0 space-y-6">
               <div className="rounded-2xl border border-border/60 bg-card p-5 shadow-card sm:p-6">
                 {hasShippableItems && (
                   <div className="mb-8">
@@ -1213,7 +1216,7 @@ const Checkout = () => {
               </div>
             </section>
 
-            <aside className="h-fit rounded-2xl border border-border/60 bg-card p-5 shadow-card lg:sticky lg:top-28 sm:p-6">
+            <aside className="h-fit min-w-0 rounded-2xl border border-border/60 bg-card p-5 shadow-card lg:sticky lg:top-28 sm:p-6">
               <h2 className="font-display text-2xl text-foreground">Order Summary</h2>
               <div className="mt-5 space-y-4">
                 {items.map((item) => (
@@ -1239,14 +1242,15 @@ const Checkout = () => {
                   </div>
                 </div>
 
-                <div className="flex gap-2">
+                <div className="flex min-w-0 gap-2">
                   <input
                     value={couponInput}
                     onChange={(event) => setCouponInput(normalizeCouponCode(event.target.value))}
-                    className="min-w-0 flex-1 rounded-md border border-border bg-background px-3 py-2 font-body text-sm uppercase outline-none transition-colors focus:border-gold focus:ring-2 focus:ring-gold/20"
+                    size={1}
+                    className="w-full min-w-0 flex-1 rounded-md border border-border bg-background px-3 py-2 font-body text-sm uppercase outline-none transition-colors focus:border-gold focus:ring-2 focus:ring-gold/20"
                     placeholder="COUPON CODE"
                   />
-                  <button type="button" onClick={() => applyCoupon(couponInput)} disabled={!couponInput.trim()} className="rounded-md bg-gold px-4 py-2 font-body text-sm font-semibold text-charcoal transition-colors hover:bg-gold-light disabled:cursor-not-allowed disabled:opacity-60">
+                  <button type="button" onClick={() => applyCoupon(couponInput)} disabled={!couponInput.trim()} className="shrink-0 rounded-md bg-gold px-4 py-2 font-body text-sm font-semibold text-charcoal transition-colors hover:bg-gold-light disabled:cursor-not-allowed disabled:opacity-60">
                     Apply
                   </button>
                 </div>

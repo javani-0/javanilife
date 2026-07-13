@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useRef, useState } from "react";
+import { Navigate, useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { Eye, EyeOff } from "lucide-react";
 import GoldDivider from "@/components/GoldDivider";
@@ -11,8 +11,17 @@ const AdminLogin = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const { login } = useAuth();
+  const { login, user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
+
+  // If someone is ALREADY signed in and lands on /admin/login, send them to the
+  // normal login page (req: don't show the admin login to an active session).
+  // We capture the auth state at mount so a fresh form login below still routes
+  // to the dashboard instead of bouncing on the newly-set user.
+  const wasSignedInAtMount = useRef<boolean | null>(null);
+  if (!authLoading && wasSignedInAtMount.current === null) {
+    wasSignedInAtMount.current = Boolean(user);
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -27,6 +36,16 @@ const AdminLogin = () => {
       setLoading(false);
     }
   };
+
+  // Wait for the auth check, then bounce an already-signed-in visitor to /login.
+  if (authLoading && wasSignedInAtMount.current === null) {
+    return (
+      <div className="min-h-screen flex items-center justify-center" style={{ background: "linear-gradient(135deg, #1A0A0A 0%, #2C1810 50%, #1A0A0A 100%)" }}>
+        <div className="w-8 h-8 border-2 border-gold border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+  if (wasSignedInAtMount.current) return <Navigate to="/login" replace />;
 
   return (
     <div className="min-h-screen flex items-center justify-center relative overflow-hidden" style={{ background: "linear-gradient(135deg, #1A0A0A 0%, #2C1810 50%, #1A0A0A 100%)" }}>

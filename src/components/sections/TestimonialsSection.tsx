@@ -84,16 +84,16 @@ const TestimonialsSection = () => {
           {testimonials[current] && <TestimonialCard {...testimonials[current]} />}
         </div>
 
-        <div className="md:hidden flex items-center justify-center gap-4 mt-8">
-          <button onClick={prev} className="w-10 h-10 rounded-full border border-gold text-gold flex items-center justify-center hover:bg-gold hover:text-white transition-all">
+        <div className="md:hidden flex flex-wrap items-center justify-center gap-4 mt-8">
+          <button onClick={prev} className="w-10 h-10 shrink-0 rounded-full border border-gold text-gold flex items-center justify-center hover:bg-gold hover:text-white transition-all">
             <ChevronLeft className="w-5 h-5" />
           </button>
-          <div className="flex gap-2">
+          <div className="flex min-w-0 max-w-full flex-wrap justify-center gap-2">
             {testimonials.map((_, i) => (
-              <button key={i} onClick={() => setCurrent(i)} className={`w-2.5 h-2.5 rounded-full transition-all ${i === current ? "bg-gold" : "bg-gold/30"}`} />
+              <button key={i} onClick={() => setCurrent(i)} className={`h-2.5 w-2.5 shrink-0 rounded-full transition-all ${i === current ? "bg-gold" : "bg-gold/30"}`} />
             ))}
           </div>
-          <button onClick={next} className="w-10 h-10 rounded-full border border-gold text-gold flex items-center justify-center hover:bg-gold hover:text-white transition-all">
+          <button onClick={next} className="w-10 h-10 shrink-0 rounded-full border border-gold text-gold flex items-center justify-center hover:bg-gold hover:text-white transition-all">
             <ChevronRight className="w-5 h-5" />
           </button>
         </div>

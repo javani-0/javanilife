@@ -13,7 +13,18 @@ export default defineConfig(({ mode }) => ({
   },
   plugins: [react()],
   optimizeDeps: {
-    include: ["react", "react-dom", "react/jsx-runtime", "react/jsx-dev-runtime", "@tanstack/react-query"],
+    include: [
+      "react",
+      "react-dom",
+      "react/jsx-runtime",
+      "react/jsx-dev-runtime",
+      "@tanstack/react-query",
+      // Reachable ONLY from lazily-loaded admin chunks (ui/label → AdminFaculty).
+      // Without pre-bundling, loading that route makes Vite re-optimize deps
+      // mid-request; the in-flight chunk then 504s ("Outdated Optimize Dep") and
+      // React.lazy rejects with "Failed to fetch dynamically imported module".
+      "@radix-ui/react-label",
+    ],
   },
   resolve: {
     dedupe: ["react", "react-dom", "react/jsx-runtime", "react/jsx-dev-runtime"],

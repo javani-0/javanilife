@@ -23,6 +23,8 @@ import payEmiInstallment from "./_razorpay/pay-emi-installment.js";
 import submitUpiPayment from "./_razorpay/submit-upi-payment.js";
 // @ts-ignore
 import approvePayment from "./_razorpay/approve-payment.js";
+// @ts-ignore
+import createPartnerLogin from "./_razorpay/create-partner-login.js";
 // Folded into this router (not a separate function) to stay within the Hobby
 // plan's 12-serverless-function limit. Reached via /api/partner/summary (see
 // vercel.json rewrite). Not razorpay-related, but this is the project's shared
@@ -47,6 +49,9 @@ export default async function handler(request: ApiRequest, response: ApiResponse
   }
   if (action === "approve-payment" || url.includes("/approve-payment")) {
     return approvePayment(request, response);
+  }
+  if (action === "create-partner-login" || url.includes("/create-partner-login")) {
+    return createPartnerLogin(request, response);
   }
   if (action === "create-order" || url.includes("/create-order")) {
     return createOrder(request, response);

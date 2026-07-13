@@ -104,6 +104,14 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    // Partner sign-in credentials (email + password) the admin creates so they
+    // can re-share on WhatsApp (req 4). ADMIN-ONLY — never public. Writes happen
+    // server-side via the Admin SDK; admin reads here to display/share.
+    match /partnerCredentials/{id} {
+      allow read: if isAdmin();
+      allow write: if isAdmin();
+    }
+
     // Business expenses — admin enters/edits; admin + partner may read. The
     // partner dashboard reads aggregates via the server, but allowing read here
     // keeps the admin console working and exposes no customer PII.

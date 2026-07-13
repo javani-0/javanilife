@@ -91,19 +91,23 @@ const PartnerDashboard = () => {
               <h2 className="flex items-center gap-2 font-display text-lg text-foreground"><Handshake className="h-5 w-5 text-gold" /> Your profit share</h2>
               <p className="mt-1 font-body text-xs text-muted-foreground">You earn a share of the income in each category below. Categories set to 0% aren't included.</p>
               <dl className="mt-4 space-y-2 font-body text-sm">
-                <div className="flex items-center justify-between border-b border-border/40 pb-2">
-                  <dt className="text-muted-foreground">Classes <span className="text-gold">({summary.shareClassesPercent}%)</span> <span className="text-muted-foreground">of {formatPaiseAsRupees(summary.classIncomeInPaise)}</span></dt>
-                  <dd className="font-semibold text-foreground">{formatPaiseAsRupees(summary.shareClassesInPaise)}</dd>
+                {([
+                  ["Classes", summary.shareClassesPercent, summary.classIncomeInPaise, summary.shareClassesInPaise],
+                  ["Courses", summary.shareCoursesPercent, summary.courseIncomeInPaise, summary.shareCoursesInPaise],
+                  ["Products", summary.shareProductsPercent, summary.productIncomeInPaise, summary.shareProductsInPaise],
+                ] as const).map(([label, percent, income, share]) => (
+                  <div key={label} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5 border-b border-border/40 pb-2">
+                    <dt className="min-w-0 text-muted-foreground">
+                      {label} <span className="font-semibold text-gold">({percent}%)</span>
+                      <span className="block text-xs text-muted-foreground sm:inline sm:text-sm"> of {formatPaiseAsRupees(income)}</span>
+                    </dt>
+                    <dd className="ml-auto shrink-0 font-semibold text-foreground">{formatPaiseAsRupees(share)}</dd>
+                  </div>
+                ))}
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                  <dt className="font-semibold text-foreground">Your total share</dt>
+                  <dd className="ml-auto font-display text-base font-bold text-gold">{formatPaiseAsRupees(summary.partnerShareInPaise)}</dd>
                 </div>
-                <div className="flex items-center justify-between border-b border-border/40 pb-2">
-                  <dt className="text-muted-foreground">Courses <span className="text-gold">({summary.shareCoursesPercent}%)</span> <span className="text-muted-foreground">of {formatPaiseAsRupees(summary.courseIncomeInPaise)}</span></dt>
-                  <dd className="font-semibold text-foreground">{formatPaiseAsRupees(summary.shareCoursesInPaise)}</dd>
-                </div>
-                <div className="flex items-center justify-between border-b border-border/40 pb-2">
-                  <dt className="text-muted-foreground">Products <span className="text-gold">({summary.shareProductsPercent}%)</span> <span className="text-muted-foreground">of {formatPaiseAsRupees(summary.productIncomeInPaise)}</span></dt>
-                  <dd className="font-semibold text-foreground">{formatPaiseAsRupees(summary.shareProductsInPaise)}</dd>
-                </div>
-                <div className="flex justify-between pt-1"><dt className="font-semibold text-foreground">Your total share</dt><dd className="font-display text-base font-bold text-gold">{formatPaiseAsRupees(summary.partnerShareInPaise)}</dd></div>
               </dl>
             </div>
 

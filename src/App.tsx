@@ -3,7 +3,7 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Navigate, Routes, Route, useLocation, useParams } from "react-router-dom";
-import { useEffect, lazy, Suspense, useState } from "react";
+import { useEffect, lazy, Suspense, useState, type ComponentType } from "react";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { CartProvider } from "@/contexts/CartContext";
 import FloatingButtons from "./components/FloatingButtons";
@@ -47,27 +47,61 @@ import ProductDetail from "./pages/ProductDetail";
 import CourseDetail from "./pages/CourseDetail";
 import TermsAndConditions from "./pages/TermsAndConditions";
 
+/**
+ * `lazy()` that survives a failed chunk fetch.
+ *
+ * A dynamic import can fail for reasons that have nothing to do with the page:
+ * a stale chunk hash after a redeploy (cached index.html), a flaky network, or
+ * — in dev — Vite invalidating its dep bundle mid-request. React.lazy rejects,
+ * and without this the whole area renders as a blank error screen.
+ *
+ * So: retry once, and if it still fails, reload the document a single time to
+ * pick up a fresh manifest. The session flag stops a reload loop.
+ */
+const CHUNK_RELOAD_KEY = "javani:chunk-reloaded";
+const lazyWithRetry = <T extends ComponentType<unknown>>(factory: () => Promise<{ default: T }>) =>
+  lazy(async () => {
+    try {
+      const module = await factory();
+      sessionStorage.removeItem(CHUNK_RELOAD_KEY);
+      return module;
+    } catch {
+      try {
+        const module = await factory(); // transient failure — one immediate retry
+        sessionStorage.removeItem(CHUNK_RELOAD_KEY);
+        return module;
+      } catch (error) {
+        if (!sessionStorage.getItem(CHUNK_RELOAD_KEY)) {
+          sessionStorage.setItem(CHUNK_RELOAD_KEY, "1");
+          window.location.reload();
+          return new Promise<never>(() => {}); // the reload takes over
+        }
+        throw error;
+      }
+    }
+  });
+
 // Admin pages — lazy loaded (separate section, accessed infrequently)
-const AdminLogin = lazy(() => import("./pages/admin/AdminLogin"));
-const AdminDashboard = lazy(() => import("./pages/admin/AdminDashboard"));
-const AdminEnquiries = lazy(() => import("./pages/admin/AdminEnquiries"));
-const AdminCourses = lazy(() => import("./pages/admin/AdminCourses"));
-const AdminClasses = lazy(() => import("./pages/admin/AdminClasses"));
-const AdminEnrollments = lazy(() => import("./pages/admin/AdminEnrollments"));
-const AdminFeeCollections = lazy(() => import("./pages/admin/AdminFeeCollections"));
-const AdminGallery = lazy(() => import("./pages/admin/AdminGallery"));
-const AdminProducts = lazy(() => import("./pages/admin/AdminProducts"));
-const AdminCoupons = lazy(() => import("./pages/admin/AdminCoupons"));
-const AdminOrders = lazy(() => import("./pages/admin/AdminOrders"));
-const AdminOrderDetail = lazy(() => import("./pages/admin/AdminOrderDetail"));
-const AdminCustomers = lazy(() => import("./pages/admin/AdminCustomers"));
-const AdminPartners = lazy(() => import("./pages/admin/AdminPartners"));
-const AdminFaculty = lazy(() => import("./pages/admin/AdminFaculty"));
-const AdminFinance = lazy(() => import("./pages/admin/AdminFinance"));
-const AdminSiteSettings = lazy(() => import("./pages/admin/AdminSiteSettings"));
-const AdminPaymentSettings = lazy(() => import("./pages/admin/AdminPaymentSettings"));
-const AdminDeliverySettings = lazy(() => import("./pages/admin/AdminDeliverySettings"));
-const PartnerDashboard = lazy(() => import("./pages/PartnerDashboard"));
+const AdminLogin = lazyWithRetry(() => import("./pages/admin/AdminLogin"));
+const AdminDashboard = lazyWithRetry(() => import("./pages/admin/AdminDashboard"));
+const AdminEnquiries = lazyWithRetry(() => import("./pages/admin/AdminEnquiries"));
+const AdminCourses = lazyWithRetry(() => import("./pages/admin/AdminCourses"));
+const AdminClasses = lazyWithRetry(() => import("./pages/admin/AdminClasses"));
+const AdminEnrollments = lazyWithRetry(() => import("./pages/admin/AdminEnrollments"));
+const AdminFeeCollections = lazyWithRetry(() => import("./pages/admin/AdminFeeCollections"));
+const AdminGallery = lazyWithRetry(() => import("./pages/admin/AdminGallery"));
+const AdminProducts = lazyWithRetry(() => import("./pages/admin/AdminProducts"));
+const AdminCoupons = lazyWithRetry(() => import("./pages/admin/AdminCoupons"));
+const AdminOrders = lazyWithRetry(() => import("./pages/admin/AdminOrders"));
+const AdminOrderDetail = lazyWithRetry(() => import("./pages/admin/AdminOrderDetail"));
+const AdminCustomers = lazyWithRetry(() => import("./pages/admin/AdminCustomers"));
+const AdminPartners = lazyWithRetry(() => import("./pages/admin/AdminPartners"));
+const AdminFaculty = lazyWithRetry(() => import("./pages/admin/AdminFaculty"));
+const AdminFinance = lazyWithRetry(() => import("./pages/admin/AdminFinance"));
+const AdminSiteSettings = lazyWithRetry(() => import("./pages/admin/AdminSiteSettings"));
+const AdminPaymentSettings = lazyWithRetry(() => import("./pages/admin/AdminPaymentSettings"));
+const AdminDeliverySettings = lazyWithRetry(() => import("./pages/admin/AdminDeliverySettings"));
+const PartnerDashboard = lazyWithRetry(() => import("./pages/PartnerDashboard"));
 
 const queryClient = new QueryClient();
 

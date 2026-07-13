@@ -411,9 +411,12 @@ const ClassDetail = () => {
             <ArrowLeft className="h-4 w-4" /> Back to classes
           </Link>
 
+          {/* min-w-0 on the grid items: grid items default to min-width:auto, so a
+              wide child (e.g. the coupon row) would otherwise push the column
+              past the viewport on small screens. */}
           <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
             {/* Enrol form */}
-            <form onSubmit={handleSubmit(onSubmit)} className="rounded-2xl border border-gold/15 bg-card p-5 shadow-card sm:p-6">
+            <form onSubmit={handleSubmit(onSubmit)} className="min-w-0 rounded-2xl border border-gold/15 bg-card p-5 shadow-card sm:p-6">
               <h2 className="font-display text-2xl text-foreground">Student & Parent Details</h2>
               <p className="mt-1 font-body text-sm text-muted-foreground">We use these to set up the enrolment and send fee reminders.</p>
 
@@ -647,15 +650,16 @@ const ClassDetail = () => {
                       </div>
                     </div>
                   ) : (
-                    <div className="mt-2 flex gap-2">
+                    <div className="mt-2 flex min-w-0 gap-2">
                       <input
                         value={couponInput}
                         onChange={(e) => setCouponInput(e.target.value)}
                         onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); applyCoupon(); } }}
                         placeholder="Enter coupon code"
-                        className="h-10 flex-1 rounded-md border border-border bg-background px-3 font-body text-sm uppercase outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                        size={1}
+                        className="h-10 w-full min-w-0 flex-1 rounded-md border border-border bg-background px-3 font-body text-sm uppercase outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
                       />
-                      <button type="button" onClick={applyCoupon} disabled={!couponInput.trim()} className="rounded-md bg-gold px-4 font-body text-sm font-semibold text-white transition-colors hover:brightness-110 disabled:opacity-50">Apply</button>
+                      <button type="button" onClick={applyCoupon} disabled={!couponInput.trim()} className="shrink-0 rounded-md bg-gold px-4 font-body text-sm font-semibold text-white transition-colors hover:brightness-110 disabled:opacity-50">Apply</button>
                     </div>
                   )}
                 </div>
@@ -673,7 +677,7 @@ const ClassDetail = () => {
             </form>
 
             {/* Class summary */}
-            <aside className="h-fit rounded-2xl border border-gold/15 bg-card p-5 shadow-card lg:sticky lg:top-28">
+            <aside className="h-fit min-w-0 rounded-2xl border border-gold/15 bg-card p-5 shadow-card lg:sticky lg:top-28">
               {classDoc.image && (
                 <div className="group relative mb-4 cursor-zoom-in overflow-hidden rounded-lg" onClick={() => setViewerOpen(true)}>
                   <img src={classDoc.image} alt={classDoc.name} className="aspect-square w-full object-cover" />

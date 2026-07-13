@@ -1,12 +1,20 @@
 import { useState, useEffect, useRef } from "react";
-import { collection, onSnapshot, addDoc, deleteDoc, doc, serverTimestamp, updateDoc } from "firebase/firestore";
+import { collection, onSnapshot, addDoc, deleteDoc, doc, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { CLOUDINARY_CLOUD_NAME, CLOUDINARY_UPLOAD_PRESET } from "@/lib/cloudinary";
 import { openSquareCropper } from "@/components/SquareImageCropper";
-import { Upload, Trash2, Edit2, Save, X, Link2, ShieldCheck, Handshake, GraduationCap, BookOpen, Package } from "lucide-react";
+import { Upload, Trash2, Edit2, Save, X, Link2, ShieldCheck, Handshake, GraduationCap, BookOpen, Package, KeyRound, Phone, MessageCircle, Copy, Eye, EyeOff, Link as LinkIcon } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/AuthContext";
 import { Progress } from "@/components/ui/progress";
-import { grantPartnerRoleByEmail, revokePartnerRole } from "@/lib/finance";
+import {
+  revokePartnerRole,
+  createPartnerLogin,
+  subscribeToPartnerCredentials,
+  deletePartnerCredentials,
+  buildPartnerLoginWhatsAppUrl,
+  type PartnerCredential,
+} from "@/lib/finance";
 
 interface Partner {
   id: string;
@@ -41,6 +49,8 @@ const CATEGORY_META: { key: keyof Shares; label: string; icon: typeof Graduation
 ];
 
 const sanitizePct = (value: string) => value.replace(/[^0-9.]/g, "");
+
+const fieldClass = "h-10 w-full rounded-md border border-border bg-background px-3 font-body text-sm outline-none focus:border-gold focus:ring-2 focus:ring-gold/20";
 
 // A per-category share grid. Defined at module scope (not inside the component)
 // so it isn't remounted every render — otherwise the % inputs lose focus after
@@ -85,13 +95,25 @@ const AdminPartners = () => {
   const editFileRef = useRef<HTMLInputElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
+  const { user } = useAuth();
 
   // Financial-access inputs (per-partner). Each partner gets their own login
-  // (email) + a share % for each category they earn from.
+  // (email + admin-set password) + a share % for each category they earn from.
   const [addEmail, setAddEmail] = useState("");
+  const [addPassword, setAddPassword] = useState("");
+  const [addWhatsapp, setAddWhatsapp] = useState("");
   const [addShares, setAddShares] = useState<Shares>(emptyShares);
   const [editEmail, setEditEmail] = useState("");
+  const [editPassword, setEditPassword] = useState("");
+  const [editWhatsapp, setEditWhatsapp] = useState("");
   const [editShares, setEditShares] = useState<Shares>(emptyShares);
+
+  // Stored partner sign-in credentials (admin-only) for re-sharing on WhatsApp.
+  const [credentials, setCredentials] = useState<Record<string, PartnerCredential>>({});
+  const [revealPw, setRevealPw] = useState<Record<string, boolean>>({});
+  useEffect(() => subscribeToPartnerCredentials(setCredentials, () => undefined), []);
+
+  const loginUrl = typeof window !== "undefined" ? `${window.location.origin}/login` : "/login";
 
   /** Validate share inputs. Returns clamped numbers, or null if any is invalid. */
   const parseShares = (shares: Shares): { classes: number; courses: number; products: number } | null => {
@@ -113,21 +135,34 @@ const AdminPartners = () => {
   };
 
   /**
-   * Grant (or refresh) the "partner" role for this email. Returns the uid, or ""
-   * when no account exists yet (the doc is still saved so the admin can re-grant
-   * once the partner signs up). Revokes a previous, different uid held by the
-   * SAME partner entry so a stale login can't keep access.
+   * Create (or reset) the partner's sign-in via the server (Admin SDK) and store
+   * the credentials for re-sharing. Returns the partner's uid.
    */
-  const grantAccess = async (email: string, previousUid?: string): Promise<string> => {
-    const uid = await grantPartnerRoleByEmail(email);
-    if (!uid) {
-      toast({ title: "No account yet for that email", description: `Ask the partner to sign up with ${email}, then save again to switch on their access.`, variant: "destructive" });
-      return "";
-    }
-    if (previousUid && previousUid !== uid) {
-      try { await revokePartnerRole(previousUid); } catch (error) { console.error("Could not revoke previous partner login", error); }
-    }
+  const createLogin = async (partnerId: string, email: string, password: string, name: string, whatsapp: string): Promise<string> => {
+    if (!user) throw new Error("You must be signed in as an admin.");
+    const idToken = await user.getIdToken();
+    const { uid } = await createPartnerLogin(idToken, { email, password, partnerId, name: name || email, whatsapp });
     return uid;
+  };
+
+  /** Partner name is mandatory — it identifies them everywhere (share list, login, WhatsApp). */
+  const nameInvalid = (name: string): boolean => {
+    if (name.trim()) return false;
+    toast({ title: "Partner name is required", description: "Enter the partner's name before saving.", variant: "destructive" });
+    return true;
+  };
+
+  /** email set ⇒ a 6+ char password is required (to create their login). */
+  const accessInputsInvalid = (email: string, password: string, hasExistingLogin: boolean): boolean => {
+    const e = email.trim();
+    if (!e) return false;
+    // Existing login can be kept without re-typing a password.
+    if (hasExistingLogin && !password.trim()) return false;
+    if (password.trim().length < 6) {
+      toast({ title: "Set a password for their login", description: "Enter a password with at least 6 characters so this partner can sign in.", variant: "destructive" });
+      return true;
+    }
+    return false;
   };
 
   useEffect(() => {
@@ -163,21 +198,21 @@ const AdminPartners = () => {
     setPreview(URL.createObjectURL(square));
   };
 
-  /** Shared create: writes the partner doc, granting access when an email is set. */
+  /** Shared create: writes the partner doc, then creates their login if set. */
   const createPartnerDoc = async (logo: { logoUrl: string; publicId: string }) => {
-    const email = addEmail.trim();
+    const email = addEmail.trim().toLowerCase();
+    const password = addPassword.trim();
+    if (nameInvalid(partnerName)) return false;
     const shares = parseShares(addShares);
     if (shares === null) return false; // invalid share — toast already shown
+    if (accessInputsInvalid(email, password, false)) return false;
 
-    let partnerUid = "";
-    if (email) partnerUid = await grantAccess(email);
-
-    await addDoc(collection(db, "partners"), {
+    const docRef = await addDoc(collection(db, "partners"), {
       name: partnerName.trim(),
       logoUrl: logo.logoUrl,
       publicId: logo.publicId,
       email,
-      partnerUid,
+      partnerUid: "",
       shareClassesPercent: shares.classes,
       shareCoursesPercent: shares.courses,
       shareProductsPercent: shares.products,
@@ -185,8 +220,10 @@ const AdminPartners = () => {
       timestamp: serverTimestamp(),
     });
 
-    if (email && partnerUid) {
-      toast({ title: "Financial access granted", description: `${email} can sign in and view their partner dashboard.` });
+    if (email && password) {
+      const uid = await createLogin(docRef.id, email, password, partnerName.trim(), addWhatsapp.trim());
+      await updateDoc(docRef, { partnerUid: uid });
+      toast({ title: "Partner login created", description: `${email} can now sign in. Share the login from their card below.` });
     }
     return true;
   };
@@ -198,6 +235,8 @@ const AdminPartners = () => {
     setLogoUrl("");
     setUrlPreview("");
     setAddEmail("");
+    setAddPassword("");
+    setAddWhatsapp("");
     setAddShares(emptyShares);
     if (fileRef.current) fileRef.current.value = "";
   };
@@ -208,9 +247,11 @@ const AdminPartners = () => {
       toast({ title: "Missing Information", description: "Add a logo image and/or a financial-access email.", variant: "destructive" });
       return;
     }
-    // Validate share inputs BEFORE uploading so an invalid % doesn't leave an
+    // Validate name + share + login inputs BEFORE uploading so nothing leaves an
     // orphaned Cloudinary image.
+    if (nameInvalid(partnerName)) return;
     if (parseShares(addShares) === null) return;
+    if (accessInputsInvalid(addEmail.trim().toLowerCase(), addPassword.trim(), false)) return;
 
     setUploading(true);
     setProgress(0);
@@ -255,6 +296,7 @@ const AdminPartners = () => {
   };
 
   const addPartnerByUrl = async () => {
+    if (nameInvalid(partnerName)) return;
     if (!logoUrl.trim() && !addEmail.trim()) {
       toast({ title: "Missing Information", description: "Add a logo URL and/or a financial-access email.", variant: "destructive" });
       return;
@@ -291,6 +333,7 @@ const AdminPartners = () => {
       if (partner.partnerUid) {
         try { await revokePartnerRole(partner.partnerUid); } catch (error) { console.error("Could not revoke partner login", error); }
       }
+      try { await deletePartnerCredentials(partner.id); } catch (error) { console.error("Could not delete stored credentials", error); }
       await deleteDoc(doc(db, "partners", partner.id));
       toast({ title: "Deleted", description: `${partner.name || partner.email || "Partner"} removed` });
     } catch (err: any) {
@@ -308,6 +351,8 @@ const AdminPartners = () => {
     setEditLogoUrl("");
     setEditUrlPreview("");
     setEditEmail(partner.email || "");
+    setEditPassword("");
+    setEditWhatsapp(credentials[partner.id]?.whatsapp || "");
     setEditShares({
       classes: partner.shareClassesPercent ? String(partner.shareClassesPercent) : "",
       courses: partner.shareCoursesPercent ? String(partner.shareCoursesPercent) : "",
@@ -336,10 +381,14 @@ const AdminPartners = () => {
     const partner = partners.find(p => p.id === partnerId);
     if (!partner) return;
 
-    // Validate shares BEFORE any logo upload/delete so an invalid % can't leave
+    // Validate shares + login BEFORE any logo upload/delete so nothing can leave
     // the doc pointing at a destroyed Cloudinary image.
+    if (nameInvalid(editName)) return;
     const shares = parseShares(editShares);
     if (shares === null) return; // invalid — keep editing
+    const email = editEmail.trim().toLowerCase();
+    const password = editPassword.trim();
+    if (accessInputsInvalid(email, password, Boolean(partner.partnerUid))) return;
 
     setEditUploading(true);
 
@@ -387,17 +436,24 @@ const AdminPartners = () => {
         }
       }
 
-      // Financial-access reconciliation: email set → grant/refresh; email cleared
-      // → revoke this partner's login. Independent of every other partner.
-      const email = editEmail.trim();
+      // Financial-access reconciliation (independent per partner):
+      //  • email + new password  → create/reset their login (server, Admin SDK)
+      //  • email, no password, existing login → keep it; just refresh WhatsApp
+      //  • email cleared          → revoke the login + delete stored credentials
       let partnerUid = partner.partnerUid || "";
       if (email) {
-        partnerUid = await grantAccess(email, partner.partnerUid);
-        if (partnerUid) {
-          toast({ title: "Financial access saved", description: `${email} can sign in and view their partner dashboard.` });
+        if (password) {
+          partnerUid = await createLogin(partner.id, email, password, editName.trim(), editWhatsapp.trim());
+          toast({ title: "Partner login saved", description: `${email} can sign in with the new password. Share it from their card.` });
+        } else {
+          // Keep the existing login; persist any WhatsApp change for re-sharing.
+          if (editWhatsapp.trim() !== (credentials[partner.id]?.whatsapp || "")) {
+            await setDoc(doc(db, "partnerCredentials", partner.id), { whatsapp: editWhatsapp.trim() }, { merge: true });
+          }
         }
       } else if (partner.partnerUid) {
         try { await revokePartnerRole(partner.partnerUid); } catch (error) { console.error("Could not revoke partner login", error); }
+        try { await deletePartnerCredentials(partner.id); } catch (error) { console.error("Could not delete stored credentials", error); }
         partnerUid = "";
         toast({ title: "Financial access revoked", description: `${partner.email || "This partner"} can no longer view the finance dashboard.` });
       }
@@ -420,6 +476,8 @@ const AdminPartners = () => {
       setEditLogoUrl("");
       setEditUrlPreview("");
       setEditEmail("");
+      setEditPassword("");
+      setEditWhatsapp("");
       setEditShares(emptyShares);
       if (editFileRef.current) editFileRef.current.value = "";
     } catch (err: any) {
@@ -438,8 +496,19 @@ const AdminPartners = () => {
     setEditLogoUrl("");
     setEditUrlPreview("");
     setEditEmail("");
+    setEditPassword("");
+    setEditWhatsapp("");
     setEditShares(emptyShares);
     if (editFileRef.current) editFileRef.current.value = "";
+  };
+
+  const copyText = async (value: string, label: string) => {
+    try {
+      await navigator.clipboard.writeText(value);
+      toast({ title: `${label} copied` });
+    } catch {
+      toast({ title: `Could not copy the ${label.toLowerCase()}`, variant: "destructive" });
+    }
   };
 
   const shareBadges = (partner: Partner) => {
@@ -454,7 +523,10 @@ const AdminPartners = () => {
     <div className="p-4 sm:p-6 lg:p-8">
       <div className="mb-8">
         <h1 className="font-display text-2xl sm:text-3xl font-semibold text-foreground mb-2">Partners Manager</h1>
-        <p className="font-body text-sm text-muted-foreground">One place for every partner — website logo, financial access &amp; a profit share you split by category (classes, courses, products). Each partner signs in to their own dashboard.</p>
+        <p className="font-body text-sm text-muted-foreground">One place for every partner — website logo, financial access &amp; a profit share you split by category (classes, courses, products).</p>
+        <p className="mt-1.5 font-body text-sm text-muted-foreground">
+          Partners sign in at <a href={loginUrl} target="_blank" rel="noreferrer" className="font-semibold text-gold hover:underline">{loginUrl}</a> and land on their own read-only dashboard at <span className="font-semibold text-foreground">/partner</span>.
+        </p>
       </div>
 
       {/* Add partner — logo and/or financial access in ONE form */}
@@ -488,36 +560,55 @@ const AdminPartners = () => {
           </button>
         </div>
 
-        {/* Partner Name (shared) */}
-        <div className="mb-4">
-          <label className="block font-body text-sm font-medium text-foreground mb-2">Partner Name <span className="text-muted-foreground">(Optional)</span></label>
-          <input
-            type="text"
-            value={partnerName}
-            onChange={(e) => setPartnerName(e.target.value)}
-            placeholder="e.g., Microsoft Partner"
-            className="w-full px-4 py-2 border border-border rounded-md font-body text-sm focus:outline-none focus:ring-2 focus:ring-gold"
-            disabled={uploading || addingUrl}
-          />
-        </div>
-
-        {/* Financial access (shared, optional) */}
+        {/* Partner details + financial access (name is required) */}
         <div className="mb-4 rounded-lg border border-gold/25 bg-gold/5 p-4">
-          <p className="flex items-center gap-2 font-body text-sm font-semibold text-foreground"><ShieldCheck className="h-4 w-4 text-gold" /> Financial access <span className="font-normal text-muted-foreground">(optional)</span></p>
+          <p className="flex items-center gap-2 font-body text-sm font-semibold text-foreground"><ShieldCheck className="h-4 w-4 text-gold" /> Partner details &amp; financial access</p>
           <p className="mt-0.5 font-body text-xs text-muted-foreground">Lets this partner sign in and see a read-only dashboard. Set a share % for each category they earn from — leave a category at 0 to exclude it.</p>
+
           <div className="mt-3">
-            <label className="mb-1 block font-body text-xs font-medium text-foreground">Partner email</label>
+            <label className="mb-1 flex items-center gap-1.5 font-body text-xs font-medium text-foreground"><Handshake className="h-3.5 w-3.5 text-gold" /> Partner name <span className="text-destructive">*</span></label>
             <input
-              type="email"
-              value={addEmail}
-              onChange={(e) => setAddEmail(e.target.value)}
-              placeholder="partner@email.com"
-              className="h-10 w-full rounded-md border border-border bg-background px-3 font-body text-sm outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+              type="text"
+              value={partnerName}
+              onChange={(e) => setPartnerName(e.target.value)}
+              placeholder="e.g., Ramesh Kumar"
+              className={fieldClass}
               disabled={uploading || addingUrl}
             />
-            <p className="mt-1 font-body text-[0.7rem] text-muted-foreground">They must sign up with this email first.</p>
           </div>
+
+          <div className="mt-3 grid gap-3 sm:grid-cols-3">
+            <div>
+              <label className="mb-1 flex items-center gap-1.5 font-body text-xs font-medium text-foreground"><MessageCircle className="h-3.5 w-3.5 text-gold" /> Login email</label>
+              <input type="email" value={addEmail} onChange={(e) => setAddEmail(e.target.value)} placeholder="partner@email.com" className={fieldClass} disabled={uploading || addingUrl} />
+            </div>
+            <div>
+              <label className="mb-1 flex items-center gap-1.5 font-body text-xs font-medium text-foreground"><KeyRound className="h-3.5 w-3.5 text-gold" /> Password</label>
+              <input type="text" value={addPassword} onChange={(e) => setAddPassword(e.target.value)} placeholder="min 6 characters" className={fieldClass} disabled={uploading || addingUrl} />
+            </div>
+            <div>
+              <label className="mb-1 flex items-center gap-1.5 font-body text-xs font-medium text-foreground"><Phone className="h-3.5 w-3.5 text-gold" /> WhatsApp <span className="font-normal text-muted-foreground">(optional)</span></label>
+              <input value={addWhatsapp} onChange={(e) => setAddWhatsapp(e.target.value.replace(/[^0-9]/g, ""))} inputMode="tel" placeholder="e.g. 919876543210" className={fieldClass} disabled={uploading || addingUrl} />
+            </div>
+          </div>
+          <p className="mt-1.5 font-body text-[0.7rem] text-muted-foreground">
+            You create the login here — the partner does <span className="font-semibold text-foreground">not</span> need to sign up. The email &amp; password are saved so you can re-share them on WhatsApp anytime.
+          </p>
           <SharesGrid value={addShares} onChange={setAddShares} disabled={uploading || addingUrl} />
+
+          {/* Where the partner signs in */}
+          <div className="mt-3 flex flex-wrap items-center gap-2 rounded-md border border-gold/30 bg-card px-3 py-2">
+            <span className="flex items-center gap-1.5 font-body text-[0.7rem] font-semibold uppercase tracking-wide text-muted-foreground">
+              <LinkIcon className="h-3.5 w-3.5 text-gold" /> Partner portal
+            </span>
+            <code className="min-w-0 flex-1 truncate font-mono text-[0.75rem] text-foreground">{loginUrl}</code>
+            <button type="button" onClick={() => copyText(loginUrl, "Partner portal link")} className="shrink-0 rounded p-1 text-muted-foreground hover:bg-gold/10 hover:text-gold" title="Copy link">
+              <Copy className="h-3.5 w-3.5" />
+            </button>
+          </div>
+          <p className="mt-1 font-body text-[0.7rem] text-muted-foreground">
+            They sign in at <span className="font-semibold text-foreground">/login</span> with the email &amp; password above and are taken straight to their dashboard at <span className="font-semibold text-foreground">/partner</span> (read-only — they only see their own share).
+          </p>
         </div>
 
         {uploadMode === "file" ? (
@@ -551,7 +642,7 @@ const AdminPartners = () => {
 
             <button
               onClick={uploadPartner}
-              disabled={uploading || (!selectedFile && !addEmail.trim())}
+              disabled={uploading || !partnerName.trim() || (!selectedFile && !addEmail.trim())}
               className="mt-4 px-6 py-2.5 bg-gold text-white rounded-md font-body text-sm font-medium hover:bg-gold/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
             >
               <Upload className="w-4 h-4" />
@@ -590,7 +681,7 @@ const AdminPartners = () => {
 
             <button
               onClick={addPartnerByUrl}
-              disabled={addingUrl || (!logoUrl.trim() && !addEmail.trim())}
+              disabled={addingUrl || !partnerName.trim() || (!logoUrl.trim() && !addEmail.trim())}
               className="mt-4 px-6 py-2.5 bg-gold text-white rounded-md font-body text-sm font-medium hover:bg-gold/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
             >
               <Link2 className="w-4 h-4" />
@@ -662,13 +753,13 @@ const AdminPartners = () => {
                         {/* Partner Name */}
                         <div>
                           <label className="block font-body text-sm font-medium text-foreground mb-2">
-                            Partner Name <span className="text-muted-foreground font-normal">(Optional)</span>
+                            Partner Name <span className="text-destructive">*</span>
                           </label>
                           <input
                             type="text"
                             value={editName}
                             onChange={(e) => setEditName(e.target.value)}
-                            placeholder="e.g., Microsoft Partner"
+                            placeholder="e.g., Ramesh Kumar"
                             className="w-full px-4 py-2 border border-border rounded-md font-body text-sm focus:outline-none focus:ring-2 focus:ring-gold"
                             disabled={editUploading}
                           />
@@ -748,16 +839,26 @@ const AdminPartners = () => {
                         {/* Financial access */}
                         <div className="rounded-lg border border-gold/25 bg-gold/5 p-3">
                           <p className="flex items-center gap-1.5 font-body text-sm font-semibold text-foreground"><ShieldCheck className="h-4 w-4 text-gold" /> Financial access <span className="font-normal text-muted-foreground">(optional)</span></p>
-                          <input
-                            type="email"
-                            value={editEmail}
-                            onChange={(e) => setEditEmail(e.target.value)}
-                            placeholder="partner@email.com"
-                            className="mt-2 h-10 w-full rounded-md border border-border bg-background px-3 font-body text-sm outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
-                            disabled={editUploading}
-                          />
+                          <div className="mt-2 grid gap-2 sm:grid-cols-3">
+                            <div>
+                              <label className="mb-1 flex items-center gap-1.5 font-body text-xs font-medium text-foreground"><MessageCircle className="h-3.5 w-3.5 text-gold" /> Login email</label>
+                              <input type="email" value={editEmail} onChange={(e) => setEditEmail(e.target.value)} placeholder="partner@email.com" className={fieldClass} disabled={editUploading} />
+                            </div>
+                            <div>
+                              <label className="mb-1 flex items-center gap-1.5 font-body text-xs font-medium text-foreground"><KeyRound className="h-3.5 w-3.5 text-gold" /> Password</label>
+                              <input type="text" value={editPassword} onChange={(e) => setEditPassword(e.target.value)} placeholder={partner.partnerUid ? "leave blank to keep" : "min 6 characters"} className={fieldClass} disabled={editUploading} />
+                            </div>
+                            <div>
+                              <label className="mb-1 flex items-center gap-1.5 font-body text-xs font-medium text-foreground"><Phone className="h-3.5 w-3.5 text-gold" /> WhatsApp</label>
+                              <input value={editWhatsapp} onChange={(e) => setEditWhatsapp(e.target.value.replace(/[^0-9]/g, ""))} inputMode="tel" placeholder="919876543210" className={fieldClass} disabled={editUploading} />
+                            </div>
+                          </div>
                           <SharesGrid value={editShares} onChange={setEditShares} disabled={editUploading} />
-                          <p className="mt-1.5 font-body text-[0.7rem] text-muted-foreground">Clear the email to revoke this partner's access to the finance dashboard.</p>
+                          <p className="mt-1.5 font-body text-[0.7rem] text-muted-foreground">
+                            {partner.partnerUid
+                              ? "Leave the password blank to keep their current one — type a new one to reset it. Clear the email to revoke their access."
+                              : "Set an email + password to create this partner's login. Clear the email to skip financial access."}
+                          </p>
                         </div>
 
                         {/* Action Buttons */}
@@ -788,14 +889,47 @@ const AdminPartners = () => {
                     <div className="mb-3 flex flex-wrap items-center justify-center gap-1.5">
                       {partner.logoUrl && <span className="rounded-full bg-muted px-2 py-0.5 font-body text-[0.65rem] font-semibold text-muted-foreground">Website logo</span>}
                       {partner.email && (
-                        <span className="rounded-full bg-green-100 px-2 py-0.5 font-body text-[0.65rem] font-semibold text-green-700" title={partner.email}>
-                          {partner.partnerUid ? "Financial access" : "Access pending sign-up"}
+                        <span className={`rounded-full px-2 py-0.5 font-body text-[0.65rem] font-semibold ${partner.partnerUid ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"}`} title={partner.email}>
+                          {partner.partnerUid ? "Can sign in" : "No login yet"}
                         </span>
                       )}
                       {shareBadges(partner).map((label) => (
                         <span key={label} className="rounded-full bg-gold/15 px-2 py-0.5 font-body text-[0.65rem] font-semibold text-gold">{label}</span>
                       ))}
                     </div>
+
+                    {/* Saved login — admin can copy or re-share it on WhatsApp anytime */}
+                    {credentials[partner.id]?.email && (
+                      <div className="mb-3 rounded-lg border border-gold/25 bg-gold/5 p-2.5 text-left">
+                        <p className="mb-1.5 flex items-center gap-1.5 font-body text-[0.65rem] font-semibold uppercase tracking-wide text-muted-foreground">
+                          <KeyRound className="h-3 w-3 text-gold" /> Login details
+                        </p>
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="min-w-0 truncate font-body text-[0.72rem] text-foreground">{credentials[partner.id].email}</span>
+                          <button onClick={() => copyText(credentials[partner.id].email, "Email")} className="shrink-0 rounded p-1 text-muted-foreground hover:bg-gold/10 hover:text-gold" title="Copy email"><Copy className="h-3 w-3" /></button>
+                        </div>
+                        <div className="mt-1 flex items-center justify-between gap-2">
+                          <span className="min-w-0 truncate font-body text-[0.72rem] text-foreground">
+                            {revealPw[partner.id] ? credentials[partner.id].password : "••••••••"}
+                          </span>
+                          <span className="flex shrink-0 items-center">
+                            <button onClick={() => setRevealPw((prev) => ({ ...prev, [partner.id]: !prev[partner.id] }))} className="rounded p-1 text-muted-foreground hover:bg-gold/10 hover:text-gold" title={revealPw[partner.id] ? "Hide password" : "Show password"}>
+                              {revealPw[partner.id] ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+                            </button>
+                            <button onClick={() => copyText(credentials[partner.id].password, "Password")} className="rounded p-1 text-muted-foreground hover:bg-gold/10 hover:text-gold" title="Copy password"><Copy className="h-3 w-3" /></button>
+                          </span>
+                        </div>
+                        <a
+                          href={buildPartnerLoginWhatsAppUrl(credentials[partner.id], loginUrl)}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="mt-2 flex items-center justify-center gap-1.5 rounded-md bg-[#25D366] px-3 py-1.5 font-body text-[0.7rem] font-semibold text-white transition-all hover:brightness-110"
+                        >
+                          <MessageCircle className="h-3.5 w-3.5" /> Share on WhatsApp
+                        </a>
+                      </div>
+                    )}
+
                     <div className="flex gap-2">
                       <button
                         onClick={() => startEdit(partner)}

@@ -119,13 +119,19 @@
   * {
     @apply border-border;
   }
+  /* Guard against horizontal overflow site-wide. `clip` (not `hidden`) clips
+     stray horizontal overflow WITHOUT creating a scroll container, so it never
+     breaks `position: sticky` and never computes overflow-y to `auto`. */
+  html {
+    overflow-x: clip;
+  }
   body {
     @apply bg-background text-foreground;
     font-family: 'Inter', sans-serif;
     font-weight: 400;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    overflow-x: hidden;
+    overflow-x: clip;
   }
   h1, h2, h3, h4, h5, h6 {
     font-family: 'Cormorant Garamond', serif;
