@@ -74,9 +74,20 @@ const UpiPaymentDialog = ({ open, onClose, target, amountInPaise, title, note, c
     setPreviewUrl(URL.createObjectURL(picked));
   };
 
+  // Submitting WITHOUT a screenshot is a valid choice: it's treated as "pay at
+  // the counter" (req 1). We don't create an approval doc — the enrolment/ due
+  // simply stays pending and the admin settles it with "Collect Cash" at the
+  // centre. No Razorpay, no online commission.
+  const handlePayAtCounter = () => {
+    toast({ title: "Noted — pay at the counter", description: "Please pay at the centre. Your enrolment/fee is confirmed once we collect it." });
+    onSuccess?.();
+    onClose();
+  };
+
   const handleSubmit = async () => {
     if (!user || !target) return;
-    if (!file) { toast({ title: "Add your payment screenshot", description: "Upload a screenshot of your UPI receipt so we can verify it.", variant: "destructive" }); return; }
+    // No screenshot → pay at counter.
+    if (!file) { handlePayAtCounter(); return; }
     setSubmitting(true);
     try {
       const proofUrl = await uploadPaymentProof(file);
@@ -113,9 +124,15 @@ const UpiPaymentDialog = ({ open, onClose, target, amountInPaise, title, note, c
         {loadingSettings ? (
           <div className="flex items-center justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-gold" /></div>
         ) : !upiConfigured ? (
-          <p className="mt-4 rounded-md border border-amber-300 bg-amber-50 p-3 font-body text-[0.8rem] text-amber-800">
-            Online UPI payment isn't set up yet. Please contact us to pay, or choose Cash at the centre.
-          </p>
+          <>
+            <p className="mt-4 rounded-md border border-amber-300 bg-amber-50 p-3 font-body text-[0.8rem] text-amber-800">
+              Online UPI payment isn't set up yet — you can still pay at the centre.
+            </p>
+            <button onClick={handlePayAtCounter} className="mt-4 flex min-h-11 w-full items-center justify-center gap-2 rounded-md bg-gradient-primary px-4 py-3 font-body text-sm font-semibold text-primary-foreground hover:brightness-110">
+              Pay at the counter
+            </button>
+            <p className="mt-2 text-center font-body text-[0.72rem] text-muted-foreground">Your enrolment is confirmed once an admin collects the payment.</p>
+          </>
         ) : (
           <>
             {/* QR: uploaded image preferred, else generated from the UPI id */}
@@ -152,9 +169,9 @@ const UpiPaymentDialog = ({ open, onClose, target, amountInPaise, title, note, c
               <p className="mt-3 rounded-md bg-muted/60 p-2.5 font-body text-[0.76rem] text-muted-foreground">{settings.instructions}</p>
             )}
 
-            {/* Screenshot upload */}
+            {/* Screenshot upload (optional — skip it to pay at the counter) */}
             <div className="mt-4">
-              <p className="font-body text-sm font-semibold text-foreground">After paying, upload your receipt screenshot *</p>
+              <p className="font-body text-sm font-semibold text-foreground">Paid online? Upload your receipt screenshot <span className="font-normal text-muted-foreground">(optional)</span></p>
               <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handlePickFile} />
               {previewUrl ? (
                 <div className="mt-2 flex items-center gap-3 rounded-md border border-border p-2">
@@ -174,9 +191,13 @@ const UpiPaymentDialog = ({ open, onClose, target, amountInPaise, title, note, c
             </div>
 
             <button onClick={handleSubmit} disabled={submitting} className="mt-4 flex min-h-11 w-full items-center justify-center gap-2 rounded-md bg-gradient-primary px-4 py-3 font-body text-sm font-semibold text-primary-foreground hover:brightness-110 disabled:opacity-60">
-              {submitting ? <><Loader2 className="h-4 w-4 animate-spin" /> Submitting…</> : "Submit for approval"}
+              {submitting ? <><Loader2 className="h-4 w-4 animate-spin" /> Submitting…</> : file ? "Submit for approval" : "Submit — I'll pay at the counter"}
             </button>
-            <p className="mt-2 text-center font-body text-[0.72rem] text-muted-foreground">Your enrolment is confirmed once an admin verifies the payment.</p>
+            <p className="mt-2 text-center font-body text-[0.72rem] text-muted-foreground">
+              {file
+                ? "Your enrolment is confirmed once an admin verifies the payment."
+                : "No screenshot? Submitting marks this as pay-at-counter — pay at the centre and we'll confirm it."}
+            </p>
           </>
         )}
       </div>

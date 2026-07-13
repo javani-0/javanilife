@@ -95,6 +95,15 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    // Partners — website logos + optional financial access & per-category profit
+    // shares (req 4). Public read so the site can show partner logos and the
+    // admin console can list them; only an admin writes. (No customer PII here;
+    // partner login/share config lives on these docs.)
+    match /partners/{id} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
     // Business expenses — admin enters/edits; admin + partner may read. The
     // partner dashboard reads aggregates via the server, but allowing read here
     // keeps the admin console working and exposes no customer PII.

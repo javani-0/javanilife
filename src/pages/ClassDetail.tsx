@@ -50,7 +50,9 @@ import heroTemple from "@/assets/hero-temple.jpg";
 
 const PAYMENT_METHOD_META: Record<ClassPaymentMethod, { title: string; blurb: string; icon: typeof Repeat; recommended?: boolean }> = {
   autopay: { title: "Autopay", blurb: "Authorise once; the fee is auto-debited each month. We notify you on every debit.", icon: Repeat, recommended: true },
-  manual: { title: "Pre-payment", blurb: "Pre-pay this cycle now. We'll show your next charge date; pay later months from My Classes.", icon: Wallet },
+  // "Pay Now" is the manual rail: scan the QR to pay now (upload the receipt for
+  // us to confirm), or submit without a screenshot to pay at the counter.
+  manual: { title: "Pay Now", blurb: "Scan the QR to pay this month now — upload your receipt, or submit without one to pay at the counter.", icon: Wallet },
   full: { title: "Pay Full", blurb: "Pay the entire course fee once. No further payments.", icon: Wallet },
   emi: { title: "EMI", blurb: "Pay a part upfront now, then the rest in installments. We'll remind you before each due date.", icon: CreditCard },
   cash: { title: "Pay Cash", blurb: "Pay in cash at the centre. Your enrolment will be confirmed once the admin collects the payment.", icon: Banknote },
@@ -101,6 +103,18 @@ const ClassDetail = () => {
     () => (classDoc && activeTrack ? getPaymentMethodsForTrack(classDoc, activeTrack) : []),
     [classDoc, activeTrack],
   );
+  // Req 1: a MONTHLY class shows only two options — "Autopay" and "Pay Now".
+  // "Pay Now" is the manual UPI rail (which also covers pay-at-counter) and is
+  // ALWAYS available for monthly classes (even legacy ones), so we render it
+  // regardless of the stored manual/cash flags and never show a separate cash
+  // button. Term courses keep their own methods (Pay Full / EMI) unchanged.
+  const displayMethods = useMemo<ClassPaymentMethod[]>(() => {
+    if (activeTrack === "term") return enabledMethods;
+    const monthly: ClassPaymentMethod[] = [];
+    if (enabledMethods.includes("autopay")) monthly.push("autopay");
+    monthly.push("manual"); // Pay Now — always offered for monthly classes
+    return monthly;
+  }, [activeTrack, enabledMethods]);
   const slots = useMemo(() => classDoc?.timeSlots || [], [classDoc]);
   const isTerm = activeTrack === "term";
   const emiConfig = classDoc?.emi || DEFAULT_CLASS_EMI_CONFIG;
@@ -155,23 +169,23 @@ const ClassDetail = () => {
   // otherwise pick the first enabled one — but a NEW student is never defaulted
   // into autopay (they can still choose it), only nudged to pre-pay/cash first.
   useEffect(() => {
-    if (enabledMethods.length === 0) return;
+    if (displayMethods.length === 0) return;
     setPaymentMethod((current) => {
-      if (current && enabledMethods.includes(current)) return current;
+      if (current && displayMethods.includes(current)) return current;
       if (studentStatus === "new") {
-        const nonAutopay = enabledMethods.find((method) => method !== "autopay");
-        return nonAutopay || enabledMethods[0];
+        const nonAutopay = displayMethods.find((method) => method !== "autopay");
+        return nonAutopay || displayMethods[0];
       }
-      return enabledMethods[0];
+      return displayMethods[0];
     });
-  }, [enabledMethods, studentStatus]);
+  }, [displayMethods, studentStatus]);
 
   // When a parent flips to "New student" while autopay was selected, move them
   // off autopay so they aren't forced into it (requirement 3).
   const handleStudentStatusChange = (next: "new" | "existing") => {
     setStudentStatus(next);
     if (next === "new" && paymentMethod === "autopay") {
-      const nonAutopay = enabledMethods.find((method) => method !== "autopay");
+      const nonAutopay = displayMethods.find((method) => method !== "autopay");
       if (nonAutopay) setPaymentMethod(nonAutopay);
     }
   };
@@ -340,7 +354,7 @@ const ClassDetail = () => {
           open: true,
           target: { enrollmentId, kind: method === "full" ? "full" : "monthly" },
           amount: upiAmount,
-          title: `${classDoc.name} — ${method === "full" ? "full course fee" : "pre-payment"}`,
+          title: `${classDoc.name} — ${method === "full" ? "full course fee" : "monthly fee"}`,
           couponCode: couponDiscountInPaise > 0 ? appliedCouponCode : undefined,
         });
       }
@@ -528,7 +542,7 @@ const ClassDetail = () => {
                             {option === "new" ? "New student" : "Existing student"}
                           </span>
                           <span className="font-body text-[0.74rem] text-muted-foreground">
-                            {option === "new" ? "Start with a pre-payment or cash — set up autopay later." : "Already enrolled — autopay is available."}
+                            {option === "new" ? "Start by paying now — set up autopay later." : "Already enrolled — autopay is available."}
                           </span>
                         </button>
                       );
@@ -542,11 +556,11 @@ const ClassDetail = () => {
 
               {/* Payment method */}
               <h3 className="mt-7 font-display text-lg text-foreground">How would you like to pay?</h3>
-              {enabledMethods.length === 0 ? (
+              {displayMethods.length === 0 ? (
                 <p className="mt-3 rounded-md border border-amber-300 bg-amber-50 p-3 font-body text-[0.78rem] text-amber-800">No payment option is set up for this class yet. Please contact us to enrol.</p>
               ) : (
-                <div className={`mt-3 grid gap-3 ${enabledMethods.length > 1 ? "sm:grid-cols-2" : ""}`}>
-                  {enabledMethods.map((method) => {
+                <div className={`mt-3 grid gap-3 ${displayMethods.length > 1 ? "sm:grid-cols-2" : ""}`}>
+                  {displayMethods.map((method) => {
                     const meta = PAYMENT_METHOD_META[method];
                     const Icon = meta.icon;
                     const active = paymentMethod === method;
@@ -647,13 +661,13 @@ const ClassDetail = () => {
                 </div>
               )}
 
-              <button type="submit" disabled={submitting || enabledMethods.length === 0} className="mt-6 flex min-h-11 w-full items-center justify-center gap-2 rounded-sm bg-gradient-primary px-4 py-3 font-body text-[0.9rem] font-semibold text-primary-foreground transition-all hover:brightness-110 disabled:opacity-60">
+              <button type="submit" disabled={submitting || displayMethods.length === 0} className="mt-6 flex min-h-11 w-full items-center justify-center gap-2 rounded-sm bg-gradient-primary px-4 py-3 font-body text-[0.9rem] font-semibold text-primary-foreground transition-all hover:brightness-110 disabled:opacity-60">
                 {submitting ? <><Loader2 className="h-4 w-4 animate-spin" /> Processing…</>
                   : paymentMethod === "autopay" ? "Enrol & Set Up Autopay"
                   : paymentMethod === "full" ? "Enrol & Pay Full Fee"
                   : paymentMethod === "emi" ? "Enrol & Pay First Installment"
                   : paymentMethod === "cash" ? "Enrol & Pay Cash"
-                  : "Enrol & Pre-pay"}
+                  : "Enrol & Pay Now"}
               </button>
               {!user && <p className="mt-2 text-center font-body text-[0.78rem] text-muted-foreground">You'll be asked to sign in to complete enrolment.</p>}
             </form>

@@ -11,18 +11,20 @@ import {
   addExpense,
   addManualIncome,
   buildFinanceSummary,
+  computePartnerCategoryShareInPaise,
   deleteExpense,
   deleteManualIncome,
+  hasAnyShare,
+  splitOrderIncomeInPaise,
   subscribeToExpenses,
+  subscribeToFinancePartners,
   subscribeToManualIncome,
-  subscribeToPartnerSettings,
   sumExpensesInPaise,
   sumClassIncomeInPaise,
   sumManualIncomeInPaise,
-  sumOrderIncomeInPaise,
   type ExpenseDoc,
+  type FinancePartner,
   type IncomeDoc,
-  type PartnerSettings,
 } from "@/lib/finance";
 import { IndianRupee, Loader2, Plus, Trash2, TrendingUp, TrendingDown, Wallet, Handshake, ShieldCheck } from "lucide-react";
 
@@ -67,7 +69,7 @@ const AdminFinance = () => {
   const [fees, setFees] = useState<Record<string, unknown>[]>([]);
   const [expenses, setExpenses] = useState<ExpenseDoc[]>([]);
   const [incomeEntries, setIncomeEntries] = useState<IncomeDoc[]>([]);
-  const [settings, setSettings] = useState<PartnerSettings>({ profitSharePercent: 0 });
+  const [financePartners, setFinancePartners] = useState<FinancePartner[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Expense form
@@ -93,8 +95,8 @@ const AdminFinance = () => {
     const unsubFees = onSnapshot(collection(db, "feePayments"), (snap) => setFees(snap.docs.map((d) => d.data())), () => undefined);
     const unsubExpenses = subscribeToExpenses((items) => setExpenses(items), () => undefined);
     const unsubIncome = subscribeToManualIncome((items) => setIncomeEntries(items), () => undefined);
-    const unsubSettings = subscribeToPartnerSettings((value) => setSettings(value), () => undefined);
-    return () => { unsubOrders(); unsubFees(); unsubExpenses(); unsubIncome(); unsubSettings(); };
+    const unsubPartners = subscribeToFinancePartners((items) => setFinancePartners(items), () => undefined);
+    return () => { unsubOrders(); unsubFees(); unsubExpenses(); unsubIncome(); unsubPartners(); };
   }, []);
 
   // Period filter (default: this month). "day" uses the calendar-picked date.
@@ -124,13 +126,40 @@ const AdminFinance = () => {
   const filteredIncome = useMemo(() => incomeEntries.filter((entry) => inPeriod(entry.receivedOn || "")), [incomeEntries, inPeriod]);
   const filteredExpenses = useMemo(() => expenses.filter((expense) => inPeriod(expense.spentOn || "")), [expenses, inPeriod]);
 
-  const summary = useMemo(() => buildFinanceSummary({
-    productIncomeInPaise: sumOrderIncomeInPaise(filteredOrders),
-    classIncomeInPaise: sumClassIncomeInPaise(filteredFees.map((fee) => ({ status: String(fee.status || ""), amountInPaise: Number(fee.amountInPaise || 0) }))),
-    otherIncomeInPaise: sumManualIncomeInPaise(filteredIncome),
-    expensesInPaise: sumExpensesInPaise(filteredExpenses),
-    profitSharePercent: settings.profitSharePercent,
-  }), [filteredOrders, filteredFees, filteredIncome, filteredExpenses, settings.profitSharePercent]);
+  const summary = useMemo(() => {
+    const { productIncomeInPaise, courseIncomeInPaise } = splitOrderIncomeInPaise(filteredOrders as never);
+    return buildFinanceSummary({
+      productIncomeInPaise,
+      courseIncomeInPaise,
+      classIncomeInPaise: sumClassIncomeInPaise(filteredFees.map((fee) => ({ status: String(fee.status || ""), amountInPaise: Number(fee.amountInPaise || 0) }))),
+      otherIncomeInPaise: sumManualIncomeInPaise(filteredIncome),
+      expensesInPaise: sumExpensesInPaise(filteredExpenses),
+    });
+  }, [filteredOrders, filteredFees, filteredIncome, filteredExpenses]);
+
+  // Each partner's payout for the selected period, split by category (req 4).
+  const partnerPayouts = useMemo(() => {
+    const income = {
+      classIncomeInPaise: summary.classIncomeInPaise,
+      courseIncomeInPaise: summary.courseIncomeInPaise,
+      productIncomeInPaise: summary.productIncomeInPaise,
+    };
+    return financePartners
+      .filter(hasAnyShare)
+      .map((partner) => ({
+        partner,
+        shareInPaise: computePartnerCategoryShareInPaise(income, {
+          classesPercent: partner.classesPercent,
+          coursesPercent: partner.coursesPercent,
+          productsPercent: partner.productsPercent,
+        }),
+      }));
+  }, [financePartners, summary.classIncomeInPaise, summary.courseIncomeInPaise, summary.productIncomeInPaise]);
+
+  const totalPartnerPayoutInPaise = useMemo(
+    () => partnerPayouts.reduce((sum, item) => sum + item.shareInPaise, 0),
+    [partnerPayouts],
+  );
 
   const periodLabel = period === "all" ? "All time"
     : period === "month" ? `This month (${new Date().toLocaleDateString("en-IN", { month: "long", year: "numeric" })})`
@@ -230,10 +259,39 @@ const AdminFinance = () => {
 
       {/* Summary tiles */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <Tile label="Total Income" value={formatPaiseAsRupees(summary.incomeInPaise)} sub={`Products ${formatPaiseAsRupees(summary.productIncomeInPaise)} · Classes ${formatPaiseAsRupees(summary.classIncomeInPaise)} · Other ${formatPaiseAsRupees(summary.otherIncomeInPaise)}`} accent="text-green-600" icon={TrendingUp} />
+        <Tile label="Total Income" value={formatPaiseAsRupees(summary.incomeInPaise)} sub={`Products ${formatPaiseAsRupees(summary.productIncomeInPaise)} · Courses ${formatPaiseAsRupees(summary.courseIncomeInPaise)} · Classes ${formatPaiseAsRupees(summary.classIncomeInPaise)} · Other ${formatPaiseAsRupees(summary.otherIncomeInPaise)}`} accent="text-green-600" icon={TrendingUp} />
         <Tile label="Total Expenses" value={formatPaiseAsRupees(summary.expensesInPaise)} sub={`${filteredExpenses.length} entr${filteredExpenses.length === 1 ? "y" : "ies"}`} accent="text-red-600" icon={TrendingDown} />
         <Tile label="Net Profit" value={formatPaiseAsRupees(summary.netProfitInPaise)} sub="Income − Expenses" accent={summary.netProfitInPaise >= 0 ? "text-primary" : "text-red-600"} icon={Wallet} />
-        <Tile label="Partner Share" value={formatPaiseAsRupees(summary.partnerShareInPaise)} sub={`${summary.profitSharePercent}% of net profit`} accent="text-gold" icon={Handshake} />
+        <Tile label="Partner Payouts" value={formatPaiseAsRupees(totalPartnerPayoutInPaise)} sub={`${partnerPayouts.length} partner${partnerPayouts.length === 1 ? "" : "s"} · by category`} accent="text-gold" icon={Handshake} />
+      </div>
+
+      {/* Partner shares — one row per partner, split by category (req 4) */}
+      <div className="rounded-xl border border-border/60 bg-card p-5 shadow-card">
+        <h2 className="flex items-center gap-2 font-display text-xl text-foreground"><Handshake className="h-5 w-5 text-gold" /> Partner Shares</h2>
+        <p className="mt-1 font-body text-sm text-muted-foreground">
+          Each partner earns a share of the income in the categories you assign them. Add or edit partners &amp; their category % in{" "}
+          <Link to="/admin/partners" className="font-semibold text-gold hover:underline">Partners Manager</Link>. Showing {periodLabel.toLowerCase()}.
+        </p>
+        {partnerPayouts.length === 0 ? (
+          <p className="mt-4 rounded-lg border border-dashed border-border/60 p-6 text-center font-body text-sm text-muted-foreground">No partners with a profit share yet.</p>
+        ) : (
+          <div className="mt-4 space-y-2">
+            {partnerPayouts.map(({ partner, shareInPaise }) => (
+              <div key={partner.id} className="flex flex-col gap-2 rounded-lg border border-border/60 bg-background/70 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="font-body text-sm font-medium text-foreground">{partner.name || partner.email || "Partner"}</p>
+                  <p className="mt-0.5 flex flex-wrap gap-1.5 font-body text-[0.7rem] text-muted-foreground">
+                    {partner.classesPercent > 0 && <span className="rounded-full bg-gold/10 px-2 py-0.5 font-semibold text-gold">Classes {partner.classesPercent}%</span>}
+                    {partner.coursesPercent > 0 && <span className="rounded-full bg-gold/10 px-2 py-0.5 font-semibold text-gold">Courses {partner.coursesPercent}%</span>}
+                    {partner.productsPercent > 0 && <span className="rounded-full bg-gold/10 px-2 py-0.5 font-semibold text-gold">Products {partner.productsPercent}%</span>}
+                    {!partner.partnerUid && partner.email && <span className="rounded-full bg-amber-100 px-2 py-0.5 font-semibold text-amber-700">Access pending sign-up</span>}
+                  </p>
+                </div>
+                <span className="font-display text-base font-bold text-gold">{formatPaiseAsRupees(shareInPaise)}</span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {loading && <p className="font-body text-sm text-muted-foreground"><Loader2 className="mr-2 inline h-4 w-4 animate-spin" />Loading financials…</p>}
@@ -347,9 +405,8 @@ const AdminFinance = () => {
 
           <p className="mt-5 rounded-lg border border-border/60 bg-muted/40 p-3 font-body text-sm text-muted-foreground">
             <ShieldCheck className="mr-1.5 inline h-4 w-4 text-gold" />
-            Partner access (read-only financial view + profit share) is now managed in{" "}
+            Partner access (read-only dashboard + per-category profit share) is managed in{" "}
             <Link to="/admin/partners" className="font-semibold text-gold hover:underline">Partners Manager</Link>.
-            {settings.partnerUid && <> Current partner: <span className="font-semibold text-foreground">{settings.partnerName || settings.partnerEmail}</span> · {settings.profitSharePercent}% share.</>}
           </p>
       </div>
     </div>

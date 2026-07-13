@@ -185,8 +185,9 @@ export interface FeeReminderCandidate {
 }
 
 // After the due date passes, keep nudging daily for this many days, then stop
-// (avoids nagging forever; the admin can still Remind manually).
-export const OVERDUE_REMINDER_GRACE_DAYS = 7;
+// (avoids nagging forever; the admin can still Remind manually). Req 2: the
+// window is the 5 days before the due date PLUS the 5 days after it.
+export const OVERDUE_REMINDER_GRACE_DAYS = 5;
 
 /**
  * Select fee docs to remind today (req 6). We send a daily "pay in N days"

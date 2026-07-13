@@ -29,6 +29,9 @@ export interface IncomeDoc {
 }
 
 // Admin-configured partner access + profit share. Stored at finance/settings.
+// Legacy single-partner model — kept for backward compatibility. The live model
+// is now multi-partner with per-category shares stored on each `partners` doc
+// (see PartnerCategoryShares / FinancePartner below).
 export interface PartnerSettings {
   partnerName?: string;
   partnerEmail?: string;
@@ -37,16 +40,34 @@ export interface PartnerSettings {
   updatedAt?: Timestamp;
 }
 
+// The three income categories a partner can draw a share from (req 4). Each is a
+// percentage 0–100; 0 (or blank) means the partner earns nothing from it.
+export interface PartnerCategoryShares {
+  classesPercent: number;  // % of collected class fees
+  coursesPercent: number;  // % of collected course-order income
+  productsPercent: number; // % of collected product-order income
+}
+
+// A partner (from the `partners` collection) that has financial-dashboard
+// access. `partnerUid` is the signed-up user granted the "partner" role.
+export interface FinancePartner extends PartnerCategoryShares {
+  id: string;
+  name?: string;
+  email?: string;
+  partnerUid?: string;
+}
+
 // The aggregated financial picture shown to admin + partner.
 export interface FinanceSummary {
-  productIncomeInPaise: number; // collected from product/course orders
+  productIncomeInPaise: number; // collected from product orders
+  courseIncomeInPaise: number;  // collected from course orders
   classIncomeInPaise: number;   // collected class fees
   otherIncomeInPaise: number;   // manually-entered extra income
-  incomeInPaise: number;        // product + class + other
+  incomeInPaise: number;        // product + course + class + other
   expensesInPaise: number;
   netProfitInPaise: number;     // income − expenses
-  profitSharePercent: number;
-  partnerShareInPaise: number;  // netProfit × share%
+  profitSharePercent: number;   // legacy single-partner share %
+  partnerShareInPaise: number;  // legacy: netProfit × share%
 }
 
 export const EXPENSE_CATEGORIES = [

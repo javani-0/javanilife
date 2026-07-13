@@ -168,13 +168,15 @@ describe("collectDueReminders", () => {
     expect(collectDueReminders(docs, now).map((d) => d.id)).toEqual(["a", "b", "c"]);
   });
 
-  it("keeps nudging overdue fees for up to 7 days past due, then stops", () => {
+  it("keeps nudging overdue fees for up to 5 days past due, then stops", () => {
     const docs = [
       { id: "d", monthKey: "2026-06", status: "pending", dueDate: "2026-06-07" }, // 6 days out — too early
       { id: "e", monthKey: "2026-05", status: "overdue", dueDate: "2026-05-28" }, // 4 days past — still nudged
+      { id: "g", monthKey: "2026-05", status: "overdue", dueDate: "2026-05-27" }, // 5 days past — last nudge
+      { id: "h", monthKey: "2026-05", status: "overdue", dueDate: "2026-05-26" }, // 6 days past — stopped
       { id: "f", monthKey: "2026-05", status: "overdue", dueDate: "2026-05-20" }, // 12 days past — stopped
     ];
-    expect(collectDueReminders(docs, now).map((d) => d.id)).toEqual(["e"]);
+    expect(collectDueReminders(docs, now).map((d) => d.id)).toEqual(["e", "g"]);
   });
 
   it("skips fees under UPI approval (processing) and settled fees", () => {

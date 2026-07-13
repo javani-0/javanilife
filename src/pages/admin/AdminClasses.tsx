@@ -4,7 +4,7 @@ import { deleteDoc, doc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { CLOUDINARY_CLOUD_NAME, CLOUDINARY_UPLOAD_PRESET } from "@/lib/cloudinary";
 import { openSquareCropper } from "@/components/SquareImageCropper";
-import { Plus, Pencil, Trash2, X, Upload, BadgeIndianRupee, AlertTriangle, GraduationCap, CalendarRange, Repeat, Clock } from "lucide-react";
+import { Plus, Pencil, Trash2, X, Upload, BadgeIndianRupee, AlertTriangle, GraduationCap, CalendarRange, Repeat, Clock, Wallet } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { formatPaiseAsRupees, parsePriceToPaise } from "@/lib/ecommerce";
 import {
@@ -86,7 +86,7 @@ const defaultForm: ClassFormState = {
   facultyName: "",
   feeRupees: "",
   autopayDiscountRupees: "",
-  billingDayOfMonth: "1",
+  billingDayOfMonth: "5",
   seatsTotal: "",
   active: true,
   offersMonthly: true,
@@ -283,10 +283,8 @@ const AdminClasses = () => {
         toast({ title: "Monthly fee required", description: "Enter a valid monthly fee.", variant: "destructive" });
         return;
       }
-      if (!form.payAutopay && !form.payManual && !form.payCash) {
-        toast({ title: "Select a monthly payment option", description: "Enable Autopay, Pay monthly, and/or Cash.", variant: "destructive" });
-        return;
-      }
+      // No payment-option check needed: "Pay Now" is always available for
+      // monthly classes; Autopay is an optional extra (req 1).
     }
 
     if (offersTerm) {
@@ -350,10 +348,12 @@ const AdminClasses = () => {
         endDate: form.endDate,
         termFreeMonthsOnFullPayment: offersTerm ? Math.max(0, Math.round(Number(form.termFreeMonths) || 0)) : 0,
         // Each track's options are gated by whether that track is enabled.
+        // Monthly: Autopay is optional; "Pay Now" (manual UPI + pay-at-counter)
+        // is always on, so manual & cash are both enabled together (req 1).
         payment: {
           autopay: offersMonthly && form.payAutopay,
-          manual: offersMonthly && form.payManual,
-          cash: offersMonthly && form.payCash,
+          manual: offersMonthly,
+          cash: offersMonthly,
           full: offersTerm && form.payFull,
           emi: offersTerm && form.payEmi,
         },
@@ -428,8 +428,7 @@ const AdminClasses = () => {
                   {classOffersMonthly(classDoc) && <p>📅 Billed on day {classDoc.billingDayOfMonth} each month</p>}
                   <p>💳 {[
                     classOffersMonthly(classDoc) && classDoc.payment?.autopay && "Autopay",
-                    classOffersMonthly(classDoc) && classDoc.payment?.manual && "Pay monthly",
-                    classOffersMonthly(classDoc) && classDoc.payment?.cash && "Cash",
+                    classOffersMonthly(classDoc) && "Pay Now",
                     classOffersTerm(classDoc) && classDoc.payment?.full && "Pay Full",
                     classOffersTerm(classDoc) && classDoc.payment?.emi && "EMI",
                   ].filter(Boolean).join(" · ") || "No payment options"}</p>
@@ -505,58 +504,53 @@ const AdminClasses = () => {
                     </div>
                     <p className="mt-1 font-body text-[0.72rem] text-muted-foreground">Preview: <span className="font-semibold text-gold">{monthlyFeePreviewInPaise ? formatPaiseAsRupees(monthlyFeePreviewInPaise) : "Enter fee"}</span></p>
                   </div>
-                  {form.payAutopay && (
-                    <div>
-                      <label className={labelClass}>Autopay Discount (₹)</label>
-                      <div className="relative">
-                        <BadgeIndianRupee className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                        <input value={form.autopayDiscountRupees} onChange={(event) => setForm({ ...form, autopayDiscountRupees: event.target.value })} className={`${inputClass} pl-10`} inputMode="decimal" placeholder="0 (no discount)" />
-                      </div>
-                      {(() => {
-                        const discountPaise = parsePriceToPaise(form.autopayDiscountRupees) || 0;
-                        const autopayFee = monthlyFeePreviewInPaise - discountPaise;
-                        if (discountPaise > 0 && monthlyFeePreviewInPaise > 0) {
-                          if (autopayFee < 100) {
-                            return <p className="mt-1 font-body text-[0.72rem] text-destructive">Discount too high — autopay fee must be at least ₹1.</p>;
-                          }
-                          return <p className="mt-1 font-body text-[0.72rem] text-muted-foreground">Autopay price: <span className="font-semibold text-green-700">{formatPaiseAsRupees(autopayFee)}/mo</span> <span className="text-muted-foreground">(₹{(discountPaise / 100).toLocaleString("en-IN")} off)</span></p>;
-                        }
-                        return <p className="mt-1 font-body text-[0.72rem] text-muted-foreground">Leave blank or 0 for no autopay discount.</p>;
-                      })()}
-                    </div>
-                  )}
                   <div>
                     <label className={labelClass}>Billing Day (1–28)</label>
-                    <input value={form.billingDayOfMonth} onChange={(event) => setForm({ ...form, billingDayOfMonth: event.target.value })} className={inputClass} inputMode="numeric" placeholder="1" />
+                    <input value={form.billingDayOfMonth} onChange={(event) => setForm({ ...form, billingDayOfMonth: event.target.value })} className={inputClass} inputMode="numeric" placeholder="5" />
+                    <p className="mt-1 font-body text-[0.72rem] text-muted-foreground">The monthly due date. Defaults to the 5th — change it if you like.</p>
                   </div>
                   {overAfaCap && (
                     <div className="sm:col-span-2 flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 p-3">
                       <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-600" />
                       <p className="font-body text-[0.78rem] text-amber-800">
-                        This fee is above ₹15,000. Per RBI rules, silent autopay only works up to ₹15,000 — larger amounts need an OTP on every auto-debit. Parents may prefer manual monthly pay for this class.
+                        This fee is above ₹15,000. Per RBI rules, silent autopay only works up to ₹15,000 — larger amounts need an OTP on every auto-debit. Parents may prefer to use Pay Now for this class.
                       </p>
                     </div>
                   )}
+                  {/* Req 1: monthly classes offer exactly two options to parents —
+                      "Autopay" (optional, admin's choice) and "Pay Now" (UPI QR +
+                      pay-at-counter), which is always available. */}
                   <div className="sm:col-span-2">
-                    <label className={labelClass}>Payment options offered to parents *</label>
-                    <div className="flex flex-col gap-2">
-                      <div className="flex flex-col gap-2 sm:flex-row">
-                        <label className={`flex flex-1 cursor-pointer items-start gap-2 rounded-md border p-3 font-body text-[0.8rem] ${form.payAutopay ? "border-gold bg-gold/5" : "border-border"}`}>
-                          <input type="checkbox" className="mt-0.5" checked={form.payAutopay} onChange={(event) => setForm({ ...form, payAutopay: event.target.checked })} />
-                          <span><span className="font-semibold text-foreground">Autopay</span><br /><span className="text-muted-foreground">Auto-debit the fee every month.</span></span>
-                        </label>
-                        <label className={`flex flex-1 cursor-pointer items-start gap-2 rounded-md border p-3 font-body text-[0.8rem] ${form.payManual ? "border-gold bg-gold/5" : "border-border"}`}>
-                          <input type="checkbox" className="mt-0.5" checked={form.payManual} onChange={(event) => setForm({ ...form, payManual: event.target.checked })} />
-                          <span><span className="font-semibold text-foreground">Pay monthly</span><br /><span className="text-muted-foreground">Parent pays each month manually.</span></span>
-                        </label>
+                    <label className={labelClass}>Payment options for parents</label>
+                    <label className={`flex cursor-pointer items-start gap-2 rounded-md border p-3 font-body text-[0.8rem] ${form.payAutopay ? "border-gold bg-gold/5" : "border-border"}`}>
+                      <input type="checkbox" className="mt-0.5" checked={form.payAutopay} onChange={(event) => setForm({ ...form, payAutopay: event.target.checked })} />
+                      <span><span className="font-semibold text-foreground">Offer Autopay</span> <span className="text-muted-foreground">(optional)</span><br /><span className="text-muted-foreground">Recurring auto-debit each month. Leave off to only accept Pay Now.</span></span>
+                    </label>
+                    {/* Req 5: enabling Autopay asks for an OPTIONAL discount. */}
+                    {form.payAutopay && (
+                      <div className="mt-2 rounded-md border border-gold/25 bg-gold/5 p-3">
+                        <label className={labelClass}>Autopay discount (₹) <span className="font-normal text-muted-foreground">(optional)</span></label>
+                        <div className="relative">
+                          <BadgeIndianRupee className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                          <input value={form.autopayDiscountRupees} onChange={(event) => setForm({ ...form, autopayDiscountRupees: event.target.value })} className={`${inputClass} pl-10`} inputMode="decimal" placeholder="0 (no discount)" />
+                        </div>
+                        {(() => {
+                          const discountPaise = parsePriceToPaise(form.autopayDiscountRupees) || 0;
+                          const autopayFee = monthlyFeePreviewInPaise - discountPaise;
+                          if (discountPaise > 0 && monthlyFeePreviewInPaise > 0) {
+                            if (autopayFee < 100) {
+                              return <p className="mt-1 font-body text-[0.72rem] text-destructive">Discount too high — autopay fee must be at least ₹1.</p>;
+                            }
+                            return <p className="mt-1 font-body text-[0.72rem] text-muted-foreground">Autopay price: <span className="font-semibold text-green-700">{formatPaiseAsRupees(autopayFee)}/mo</span> <span className="text-muted-foreground">(₹{(discountPaise / 100).toLocaleString("en-IN")} off)</span></p>;
+                          }
+                          return <p className="mt-1 font-body text-[0.72rem] text-muted-foreground">Give parents a discount for choosing autopay, or leave blank for none.</p>;
+                        })()}
                       </div>
-                      <div className="flex flex-col gap-2 sm:flex-row">
-                        <label className={`flex flex-1 cursor-pointer items-start gap-2 rounded-md border p-3 font-body text-[0.8rem] ${form.payCash ? "border-gold bg-gold/5" : "border-border"}`}>
-                          <input type="checkbox" className="mt-0.5" checked={form.payCash} onChange={(event) => setForm({ ...form, payCash: event.target.checked })} />
-                          <span><span className="font-semibold text-foreground">Cash</span><br /><span className="text-muted-foreground">Parent pays cash, admin collects offline.</span></span>
-                        </label>
-                      </div>
-                    </div>
+                    )}
+                    <p className="mt-2 flex items-start gap-1.5 font-body text-[0.72rem] text-muted-foreground">
+                      <Wallet className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-gold" />
+                      <span><span className="font-semibold text-foreground">Pay Now</span> is always available — parents scan a UPI QR (upload the receipt) or submit without one to pay at the counter.</span>
+                    </p>
                   </div>
                 </>
               )}

@@ -80,16 +80,38 @@ const PartnerDashboard = () => {
         ) : summary ? (
           <>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              <StatCard label="Total Income" value={formatPaiseAsRupees(summary.incomeInPaise)} sub="Products + class fees" accent="text-green-600" icon={TrendingUp} />
+              <StatCard label="Total Income" value={formatPaiseAsRupees(summary.incomeInPaise)} sub="Products + courses + classes" accent="text-green-600" icon={TrendingUp} />
               <StatCard label="Total Expenses" value={formatPaiseAsRupees(summary.expensesInPaise)} accent="text-red-600" icon={TrendingDown} />
               <StatCard label="Net Profit" value={formatPaiseAsRupees(summary.netProfitInPaise)} sub="Income − Expenses" accent={summary.netProfitInPaise >= 0 ? "text-primary" : "text-red-600"} icon={Wallet} />
-              <StatCard label={`Your Share (${summary.profitSharePercent}%)`} value={formatPaiseAsRupees(summary.partnerShareInPaise)} sub="of net profit" accent="text-gold" icon={Handshake} />
+              <StatCard label="Your Total Share" value={formatPaiseAsRupees(summary.partnerShareInPaise)} sub="across your categories" accent="text-gold" icon={Handshake} />
+            </div>
+
+            {/* Your share, split by the categories the admin assigned you */}
+            <div className="mt-6 rounded-2xl border border-gold/25 bg-gold/5 p-6 shadow-card">
+              <h2 className="flex items-center gap-2 font-display text-lg text-foreground"><Handshake className="h-5 w-5 text-gold" /> Your profit share</h2>
+              <p className="mt-1 font-body text-xs text-muted-foreground">You earn a share of the income in each category below. Categories set to 0% aren't included.</p>
+              <dl className="mt-4 space-y-2 font-body text-sm">
+                <div className="flex items-center justify-between border-b border-border/40 pb-2">
+                  <dt className="text-muted-foreground">Classes <span className="text-gold">({summary.shareClassesPercent}%)</span> <span className="text-muted-foreground">of {formatPaiseAsRupees(summary.classIncomeInPaise)}</span></dt>
+                  <dd className="font-semibold text-foreground">{formatPaiseAsRupees(summary.shareClassesInPaise)}</dd>
+                </div>
+                <div className="flex items-center justify-between border-b border-border/40 pb-2">
+                  <dt className="text-muted-foreground">Courses <span className="text-gold">({summary.shareCoursesPercent}%)</span> <span className="text-muted-foreground">of {formatPaiseAsRupees(summary.courseIncomeInPaise)}</span></dt>
+                  <dd className="font-semibold text-foreground">{formatPaiseAsRupees(summary.shareCoursesInPaise)}</dd>
+                </div>
+                <div className="flex items-center justify-between border-b border-border/40 pb-2">
+                  <dt className="text-muted-foreground">Products <span className="text-gold">({summary.shareProductsPercent}%)</span> <span className="text-muted-foreground">of {formatPaiseAsRupees(summary.productIncomeInPaise)}</span></dt>
+                  <dd className="font-semibold text-foreground">{formatPaiseAsRupees(summary.shareProductsInPaise)}</dd>
+                </div>
+                <div className="flex justify-between pt-1"><dt className="font-semibold text-foreground">Your total share</dt><dd className="font-display text-base font-bold text-gold">{formatPaiseAsRupees(summary.partnerShareInPaise)}</dd></div>
+              </dl>
             </div>
 
             <div className="mt-6 rounded-2xl border border-border/60 bg-card p-6 shadow-card">
               <h2 className="font-display text-lg text-foreground">Income breakdown</h2>
               <dl className="mt-4 space-y-2 font-body text-sm">
-                <div className="flex justify-between border-b border-border/40 pb-2"><dt className="text-muted-foreground">Product &amp; course sales</dt><dd className="font-semibold text-foreground">{formatPaiseAsRupees(summary.productIncomeInPaise)}</dd></div>
+                <div className="flex justify-between border-b border-border/40 pb-2"><dt className="text-muted-foreground">Product sales</dt><dd className="font-semibold text-foreground">{formatPaiseAsRupees(summary.productIncomeInPaise)}</dd></div>
+                <div className="flex justify-between border-b border-border/40 pb-2"><dt className="text-muted-foreground">Course sales</dt><dd className="font-semibold text-foreground">{formatPaiseAsRupees(summary.courseIncomeInPaise)}</dd></div>
                 <div className="flex justify-between border-b border-border/40 pb-2"><dt className="text-muted-foreground">Class fees collected</dt><dd className="font-semibold text-foreground">{formatPaiseAsRupees(summary.classIncomeInPaise)}</dd></div>
                 <div className="flex justify-between border-b border-border/40 pb-2"><dt className="text-muted-foreground">Total income</dt><dd className="font-semibold text-green-600">{formatPaiseAsRupees(summary.incomeInPaise)}</dd></div>
                 <div className="flex justify-between border-b border-border/40 pb-2"><dt className="text-muted-foreground">Total expenses</dt><dd className="font-semibold text-red-600">− {formatPaiseAsRupees(summary.expensesInPaise)}</dd></div>
