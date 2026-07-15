@@ -115,8 +115,12 @@ export const termPayFullAmountInPaise = (classData: {
   termFeeInPaise?: number;
   durationMonths?: number;
   termFreeMonthsOnFullPayment?: number;
+  termPayFullPriceInPaise?: number;
 }): number => {
   const termFee = Math.max(0, Math.round(Number(classData.termFeeInPaise || 0)));
+  // An explicit pay-full final price wins over the free-months calculation.
+  const explicit = Math.max(0, Math.round(Number(classData.termPayFullPriceInPaise || 0)));
+  if (explicit >= 100 && termFee > 0 && explicit < termFee) return explicit;
   const duration = Math.max(0, Math.round(Number(classData.durationMonths || 0)));
   const freeMonthsRaw = Math.max(0, Math.round(Number(classData.termFreeMonthsOnFullPayment || 0)));
   // Never give away the whole course; cap at duration - 1.

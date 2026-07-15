@@ -74,6 +74,9 @@ export default async function handler(request: ApiRequest, response: ApiResponse
 
     let feePaymentId = (body.feePaymentId || "").trim();
     const enrollmentId = (body.enrollmentId || "").trim();
+    // A NEW student's enrolment-time monthly payment is a "Pre-payment" (req):
+    // tag the fee so history + the WhatsApp confirmation show it as such.
+    let isPrepayment = false;
 
     // Bootstrap path: create / reuse the fee doc for an enrollment.
     if (!feePaymentId && enrollmentId) {
@@ -109,6 +112,8 @@ export default async function handler(request: ApiRequest, response: ApiResponse
         // Monthly: current month by default, or a chosen future month (advance).
         const { id } = await ensureFeePayment(db, enrollment, resolveMonthKey(body.monthKey));
         feePaymentId = id;
+        // Enrolment-time payment (no explicit monthKey) by a NEW student → Pre-payment.
+        isPrepayment = !body.monthKey && enrollment.studentStatus === "new";
       }
     }
 
@@ -153,6 +158,18 @@ export default async function handler(request: ApiRequest, response: ApiResponse
       }
     }
 
+    // Pre-payment tag: enriching periodLabel propagates to the user's history
+    // AND the WhatsApp paid confirmation ({{5}} = periodLabel) — no template edit.
+    const currentPeriodLabel = String(fee.periodLabel || "");
+    const prepaymentUpdate: Record<string, unknown> = isPrepayment
+      ? {
+          prepayment: true,
+          ...(currentPeriodLabel && !currentPeriodLabel.includes("Pre-payment")
+            ? { periodLabel: `${currentPeriodLabel} · Pre-payment` }
+            : {}),
+        }
+      : {};
+
     await feeRef.update({
       status: "processing",
       paymentMethod: "upi",
@@ -160,6 +177,7 @@ export default async function handler(request: ApiRequest, response: ApiResponse
       upiRef: upiRef || FieldValue.delete(),
       upiSubmittedAt: FieldValue.serverTimestamp(),
       upiRejectedReason: FieldValue.delete(),
+      ...prepaymentUpdate,
       ...couponUpdate,
       updatedAt: FieldValue.serverTimestamp(),
     });

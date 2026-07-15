@@ -63,6 +63,7 @@ interface ClassFormState {
   startDate: string;
   endDate: string;
   termFreeMonths: string;
+  termFinalPriceRupees: string; // explicit pay-full final price (₹) — discount shown to users
   payAutopay: boolean;
   payManual: boolean;
   payFull: boolean;
@@ -95,6 +96,7 @@ const defaultForm: ClassFormState = {
   startDate: "",
   endDate: "",
   termFreeMonths: "",
+  termFinalPriceRupees: "",
   payAutopay: true,
   payManual: true,
   payFull: true,
@@ -192,16 +194,20 @@ const AdminClasses = () => {
   }, [form.offersTerm, form.payEmi, emiParsed.config, termFeePreviewInPaise]);
   const durationMonths = useMemo(() => monthsBetween(form.startDate, form.endDate), [form.startDate, form.endDate]);
 
-  // Pay-full offer preview: discounted full price after the free months.
+  // Pay-full offer preview: an explicit final price wins; else the free-months calc.
   const freeMonthsNum = Math.max(0, Math.round(Number(form.termFreeMonths) || 0));
+  const termFinalPricePreviewInPaise = parsePriceToPaise(form.termFinalPriceRupees) || 0;
+  const finalPriceInvalid = termFinalPricePreviewInPaise > 0 && termFeePreviewInPaise > 0 && termFinalPricePreviewInPaise >= termFeePreviewInPaise;
   const payFullPreviewInPaise = useMemo(() => {
-    if (!form.offersTerm || termFeePreviewInPaise <= 0 || durationMonths <= 0 || freeMonthsNum <= 0) return null;
+    if (!form.offersTerm || termFeePreviewInPaise <= 0) return null;
+    if (termFinalPricePreviewInPaise > 0 && termFinalPricePreviewInPaise < termFeePreviewInPaise) return termFinalPricePreviewInPaise;
+    if (durationMonths <= 0 || freeMonthsNum <= 0) return null;
     return getTermPayFullPriceInPaise({
       termFeeInPaise: termFeePreviewInPaise,
       durationMonths,
       termFreeMonthsOnFullPayment: freeMonthsNum,
     });
-  }, [form.offersTerm, termFeePreviewInPaise, durationMonths, freeMonthsNum]);
+  }, [form.offersTerm, termFeePreviewInPaise, termFinalPricePreviewInPaise, durationMonths, freeMonthsNum]);
 
   const openAdd = () => { setForm(defaultForm); setEditing(null); setShowModal(true); };
   const openEdit = (classDoc: ClassDoc) => {
@@ -226,6 +232,7 @@ const AdminClasses = () => {
       startDate: classDoc.startDate || "",
       endDate: classDoc.endDate || "",
       termFreeMonths: (classDoc.termFreeMonthsOnFullPayment || 0) > 0 ? String(classDoc.termFreeMonthsOnFullPayment) : "",
+      termFinalPriceRupees: (classDoc.termPayFullPriceInPaise || 0) > 0 ? String((classDoc.termPayFullPriceInPaise || 0) / 100) : "",
       payAutopay: classDoc.payment?.autopay ?? true,
       payManual: classDoc.payment?.manual ?? true,
       payFull: classDoc.payment?.full ?? true,
@@ -300,6 +307,10 @@ const AdminClasses = () => {
         toast({ title: "Select a term payment option", description: "Enable Pay Full and/or EMI for the course.", variant: "destructive" });
         return;
       }
+      if (form.payFull && finalPriceInvalid) {
+        toast({ title: "Final price must be below the course fee", description: "The pay-full final price has to be less than the total course fee (or leave it blank).", variant: "destructive" });
+        return;
+      }
       if (form.payEmi && !emiParsed.config) {
         toast({ title: "EMI split must total 100%", description: `Upfront + installments currently total ${Number.isNaN(emiParsed.sum) ? "an invalid value" : `${emiParsed.sum}%`}.`, variant: "destructive" });
         return;
@@ -347,6 +358,7 @@ const AdminClasses = () => {
         startDate: form.startDate,
         endDate: form.endDate,
         termFreeMonthsOnFullPayment: offersTerm ? Math.max(0, Math.round(Number(form.termFreeMonths) || 0)) : 0,
+        termPayFullPriceInPaise: offersTerm && form.payFull ? (parsePriceToPaise(form.termFinalPriceRupees) || 0) : 0,
         // Each track's options are gated by whether that track is enabled.
         // Monthly: Autopay is optional; "Pay Now" (manual UPI + pay-at-counter)
         // is always on, so manual & cash are both enabled together (req 1).
@@ -598,17 +610,32 @@ const AdminClasses = () => {
                     </div>
                   </div>
                   {form.payFull && (
-                    <div className="sm:col-span-2">
-                      <label className={labelClass}>Pay-full offer — free months</label>
-                      <input value={form.termFreeMonths} onChange={(event) => setForm({ ...form, termFreeMonths: event.target.value })} className={inputClass} inputMode="numeric" placeholder="0 (no offer) · e.g. 1 = one month free" />
-                      {payFullPreviewInPaise != null ? (
-                        <p className="mt-1 font-body text-[0.72rem] text-muted-foreground">
-                          Pay-full price: <span className="font-semibold text-green-700">{formatPaiseAsRupees(payFullPreviewInPaise)}</span>
-                          <span className="text-muted-foreground"> (was {formatPaiseAsRupees(termFeePreviewInPaise)}, {freeMonthsNum} month{freeMonthsNum > 1 ? "s" : ""} free)</span>
+                    <div className="sm:col-span-2 rounded-md border border-green-200 bg-green-50/50 p-3">
+                      <p className="mb-2 font-body text-[0.8rem] font-semibold text-foreground">Pay-full offer — price, final price &amp; discount</p>
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                        <div>
+                          <label className={labelClass}>Final price on full payment (₹)</label>
+                          <div className="relative">
+                            <BadgeIndianRupee className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                            <input value={form.termFinalPriceRupees} onChange={(event) => setForm({ ...form, termFinalPriceRupees: event.target.value })} className={`${inputClass} pl-10`} inputMode="decimal" placeholder="e.g. 25000" />
+                          </div>
+                        </div>
+                        <div>
+                          <label className={labelClass}>Or free months (legacy offer)</label>
+                          <input value={form.termFreeMonths} onChange={(event) => setForm({ ...form, termFreeMonths: event.target.value })} className={inputClass} inputMode="numeric" placeholder="0 (no offer)" />
+                        </div>
+                      </div>
+                      {finalPriceInvalid ? (
+                        <p className="mt-2 font-body text-[0.72rem] text-destructive">Final price must be LESS than the course fee ({formatPaiseAsRupees(termFeePreviewInPaise)}).</p>
+                      ) : payFullPreviewInPaise != null ? (
+                        <p className="mt-2 font-body text-[0.72rem] text-muted-foreground">
+                          Parents will see: <span className="text-muted-foreground line-through">{formatPaiseAsRupees(termFeePreviewInPaise)}</span>{" "}
+                          <span className="font-semibold text-green-700">{formatPaiseAsRupees(payFullPreviewInPaise)}</span>{" "}
+                          <span className="font-semibold text-green-700">(save {formatPaiseAsRupees(termFeePreviewInPaise - payFullPreviewInPaise)})</span>
                         </p>
                       ) : (
-                        <p className="mt-1 font-body text-[0.72rem] text-muted-foreground">
-                          When a parent pays the whole fee upfront they get this many months free. Needs a term fee + valid dates. Leave 0 for no offer.
+                        <p className="mt-2 font-body text-[0.72rem] text-muted-foreground">
+                          Set a discounted final price (recommended — parents see price, final price &amp; savings) or use free months. Leave both blank for no offer.
                         </p>
                       )}
                     </div>

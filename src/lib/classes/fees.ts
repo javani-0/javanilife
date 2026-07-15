@@ -1,6 +1,8 @@
 import {
+  arrayUnion,
   collection,
   deleteDoc,
+  deleteField,
   doc,
   getDoc,
   getDocs,
@@ -22,6 +24,7 @@ import {
   isOverdue,
   periodLabel as periodLabelFor,
   type EnrollmentDoc,
+  type FeeCollectionEvent,
   type FeePaymentDoc,
   type FeePaymentMethod,
   type FeeStatus,
@@ -71,6 +74,10 @@ export const normalizeFeePayment = (id: string, data: DocumentData = {}): FeePay
     approvedBy: typeof data.approvedBy === "string" ? data.approvedBy : undefined,
     approvedAt: data.approvedAt,
     paidAt: data.paidAt,
+    prepayment: data.prepayment === true,
+    cashProofUrl: typeof data.cashProofUrl === "string" ? data.cashProofUrl : undefined,
+    collectedBy: typeof data.collectedBy === "string" ? data.collectedBy : undefined,
+    collectionHistory: Array.isArray(data.collectionHistory) ? data.collectionHistory : undefined,
     reminders: data.reminders,
     notifiedParentAt: data.notifiedParentAt,
     notifiedAdminAt: data.notifiedAdminAt,
@@ -214,6 +221,58 @@ export const markFeeCash = async (feeId: string, adminNote?: string): Promise<vo
     paymentMethod: "cash",
     paidAt: serverTimestamp(),
     ...(adminNote ? { adminNote } : {}),
+    updatedAt: serverTimestamp(),
+  });
+};
+
+/**
+ * Admin: collect a fee in cash with an editable amount + REQUIRED proof
+ * screenshot (req). Appends a "cash-collected" entry to the audit trail so the
+ * collection (and any later undo) stays in the record forever.
+ */
+export const collectFeeCash = async (
+  feeId: string,
+  params: { amountInPaise: number; proofUrl: string; adminUid: string },
+): Promise<void> => {
+  const amountInPaise = Math.max(100, Math.round(params.amountInPaise));
+  await updateDoc(doc(db, FEE_PAYMENTS_COLLECTION, feeId), {
+    status: "paid",
+    paymentMethod: "cash",
+    amountInPaise,
+    cashProofUrl: params.proofUrl,
+    collectedBy: params.adminUid,
+    paidAt: serverTimestamp(),
+    collectionHistory: arrayUnion({
+      action: "cash-collected",
+      at: new Date().toISOString(),
+      by: params.adminUid,
+      amountInPaise,
+      proofUrl: params.proofUrl,
+    } satisfies FeeCollectionEvent),
+    updatedAt: serverTimestamp(),
+  });
+};
+
+/**
+ * Admin: undo a mistaken cash collection. The fee returns to "pending" but the
+ * original collection AND this undo both stay in `collectionHistory` (req).
+ */
+export const undoFeeCollection = async (
+  feeId: string,
+  params: { adminUid: string; amountInPaise: number; note?: string },
+): Promise<void> => {
+  await updateDoc(doc(db, FEE_PAYMENTS_COLLECTION, feeId), {
+    status: "pending",
+    paidAt: deleteField(),
+    cashProofUrl: deleteField(),
+    collectedBy: deleteField(),
+    collectionHistory: arrayUnion({
+      action: "collection-undone",
+      at: new Date().toISOString(),
+      by: params.adminUid,
+      amountInPaise: Math.max(0, Math.round(params.amountInPaise)),
+      ...(params.note ? { note: params.note } : {}),
+    } satisfies FeeCollectionEvent),
     updatedAt: serverTimestamp(),
   });
 };

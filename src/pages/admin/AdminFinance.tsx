@@ -26,7 +26,7 @@ import {
   type FinancePartner,
   type IncomeDoc,
 } from "@/lib/finance";
-import { IndianRupee, Loader2, Plus, Trash2, TrendingUp, TrendingDown, Wallet, Handshake, ShieldCheck } from "lucide-react";
+import { ChevronDown, IndianRupee, Loader2, Plus, Trash2, TrendingUp, TrendingDown, Wallet, Handshake, ShieldCheck } from "lucide-react";
 
 const Tile = ({ label, value, sub, accent, icon: Icon }: { label: string; value: string; sub?: string; accent: string; icon: typeof IndianRupee }) => (
   <div className="rounded-xl border border-border/60 bg-card p-4 shadow-card">
@@ -102,6 +102,11 @@ const AdminFinance = () => {
   // Period filter (default: this month). "day" uses the calendar-picked date.
   const [period, setPeriod] = useState<FinancePeriod>("month");
   const [customDay, setCustomDay] = useState(() => new Date().toISOString().slice(0, 10));
+
+  // Collapsible sections (req: easy toggles, mobile friendly). Both start
+  // collapsed so the page opens compact; tap a header to expand.
+  const [incomeOpen, setIncomeOpen] = useState(false);
+  const [expensesOpen, setExpensesOpen] = useState(false);
 
   const inPeriod = useMemo(() => {
     const todayKey = new Date().toISOString().slice(0, 10);
@@ -296,10 +301,26 @@ const AdminFinance = () => {
 
       {loading && <p className="font-body text-sm text-muted-foreground"><Loader2 className="mr-2 inline h-4 w-4 animate-spin" />Loading financials…</p>}
 
-      {/* Extra income */}
-      <div className="rounded-xl border border-border/60 bg-card p-5 shadow-card">
-        <h2 className="flex items-center gap-2 font-display text-xl text-foreground"><TrendingUp className="h-5 w-5 text-green-600" /> Other Income</h2>
-        <p className="mt-1 font-body text-sm text-muted-foreground">Record income that doesn't come from a product order or class fee — donations, workshops, hall rentals, etc. These add to total income.</p>
+      {/* Extra income — collapsible (req: mobile-friendly toggles) */}
+      <div className="rounded-xl border border-border/60 bg-card shadow-card">
+        <button
+          type="button"
+          onClick={() => setIncomeOpen((open) => !open)}
+          aria-expanded={incomeOpen}
+          className="flex w-full items-center justify-between gap-3 p-5 text-left"
+        >
+          <span>
+            <span className="flex items-center gap-2 font-display text-xl text-foreground"><TrendingUp className="h-5 w-5 text-green-600" /> Other Income</span>
+            <span className="mt-0.5 block font-body text-xs text-muted-foreground sm:text-sm">
+              {filteredIncome.length} entr{filteredIncome.length === 1 ? "y" : "ies"} · {formatPaiseAsRupees(sumManualIncomeInPaise(filteredIncome))} ({periodLabel.toLowerCase()}) — tap to {incomeOpen ? "close" : "add or view"}
+            </span>
+          </span>
+          <ChevronDown className={`h-5 w-5 shrink-0 text-muted-foreground transition-transform ${incomeOpen ? "rotate-180" : ""}`} />
+        </button>
+
+        {incomeOpen && (
+        <div className="border-t border-border/50 p-5 pt-4">
+        <p className="font-body text-sm text-muted-foreground">Record income that doesn't come from a product order or class fee — donations, workshops, hall rentals, etc. These add to total income.</p>
 
         <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
           <div className="lg:col-span-2">
@@ -349,12 +370,30 @@ const AdminFinance = () => {
             </div>
           ))}
         </div>
+        </div>
+        )}
       </div>
 
-      {/* Expenses */}
-      <div className="rounded-xl border border-border/60 bg-card p-5 shadow-card">
-          <h2 className="font-display text-xl text-foreground">Expenses</h2>
-          <p className="mt-1 font-body text-sm text-muted-foreground">Manually record business expenses. These reduce net profit.</p>
+      {/* Expenses — collapsible (req: mobile-friendly toggles) */}
+      <div className="rounded-xl border border-border/60 bg-card shadow-card">
+          <button
+            type="button"
+            onClick={() => setExpensesOpen((open) => !open)}
+            aria-expanded={expensesOpen}
+            className="flex w-full items-center justify-between gap-3 p-5 text-left"
+          >
+            <span>
+              <span className="flex items-center gap-2 font-display text-xl text-foreground"><TrendingDown className="h-5 w-5 text-red-600" /> Expenses</span>
+              <span className="mt-0.5 block font-body text-xs text-muted-foreground sm:text-sm">
+                {filteredExpenses.length} entr{filteredExpenses.length === 1 ? "y" : "ies"} · {formatPaiseAsRupees(sumExpensesInPaise(filteredExpenses))} ({periodLabel.toLowerCase()}) — tap to {expensesOpen ? "close" : "add or view"}
+              </span>
+            </span>
+            <ChevronDown className={`h-5 w-5 shrink-0 text-muted-foreground transition-transform ${expensesOpen ? "rotate-180" : ""}`} />
+          </button>
+
+          {expensesOpen && (
+          <div className="border-t border-border/50 p-5 pt-4">
+          <p className="font-body text-sm text-muted-foreground">Manually record business expenses. These reduce net profit.</p>
 
           <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="sm:col-span-2">
@@ -408,6 +447,8 @@ const AdminFinance = () => {
             Partner access (read-only dashboard + per-category profit share) is managed in{" "}
             <Link to="/admin/partners" className="font-semibold text-gold hover:underline">Partners Manager</Link>.
           </p>
+          </div>
+          )}
       </div>
     </div>
   );

@@ -51,6 +51,9 @@ export interface EnrollmentRecord {
   billingEndMonth?: string;
   billingPeriodLabel?: string;
   nextChargeDate?: string;
+  // "new" | "existing" — a NEW student's first Pay Now is labelled "Pre-payment"
+  // in history + WhatsApp (the fee doc gets prepayment: true).
+  studentStatus?: string;
 }
 
 export const CLASSES_COLLECTION = "classes";

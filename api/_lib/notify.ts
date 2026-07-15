@@ -102,11 +102,12 @@ const classFeePaidAdminTemplate = () => getWhatsAppEnvValue("WHATSAPP_CLASS_FEE_
 const classFeeFailedTemplate = () => getWhatsAppEnvValue("WHATSAPP_CLASS_FEE_FAILED_TEMPLATE", getWhatsAppEnvValue("VITE_WHATSAPP_CLASS_FEE_FAILED_TEMPLATE", "class_fee_failed"));
 const autopayCancelledParentTemplate = () => getWhatsAppEnvValue("WHATSAPP_AUTOPAY_CANCELLED_PARENT_TEMPLATE", getWhatsAppEnvValue("VITE_WHATSAPP_AUTOPAY_CANCELLED_PARENT_TEMPLATE", "autopay_cancelled_parent"));
 const autopayCancelledAdminTemplate = () => getWhatsAppEnvValue("WHATSAPP_AUTOPAY_CANCELLED_ADMIN_TEMPLATE", getWhatsAppEnvValue("VITE_WHATSAPP_AUTOPAY_CANCELLED_ADMIN_TEMPLATE", "autopay_cancelled_admin"));
+const classFeeCollectionUndoneTemplate = () => getWhatsAppEnvValue("WHATSAPP_CLASS_FEE_COLLECTION_UNDONE_TEMPLATE", getWhatsAppEnvValue("VITE_WHATSAPP_CLASS_FEE_COLLECTION_UNDONE_TEMPLATE", "class_fee_collection_undone"));
 
 const firstName = (name?: string) => (name || "there").split(" ").filter(Boolean)[0] || "there";
 const rupeesFromPaise = (paise?: number) => String(Math.round(Number(paise || 0) / 100));
 
-export type ClassFeeNotificationEvent = "paid" | "reminder" | "failed";
+export type ClassFeeNotificationEvent = "paid" | "reminder" | "failed" | "collection-undone";
 
 export interface ClassFeeNotificationContext {
   feePaymentId: string;
@@ -210,6 +211,20 @@ export const sendClassFeeNotifications = async (
       (async () => sendWebPush({ tokens: await parentTokensPromise, title: pushTitle, body: pushBody, link, data: { feePaymentId: ctx.feePaymentId, type: "class-fee-reminder", audience: "parent" } }))(),
     ]);
     return { parentWhatsApp: settle(parentWhatsApp), parentPush: settle(parentPush) };
+  }
+
+  if (event === "collection-undone") {
+    // A mistakenly-recorded cash collection was reversed (req). Parent gets
+    // WhatsApp (template class_fee_collection_undone — same 5-param shape as
+    // the paid template) + push; admins get a push so the reversal is visible.
+    const [parentWhatsApp, parentPush, adminPush] = await Promise.allSettled([
+      parentNumber
+        ? sendWhatsAppTemplate({ to: parentNumber, templateName: classFeeCollectionUndoneTemplate(), languageCode: templateLanguage(), params: [firstName(ctx.parentName), ctx.studentName, ctx.className, amount, ctx.monthLabel], urlSuffix: ctx.feePaymentId })
+        : Promise.resolve({ status: "skipped", errorMessage: "Parent WhatsApp number missing." }),
+      (async () => sendWebPush({ tokens: await parentTokensPromise, title: "Payment record reversed", body: `The ₹${amount} payment recorded for ${ctx.studentName}'s ${ctx.className} (${ctx.monthLabel}) was reversed — the fee is pending again. Please pay or contact us.`, link, data: { feePaymentId: ctx.feePaymentId, type: "class-fee-collection-undone", audience: "parent" } }))(),
+      (async () => sendWebPush({ tokens: await collectAdminTokens(), title: "Cash collection undone", body: `${ctx.studentName} · ${ctx.className} · ₹${amount} · ${ctx.monthLabel} — collection reversed, fee is pending again.`, link: "/admin/fee-collections", data: { feePaymentId: ctx.feePaymentId, type: "class-fee-collection-undone", audience: "admin" } }))(),
+    ]);
+    return { parentWhatsApp: settle(parentWhatsApp), parentPush: settle(parentPush), adminPush: settle(adminPush) };
   }
 
   // failed

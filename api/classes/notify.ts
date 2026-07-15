@@ -13,6 +13,7 @@ const eventMap: Record<string, ClassFeeNotificationEvent> = {
   "fee-paid": "paid",
   "fee-reminder": "reminder",
   "fee-failed": "failed",
+  "fee-collection-undone": "collection-undone",
 };
 
 export default async function handler(request: ApiRequest, response: ApiResponse) {
@@ -50,6 +51,11 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     const isOwner = fee.parentUserId === decoded.uid;
     if (!isAdmin && !isOwner) {
       sendError(response, 403, "You do not have permission to notify this fee.");
+      return;
+    }
+    // Only an admin can announce a collection reversal.
+    if (event === "collection-undone" && !isAdmin) {
+      sendError(response, 403, "Only an admin can send this notification.");
       return;
     }
 

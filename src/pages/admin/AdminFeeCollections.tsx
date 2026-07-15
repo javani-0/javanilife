@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { BellRing, Banknote, Download, IndianRupee, Search, XCircle, Trash2, LayoutGrid, List, X, Check, ExternalLink, Loader2, History } from "lucide-react";
+import { BellRing, Banknote, Download, IndianRupee, Search, XCircle, Trash2, LayoutGrid, List, X, Check, ExternalLink, Loader2, History, Undo2, Upload } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { useScrollHighlight } from "@/hooks/useScrollHighlight";
@@ -10,13 +10,13 @@ import {
   deriveDisplayFeeStatus,
   FEE_PAYMENT_METHOD_LABELS,
   FEE_STATUS_LABELS,
+  collectFeeCash,
   deleteFee,
   formatMonthRange,
   formatNiceDate,
   approveUpiPayment,
   ensureMonthlyDueFee,
   listFeesForEnrollment,
-  markFeeCash,
   monthKeyFor,
   notifyClassFee,
   periodLabel,
@@ -24,6 +24,8 @@ import {
   subscribeToFeesAdmin,
   subscribeToPendingUpiApprovals,
   summarizeFees,
+  undoFeeCollection,
+  uploadPaymentProof,
   waiveFee,
   type EnrollmentDoc,
   type FeePaymentDoc,
@@ -96,6 +98,12 @@ const AdminFeeCollections = () => {
   const [historyFee, setHistoryFee] = useState<FeePaymentDoc | null>(null);
   const [historyRows, setHistoryRows] = useState<FeePaymentDoc[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  // Cash-collection dialog (req): editable amount + REQUIRED proof screenshot.
+  const [cashFee, setCashFee] = useState<FeePaymentDoc | null>(null);
+  const [cashAmount, setCashAmount] = useState("");
+  const [cashProofFile, setCashProofFile] = useState<File | null>(null);
+  const [cashProofPreview, setCashProofPreview] = useState("");
+  const [collecting, setCollecting] = useState(false);
   // Months this session already ran the dues generator for (avoid re-running
   // and fighting an intentional admin Delete during the same visit).
   const generatedMonthsRef = useRef<Set<string>>(new Set());
@@ -246,6 +254,93 @@ const AdminFeeCollections = () => {
       setBusyId(null);
     }
   };
+
+  // --- Cash collection with proof + undo (req) ------------------------------
+  const openCashDialog = (fee: FeePaymentDoc) => {
+    setCashFee(fee);
+    // Prefill with the fee's current amount — the admin can update it.
+    setCashAmount(String((fee.amountInPaise || 0) / 100));
+    setCashProofFile(null);
+    setCashProofPreview("");
+  };
+
+  const closeCashDialog = () => {
+    if (collecting) return;
+    setCashFee(null);
+    setCashProofFile(null);
+    setCashProofPreview("");
+  };
+
+  const handleCashProofSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      toast({ title: "Please select an image", description: "Upload a screenshot/photo as collection proof.", variant: "destructive" });
+      return;
+    }
+    setCashProofFile(file);
+    setCashProofPreview(URL.createObjectURL(file));
+  };
+
+  const handleCollectCash = async () => {
+    if (!user || !cashFee) return;
+    const rupees = Number(cashAmount);
+    if (!Number.isFinite(rupees) || rupees < 1) {
+      toast({ title: "Enter a valid amount", variant: "destructive" });
+      return;
+    }
+    if (!cashProofFile) {
+      toast({ title: "Proof screenshot required", description: "Upload a screenshot/photo before marking as collected.", variant: "destructive" });
+      return;
+    }
+    setCollecting(true);
+    try {
+      const proofUrl = await uploadPaymentProof(cashProofFile);
+      await collectFeeCash(cashFee.id, { amountInPaise: Math.round(rupees * 100), proofUrl, adminUid: user.uid });
+      toast({ title: "Cash collected", description: `${cashFee.studentName} · ${cashFee.periodLabel} · ₹${rupees.toLocaleString("en-IN")}` });
+      // Notify parent + admin (WhatsApp + push) — best-effort.
+      try {
+        const idToken = await user.getIdToken();
+        await notifyClassFee(idToken, cashFee.id, "fee-paid");
+      } catch (notifyError) {
+        console.error("Collected but the confirmation message failed", notifyError);
+        toast({ title: "Collected, but the confirmation message failed", description: "You can re-send it from the fee row.", variant: "destructive" });
+      }
+      setCashFee(null);
+      setCashProofFile(null);
+      setCashProofPreview("");
+    } catch (error) {
+      toast({ title: "Could not record the collection", description: error instanceof Error ? error.message : undefined, variant: "destructive" });
+    } finally {
+      setCollecting(false);
+    }
+  };
+
+  const handleUndoCollection = async (fee: FeePaymentDoc) => {
+    if (!user) return;
+    if (!confirm(`Undo the ${formatPaiseAsRupees(fee.amountInPaise)} cash collection for ${fee.studentName} (${fee.periodLabel})? The fee goes back to pending and both actions stay in the history.`)) return;
+    setBusyId(fee.id);
+    try {
+      await undoFeeCollection(fee.id, { adminUid: user.uid, amountInPaise: fee.amountInPaise });
+      toast({ title: "Collection undone", description: `${fee.studentName} · ${fee.periodLabel} is pending again.` });
+      try {
+        const idToken = await user.getIdToken();
+        await notifyClassFee(idToken, fee.id, "fee-collection-undone");
+      } catch (notifyError) {
+        console.error("Undone but the reversal message failed", notifyError);
+        toast({ title: "Undone, but the reversal message failed", description: "The parent may not have been notified.", variant: "destructive" });
+      }
+    } catch (error) {
+      toast({ title: "Could not undo", description: error instanceof Error ? error.message : undefined, variant: "destructive" });
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  /** Undo shows for settled CASH fees (mistaken "Collected" clicks). */
+  const canUndoCollection = (fee: FeePaymentDoc): boolean =>
+    fee.status === "paid" && fee.paymentMethod === "cash";
 
   const exportCsv = () => {
     const header = ["Student", "Class", "Parent", "Phone", "Period", "Amount (₹)", "Status", "Method", "Paid On", "Due Date"];
@@ -432,8 +527,13 @@ const AdminFeeCollections = () => {
                             <History className="h-3.5 w-3.5" /> History
                           </button>
                           {!settled && (
-                            <button onClick={() => runAction("Marked as cash paid", fee.id, () => markFeeCash(fee.id))} disabled={busyId === fee.id} className="flex items-center gap-1 rounded border border-green-300 px-2 py-1 font-body text-[0.7rem] text-green-700 hover:bg-green-50 disabled:opacity-50" title="Mark cash paid">
+                            <button onClick={() => openCashDialog(fee)} disabled={busyId === fee.id} className="flex items-center gap-1 rounded border border-green-300 px-2 py-1 font-body text-[0.7rem] text-green-700 hover:bg-green-50 disabled:opacity-50" title="Collect cash (amount + proof)">
                               <Banknote className="h-3.5 w-3.5" /> Cash
+                            </button>
+                          )}
+                          {canUndoCollection(fee) && (
+                            <button onClick={() => handleUndoCollection(fee)} disabled={busyId === fee.id} className="flex items-center gap-1 rounded border border-amber-300 px-2 py-1 font-body text-[0.7rem] text-amber-700 hover:bg-amber-50 disabled:opacity-50" title="Undo this cash collection">
+                              <Undo2 className="h-3.5 w-3.5" /> Undo
                             </button>
                           )}
                           {!settled && (
@@ -505,8 +605,13 @@ const AdminFeeCollections = () => {
                     <History className="h-3.5 w-3.5" /> History
                   </button>
                   {!settled && (
-                    <button onClick={() => runAction("Marked as cash paid", fee.id, () => markFeeCash(fee.id))} disabled={busyId === fee.id} className="flex flex-1 items-center justify-center gap-1 rounded border border-green-300 px-2 py-1.5 font-body text-[0.75rem] font-semibold text-green-700 hover:bg-green-50 disabled:opacity-50">
+                    <button onClick={() => openCashDialog(fee)} disabled={busyId === fee.id} className="flex flex-1 items-center justify-center gap-1 rounded border border-green-300 px-2 py-1.5 font-body text-[0.75rem] font-semibold text-green-700 hover:bg-green-50 disabled:opacity-50">
                       <Banknote className="h-3.5 w-3.5" /> Cash
+                    </button>
+                  )}
+                  {canUndoCollection(fee) && (
+                    <button onClick={() => handleUndoCollection(fee)} disabled={busyId === fee.id} className="flex flex-1 items-center justify-center gap-1 rounded border border-amber-300 px-2 py-1.5 font-body text-[0.75rem] font-semibold text-amber-700 hover:bg-amber-50 disabled:opacity-50">
+                      <Undo2 className="h-3.5 w-3.5" /> Undo
                     </button>
                   )}
                   {!settled && (
@@ -571,6 +676,27 @@ const AdminFeeCollections = () => {
                     </div>
                   ))}
                 </dl>
+                {fee.cashProofUrl && (
+                  <a href={fee.cashProofUrl} target="_blank" rel="noreferrer" className="mt-3 flex items-center gap-1.5 font-body text-xs font-semibold text-gold hover:underline">
+                    <ExternalLink className="h-3.5 w-3.5" /> View cash-collection proof
+                  </a>
+                )}
+                {(fee.collectionHistory?.length || 0) > 0 && (
+                  <div className="mt-3 rounded-lg border border-border/60 bg-background/70 p-3">
+                    <p className="mb-1.5 font-body text-xs font-semibold uppercase tracking-wide text-muted-foreground">Collection record</p>
+                    <div className="space-y-1.5">
+                      {fee.collectionHistory!.map((event, index) => (
+                        <p key={index} className="flex items-center justify-between gap-2 font-body text-xs">
+                          <span className={event.action === "cash-collected" ? "text-green-700" : "text-amber-700"}>
+                            {event.action === "cash-collected" ? "✓ Cash collected" : "↩ Collection undone"}
+                            {event.proofUrl && <a href={event.proofUrl} target="_blank" rel="noreferrer" className="ml-1.5 text-gold hover:underline">(proof)</a>}
+                          </span>
+                          <span className="shrink-0 text-muted-foreground">{formatPaiseAsRupees(event.amountInPaise)} · {new Date(event.at).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</span>
+                        </p>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 <button
                   onClick={() => { setSelectedFee(null); openHistory(fee); }}
                   className="mt-4 flex w-full items-center justify-center gap-1.5 rounded-md border border-gold/40 px-3 py-2 font-body text-sm font-semibold text-gold hover:bg-gold/10"
@@ -625,6 +751,64 @@ const AdminFeeCollections = () => {
                 Total collected: <span className="font-semibold text-green-700">{formatPaiseAsRupees(historyRows.filter((row) => row.status === "paid").reduce((sum, row) => sum + row.amountInPaise, 0))}</span>
               </p>
             )}
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* Cash collection — editable amount + REQUIRED proof, then Collect (req) */}
+      {cashFee && createPortal(
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center overflow-y-auto p-4">
+          <div className="fixed inset-0 bg-black/40" onClick={closeCashDialog} />
+          <div className="relative mx-4 w-full max-w-md rounded-xl bg-card p-6 shadow-hero">
+            <div className="mb-1 flex items-center justify-between">
+              <h3 className="flex items-center gap-2 font-display text-xl text-foreground"><Banknote className="h-5 w-5 text-green-600" /> Collect cash</h3>
+              <button onClick={closeCashDialog} disabled={collecting} aria-label="Close"><X className="h-5 w-5" /></button>
+            </div>
+            <p className="font-body text-sm text-muted-foreground">{cashFee.studentName} · {cashFee.className} · {cashFee.periodLabel}</p>
+
+            <div className="mt-4">
+              <label className="mb-1 block font-body text-xs font-semibold text-foreground">Amount (₹) — previous amount shown, edit if needed</label>
+              <div className="relative">
+                <IndianRupee className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <input
+                  value={cashAmount}
+                  onChange={(event) => setCashAmount(event.target.value.replace(/[^0-9.]/g, ""))}
+                  inputMode="decimal"
+                  className="h-11 w-full rounded-md border border-border bg-background pl-10 pr-3 font-body text-sm outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                  disabled={collecting}
+                />
+              </div>
+            </div>
+
+            <div className="mt-4">
+              <label className="mb-1 block font-body text-xs font-semibold text-foreground">Proof screenshot <span className="text-destructive">*</span> — required to collect</label>
+              {cashProofPreview ? (
+                <div className="flex items-center gap-3 rounded-lg border border-border bg-background/70 p-2">
+                  <img src={cashProofPreview} alt="Proof preview" className="h-16 w-16 rounded object-cover" />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate font-body text-xs text-muted-foreground">{cashProofFile?.name}</p>
+                    <button onClick={() => { setCashProofFile(null); setCashProofPreview(""); }} disabled={collecting} className="mt-1 font-body text-xs font-semibold text-destructive hover:underline">Remove</button>
+                  </div>
+                </div>
+              ) : (
+                <label className={`flex cursor-pointer items-center justify-center gap-2 rounded-lg border-2 border-dashed border-border p-4 font-body text-sm text-muted-foreground transition-colors hover:border-gold/50 hover:text-gold ${collecting ? "pointer-events-none opacity-50" : ""}`}>
+                  <Upload className="h-4 w-4" /> Upload screenshot / photo
+                  <input type="file" accept="image/*" hidden onChange={handleCashProofSelect} disabled={collecting} />
+                </label>
+              )}
+            </div>
+
+            <button
+              onClick={handleCollectCash}
+              disabled={collecting || !cashProofFile || !Number(cashAmount)}
+              className="mt-5 flex min-h-11 w-full items-center justify-center gap-2 rounded-md bg-green-600 px-4 py-2.5 font-body text-sm font-semibold text-white transition-all hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {collecting ? <><Loader2 className="h-4 w-4 animate-spin" /> Recording…</> : <><Check className="h-4 w-4" /> Collected</>}
+            </button>
+            <p className="mt-2 text-center font-body text-[0.72rem] text-muted-foreground">
+              Marks the fee paid in cash and notifies the parent &amp; admin. Mistake? Use <span className="font-semibold">Undo</span> on the fee — every action stays in the record.
+            </p>
           </div>
         </div>,
         document.body

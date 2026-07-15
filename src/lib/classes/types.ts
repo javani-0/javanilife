@@ -106,6 +106,10 @@ export interface ClassDoc {
   // upfront. e.g. a 4-month ₹8,000 course with 1 free month → pay ₹6,000.
   // 0 / undefined = no offer. Only applies to the "full" payment, not EMI.
   termFreeMonthsOnFullPayment?: number;
+  // Explicit pay-full FINAL price (paise). When set (> 0 and < termFee) it
+  // overrides the free-months calculation: users see price → final price and
+  // the "You save ₹X" discount. 0 / undefined = fall back to free months.
+  termPayFullPriceInPaise?: number;
   payment: ClassPaymentOptions;
   emi?: ClassEmiConfig;      // per-class EMI split (term + emi enabled)
   timeSlots?: ClassTimeSlot[];
@@ -192,6 +196,17 @@ export interface FeeReminderInfo {
 
 // 4.3 — the monthly ledger (one per student per month). Doc id =
 // `${enrollmentId}_${monthKey}` for idempotency.
+// One audit entry for an admin cash collection or its undo. Timestamps are ISO
+// strings (Firestore arrayUnion cannot hold serverTimestamp()).
+export interface FeeCollectionEvent {
+  action: "cash-collected" | "collection-undone";
+  at: string;          // ISO timestamp
+  by: string;          // admin uid
+  amountInPaise: number;
+  proofUrl?: string;
+  note?: string;
+}
+
 export interface FeePaymentDoc {
   id: string;
   enrollmentId: string;
@@ -237,6 +252,13 @@ export interface FeePaymentDoc {
   approvedBy?: string;
   approvedAt?: Timestamp;
   paidAt?: Timestamp;
+  // NEW student's enrolment-time payment — shown as "Pre-payment" (req).
+  prepayment?: boolean;
+  // Admin cash collection (Fee Collections): required proof screenshot + a full
+  // audit trail of collect/undo actions (undo keeps the record, per req).
+  cashProofUrl?: string;
+  collectedBy?: string;
+  collectionHistory?: FeeCollectionEvent[];
   reminders?: FeeReminderInfo;
   notifiedParentAt?: Timestamp;
   notifiedAdminAt?: Timestamp;

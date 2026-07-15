@@ -60,11 +60,25 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     const feeSnapshot = await feeRef.get();
     const feeData = feeSnapshot.data() || {};
 
+    // A NEW student's first (enrolment-activating) collection is a Pre-payment:
+    // enrich periodLabel so history + the WhatsApp confirmation say so.
+    const isPrepayment = enrollment.studentStatus === "new" && enrollment.status === "pending";
+    const currentPeriodLabel = String(feeData.periodLabel || "");
+    const prepaymentUpdate: Record<string, unknown> = isPrepayment
+      ? {
+          prepayment: true,
+          ...(currentPeriodLabel && !currentPeriodLabel.includes("Pre-payment")
+            ? { periodLabel: `${currentPeriodLabel} · Pre-payment` }
+            : {}),
+        }
+      : {};
+
     if (feeData.status !== "paid") {
       await feeRef.update({
         status: "paid",
         paymentMethod: "cash",
         paidAt: FieldValue.serverTimestamp(),
+        ...prepaymentUpdate,
         updatedAt: FieldValue.serverTimestamp(),
       });
     }
@@ -81,7 +95,7 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     await countSlotSeatOnce(db, enrollmentId);
 
     // Send WhatsApp + push notification to parent (cash paid confirmation).
-    const updatedFee = { ...feeData, status: "paid", paymentMethod: "cash" };
+    const updatedFee = { ...feeData, ...prepaymentUpdate, status: "paid", paymentMethod: "cash" };
     const notificationResult = await sendClassFeeNotifications(
       "paid",
       notificationContextFromFee(feeId, updatedFee),

@@ -196,6 +196,7 @@ export const normalizeClass = (id: string, data: DocumentData = {}): ClassDoc =>
   endDate: typeof data.endDate === "string" ? data.endDate : "",
   durationMonths: data.durationMonths != null ? Math.max(0, Math.round(toNumber(data.durationMonths))) : undefined,
   termFreeMonthsOnFullPayment: data.termFreeMonthsOnFullPayment != null ? Math.max(0, Math.round(toNumber(data.termFreeMonthsOnFullPayment))) : undefined,
+  termPayFullPriceInPaise: data.termPayFullPriceInPaise != null ? Math.max(0, Math.round(toNumber(data.termPayFullPriceInPaise))) : undefined,
   payment: data.payment ? normalizePaymentOptions(data.payment) : { ...DEFAULT_CLASS_PAYMENT_OPTIONS },
   emi: normalizeEmiConfig(data.emi),
   timeSlots: Array.isArray(data.timeSlots)
@@ -266,11 +267,19 @@ type TermOfferShape = {
   startDate?: string;
   endDate?: string;
   termFreeMonthsOnFullPayment?: number;
+  termPayFullPriceInPaise?: number;
 };
 
 const termDurationMonths = (classDoc: TermOfferShape): number => {
   const stored = Math.max(0, Math.round(Number(classDoc.durationMonths || 0)));
   return stored > 0 ? stored : monthsBetween(classDoc.startDate, classDoc.endDate);
+};
+
+/** The explicit pay-full final price, or 0 when unset/invalid (must beat the term fee). */
+const explicitPayFullPriceInPaise = (classDoc: TermOfferShape): number => {
+  const price = Math.max(0, Math.round(Number(classDoc.termPayFullPriceInPaise || 0)));
+  const termFee = Math.max(0, Math.round(Number(classDoc.termFeeInPaise || 0)));
+  return price >= 100 && termFee > 0 && price < termFee ? price : 0;
 };
 
 /** Whole free months granted on full payment (clamped to < duration). */
@@ -282,17 +291,24 @@ export const getTermFreeMonths = (classDoc: TermOfferShape): number => {
   return Math.min(freeMonths, Math.max(0, duration - 1));
 };
 
-/** The ₹ discount (paise) applied to a full payment from the free-months offer. */
+/**
+ * The ₹ discount (paise) applied to a full payment. An explicit final price
+ * (termPayFullPriceInPaise) wins; otherwise fall back to the free-months offer.
+ */
 export const getTermPayFullDiscountInPaise = (classDoc: TermOfferShape): number => {
+  const termFee = Math.max(0, Math.round(Number(classDoc.termFeeInPaise || 0)));
+  const explicit = explicitPayFullPriceInPaise(classDoc);
+  if (explicit > 0) return termFee - explicit;
   const freeMonths = getTermFreeMonths(classDoc);
   const duration = termDurationMonths(classDoc);
-  const termFee = Math.max(0, Math.round(Number(classDoc.termFeeInPaise || 0)));
   if (freeMonths <= 0 || duration <= 0 || termFee <= 0) return 0;
   return Math.round((termFee / duration) * freeMonths);
 };
 
-/** The full-payment price after the offer (clamped ≥ ₹1). */
+/** The full-payment FINAL price after the offer (clamped ≥ ₹1). */
 export const getTermPayFullPriceInPaise = (classDoc: TermOfferShape): number => {
+  const explicit = explicitPayFullPriceInPaise(classDoc);
+  if (explicit > 0) return explicit;
   const termFee = Math.max(0, Math.round(Number(classDoc.termFeeInPaise || 0)));
   const discount = getTermPayFullDiscountInPaise(classDoc);
   return discount > 0 ? Math.max(100, termFee - discount) : termFee;
@@ -300,8 +316,11 @@ export const getTermPayFullPriceInPaise = (classDoc: TermOfferShape): number => 
 
 export const hasTermPayFullOffer = (classDoc: TermOfferShape): boolean => getTermPayFullDiscountInPaise(classDoc) > 0;
 
-/** A short marketing label for the offer, e.g. "Pay full & get 1 month free". */
+/** A short marketing label: "Save ₹2,000 on full payment" / "Pay full & get 1 month free". */
 export const getTermPayFullOfferLabel = (classDoc: TermOfferShape): string => {
+  if (explicitPayFullPriceInPaise(classDoc) > 0) {
+    return `Save ${formatPaiseAsRupees(getTermPayFullDiscountInPaise(classDoc))} on full payment`;
+  }
   const freeMonths = getTermFreeMonths(classDoc);
   if (freeMonths <= 0) return "";
   return `Pay full & get ${freeMonths} month${freeMonths > 1 ? "s" : ""} free`;
@@ -413,6 +432,7 @@ export interface ClassWritePayload {
   startDate?: string;
   endDate?: string;
   termFreeMonthsOnFullPayment?: number;
+  termPayFullPriceInPaise?: number;
   payment?: ClassPaymentOptions;
   emi?: ClassEmiConfig | null;
   timeSlots?: ClassTimeSlot[];
@@ -491,6 +511,13 @@ const buildClassPayload = (payload: ClassWritePayload) => {
     endDate: offersTerm ? endDate : "",
     durationMonths: offersTerm ? durationMonths : null,
     termFreeMonthsOnFullPayment,
+    // Explicit pay-full final price — only stored when it genuinely discounts.
+    termPayFullPriceInPaise: (() => {
+      if (!offersTerm) return 0;
+      const finalPrice = Math.max(0, Math.round(Number(payload.termPayFullPriceInPaise || 0)));
+      const termFee = Math.max(0, Math.round(Number(payload.termFeeInPaise || 0)));
+      return finalPrice >= 100 && finalPrice < termFee ? finalPrice : 0;
+    })(),
     payment: {
       autopay: payment.autopay === true,
       manual: payment.manual === true,

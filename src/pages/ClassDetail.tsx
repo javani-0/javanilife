@@ -354,7 +354,7 @@ const ClassDetail = () => {
           open: true,
           target: { enrollmentId, kind: method === "full" ? "full" : "monthly" },
           amount: upiAmount,
-          title: `${classDoc.name} — ${method === "full" ? "full course fee" : "monthly fee"}`,
+          title: `${classDoc.name} — ${method === "full" ? "full course fee" : studentStatus === "new" ? "pre-payment (first month)" : "monthly fee"}`,
           couponCode: couponDiscountInPaise > 0 ? appliedCouponCode : undefined,
         });
       }
@@ -567,13 +567,20 @@ const ClassDetail = () => {
                     const meta = PAYMENT_METHOD_META[method];
                     const Icon = meta.icon;
                     const active = paymentMethod === method;
+                    // A NEW student's first Pay Now is a Pre-payment — same flow,
+                    // labelled so their history/WhatsApp record it as such (req).
+                    const isNewStudentPrepay = method === "manual" && studentStatus === "new" && activeTrack !== "term";
+                    const title = isNewStudentPrepay ? "Pre-payment (Pay Now)" : meta.title;
+                    const blurb = isNewStudentPrepay
+                      ? "Pre-pay your first month now — scan the QR and upload the receipt, or submit without one to pay at the counter."
+                      : meta.blurb;
                     return (
                       <button type="button" key={method} onClick={() => setPaymentMethod(method)} className={`flex flex-col gap-1 rounded-xl border p-4 text-left transition-colors ${active ? "border-gold bg-gold/10" : "border-border hover:border-gold/40"}`}>
                         <span className="flex items-center gap-2 font-body font-semibold text-foreground">
-                          <Icon className="h-4 w-4 text-gold" /> {meta.title}
+                          <Icon className="h-4 w-4 text-gold" /> {title}
                           {meta.recommended && <span className="rounded-full bg-gold/20 px-2 py-0.5 text-[0.6rem] font-bold uppercase text-gold">Recommended</span>}
                         </span>
-                        <span className="font-body text-[0.78rem] text-muted-foreground">{meta.blurb}</span>
+                        <span className="font-body text-[0.78rem] text-muted-foreground">{blurb}</span>
                       </button>
                     );
                   })}
@@ -671,6 +678,7 @@ const ClassDetail = () => {
                   : paymentMethod === "full" ? "Enrol & Pay Full Fee"
                   : paymentMethod === "emi" ? "Enrol & Pay First Installment"
                   : paymentMethod === "cash" ? "Enrol & Pay Cash"
+                  : studentStatus === "new" && activeTrack !== "term" ? "Enrol & Pre-pay Now"
                   : "Enrol & Pay Now"}
               </button>
               {!user && <p className="mt-2 text-center font-body text-[0.78rem] text-muted-foreground">You'll be asked to sign in to complete enrolment.</p>}

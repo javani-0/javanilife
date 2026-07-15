@@ -1,7 +1,7 @@
 // Thin client wrappers for the Classes payment + notification API endpoints.
 import { openRazorpayCheckout, type RazorpaySuccessResponse } from "@/lib/ecommerce";
 
-export type ClassFeeNotifyEvent = "fee-paid" | "fee-reminder" | "fee-failed";
+export type ClassFeeNotifyEvent = "fee-paid" | "fee-reminder" | "fee-failed" | "fee-collection-undone";
 
 const postJson = async <T>(url: string, idToken: string, payload: unknown): Promise<T> => {
   const response = await fetch(url, {
