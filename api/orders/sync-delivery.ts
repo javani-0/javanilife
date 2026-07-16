@@ -1,5 +1,6 @@
 import { getFirebaseAdminAuth, getFirebaseAdminDb, FieldValue } from "../_lib/firebase-admin.js";
 import { getBearerToken, readJsonBody, requirePost, sendError, sendJson, type ApiRequest, type ApiResponse } from "../_lib/http.js";
+import { isStaffForPage } from "../_lib/staff.js";
 import {
   assertDeliveryOneEligible,
   cancelDeliveryOnePickup,
@@ -66,7 +67,7 @@ export default async function handler(request: ApiRequest, response: ApiResponse
       db.doc(`users/${decoded.uid}`).get(),
     ]);
 
-    if (userSnapshot.data()?.role !== "admin") {
+    if (!isStaffForPage(userSnapshot.data(), "orders")) {
       sendError(response, 403, "Only admins can manage Delivery One orders.");
       return;
     }

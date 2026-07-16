@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { BellRing, Banknote, Download, IndianRupee, Search, XCircle, Trash2, LayoutGrid, List, X, Check, ExternalLink, Loader2, History, Undo2, Upload } from "lucide-react";
+import { BellRing, Banknote, Download, IndianRupee, Search, XCircle, Trash2, LayoutGrid, List, X, Check, ExternalLink, Loader2, History, Undo2, Upload, Pencil } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { useScrollHighlight } from "@/hooks/useScrollHighlight";
@@ -25,6 +25,7 @@ import {
   subscribeToPendingUpiApprovals,
   summarizeFees,
   undoFeeCollection,
+  updateFeeDetails,
   uploadPaymentProof,
   waiveFee,
   type EnrollmentDoc,
@@ -98,6 +99,13 @@ const AdminFeeCollections = () => {
   const [historyFee, setHistoryFee] = useState<FeePaymentDoc | null>(null);
   const [historyRows, setHistoryRows] = useState<FeePaymentDoc[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  // Full fee-edit dialog (req): amount, due date, month, prepayment toggle.
+  const [editFee, setEditFee] = useState<FeePaymentDoc | null>(null);
+  const [editAmount, setEditAmount] = useState("");
+  const [editDueDate, setEditDueDate] = useState("");
+  const [editMonth, setEditMonth] = useState("");
+  const [editPrepayment, setEditPrepayment] = useState(false);
+  const [savingEdit, setSavingEdit] = useState(false);
   // Cash-collection dialog (req): editable amount + REQUIRED proof screenshot.
   const [cashFee, setCashFee] = useState<FeePaymentDoc | null>(null);
   const [cashAmount, setCashAmount] = useState("");
@@ -252,6 +260,39 @@ const AdminFeeCollections = () => {
       toast({ title: "Could not send reminder", description: error instanceof Error ? error.message : undefined, variant: "destructive" });
     } finally {
       setBusyId(null);
+    }
+  };
+
+  // --- Full fee edit (req): dates/fee/prepayment, past-present-future -------
+  const openEditDialog = (fee: FeePaymentDoc) => {
+    setEditFee(fee);
+    setEditAmount(String((fee.amountInPaise || 0) / 100));
+    setEditDueDate(fee.dueDate || "");
+    setEditMonth(/^\d{4}-\d{2}$/.test(fee.monthKey || "") ? fee.monthKey : "");
+    setEditPrepayment(fee.prepayment === true || (fee.periodLabel || "").includes("Pre-payment"));
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editFee) return;
+    const rupees = Number(editAmount);
+    if (!Number.isFinite(rupees) || rupees < 1) {
+      toast({ title: "Enter a valid amount", variant: "destructive" });
+      return;
+    }
+    setSavingEdit(true);
+    try {
+      await updateFeeDetails(editFee, {
+        amountInPaise: Math.round(rupees * 100),
+        dueDate: editDueDate,
+        monthKey: editMonth && editMonth !== editFee.monthKey ? editMonth : undefined,
+        prepayment: editPrepayment,
+      });
+      toast({ title: "Fee updated", description: `${editFee.studentName} · amount, dates & label saved.` });
+      setEditFee(null);
+    } catch (error) {
+      toast({ title: "Could not update the fee", description: error instanceof Error ? error.message : undefined, variant: "destructive" });
+    } finally {
+      setSavingEdit(false);
     }
   };
 
@@ -536,6 +577,9 @@ const AdminFeeCollections = () => {
                               <Undo2 className="h-3.5 w-3.5" /> Undo
                             </button>
                           )}
+                          <button onClick={() => openEditDialog(fee)} disabled={busyId === fee.id} className="flex items-center gap-1 rounded border border-blue-300 px-2 py-1 font-body text-[0.7rem] text-blue-700 hover:bg-blue-50 disabled:opacity-50" title="Edit amount, dates & label">
+                            <Pencil className="h-3.5 w-3.5" /> Edit
+                          </button>
                           {!settled && (
                             <button onClick={() => { if (confirm(`Waive ${fee.periodLabel} for ${fee.studentName}?`)) runAction("Month waived", fee.id, () => waiveFee(fee.id)); }} disabled={busyId === fee.id} className="flex items-center gap-1 rounded border border-border px-2 py-1 font-body text-[0.7rem] text-muted-foreground hover:bg-muted disabled:opacity-50" title="Waive month">
                               <XCircle className="h-3.5 w-3.5" /> Waive
@@ -614,6 +658,9 @@ const AdminFeeCollections = () => {
                       <Undo2 className="h-3.5 w-3.5" /> Undo
                     </button>
                   )}
+                  <button onClick={() => openEditDialog(fee)} disabled={busyId === fee.id} className="flex flex-1 items-center justify-center gap-1 rounded border border-blue-300 px-2 py-1.5 font-body text-[0.75rem] font-semibold text-blue-700 hover:bg-blue-50 disabled:opacity-50">
+                    <Pencil className="h-3.5 w-3.5" /> Edit
+                  </button>
                   {!settled && (
                     <button onClick={() => { if (confirm(`Waive ${fee.periodLabel} for ${fee.studentName}?`)) runAction("Month waived", fee.id, () => waiveFee(fee.id)); }} disabled={busyId === fee.id} className="flex flex-1 items-center justify-center gap-1 rounded border border-border px-2 py-1.5 font-body text-[0.75rem] font-semibold text-muted-foreground hover:bg-muted disabled:opacity-50">
                       <XCircle className="h-3.5 w-3.5" /> Waive
@@ -751,6 +798,56 @@ const AdminFeeCollections = () => {
                 Total collected: <span className="font-semibold text-green-700">{formatPaiseAsRupees(historyRows.filter((row) => row.status === "paid").reduce((sum, row) => sum + row.amountInPaise, 0))}</span>
               </p>
             )}
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* Full fee edit — amount, due date, billed month, Pre-payment label (req) */}
+      {editFee && createPortal(
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center overflow-y-auto p-4">
+          <div className="fixed inset-0 bg-black/40" onClick={() => !savingEdit && setEditFee(null)} />
+          <div className="relative mx-4 w-full max-w-md rounded-xl bg-card p-6 shadow-hero">
+            <div className="mb-1 flex items-center justify-between">
+              <h3 className="flex items-center gap-2 font-display text-xl text-foreground"><Pencil className="h-5 w-5 text-blue-600" /> Edit fee</h3>
+              <button onClick={() => !savingEdit && setEditFee(null)} aria-label="Close"><X className="h-5 w-5" /></button>
+            </div>
+            <p className="font-body text-sm text-muted-foreground">{editFee.studentName} · {editFee.className} · {editFee.periodLabel}</p>
+
+            <div className="mt-4 space-y-4">
+              <div>
+                <label className="mb-1 block font-body text-xs font-semibold text-foreground">Fee amount (₹)</label>
+                <div className="relative">
+                  <IndianRupee className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <input value={editAmount} onChange={(e) => setEditAmount(e.target.value.replace(/[^0-9.]/g, ""))} inputMode="decimal" className="h-11 w-full rounded-md border border-border bg-background pl-10 pr-3 font-body text-sm outline-none focus:border-gold focus:ring-2 focus:ring-gold/20" disabled={savingEdit} />
+                </div>
+              </div>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div>
+                  <label className="mb-1 block font-body text-xs font-semibold text-foreground">Due date <span className="font-normal text-muted-foreground">(past / present / future)</span></label>
+                  <input type="date" value={editDueDate} onChange={(e) => setEditDueDate(e.target.value)} className="h-11 w-full rounded-md border border-border bg-background px-3 font-body text-sm outline-none focus:border-gold focus:ring-2 focus:ring-gold/20" disabled={savingEdit} />
+                </div>
+                {!isTermFee(editFee) && editMonth && (
+                  <div>
+                    <label className="mb-1 block font-body text-xs font-semibold text-foreground">Billed month</label>
+                    <input type="month" value={editMonth} onChange={(e) => setEditMonth(e.target.value)} className="h-11 w-full rounded-md border border-border bg-background px-3 font-body text-sm outline-none focus:border-gold focus:ring-2 focus:ring-gold/20" disabled={savingEdit} />
+                  </div>
+                )}
+              </div>
+              <label className={`flex cursor-pointer items-start gap-2 rounded-md border p-3 font-body text-[0.8rem] ${editPrepayment ? "border-gold bg-gold/5" : "border-border"}`}>
+                <input type="checkbox" className="mt-0.5" checked={editPrepayment} onChange={(e) => setEditPrepayment(e.target.checked)} disabled={savingEdit} />
+                <span><span className="font-semibold text-foreground">Pre-payment</span><br /><span className="text-muted-foreground">On = label it "· Pre-payment" (new student's first payment). Off = regular fee (existing student).</span></span>
+              </label>
+              {!isTermFee(editFee) && editMonth && editMonth !== editFee.monthKey && (
+                <p className="rounded-md border border-amber-300 bg-amber-50 p-2.5 font-body text-[0.72rem] text-amber-800">
+                  Moving this fee to {periodLabel(editMonth)} keeps its record, but the ledger may regenerate a pending due for {editFee.periodLabel.replace(/\s*·\s*Pre-payment$/, "")} — waive that row if the student shouldn't pay it.
+                </p>
+              )}
+            </div>
+
+            <button onClick={handleSaveEdit} disabled={savingEdit || !Number(editAmount)} className="mt-5 flex min-h-11 w-full items-center justify-center gap-2 rounded-md bg-gradient-primary px-4 py-2.5 font-body text-sm font-semibold text-primary-foreground transition-all hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50">
+              {savingEdit ? <><Loader2 className="h-4 w-4 animate-spin" /> Saving…</> : <><Check className="h-4 w-4" /> Save changes</>}
+            </button>
           </div>
         </div>,
         document.body

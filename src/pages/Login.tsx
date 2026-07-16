@@ -23,13 +23,15 @@ const Login = () => {
     setLoading(true);
     try {
       const cred = await signInWithEmailAndPassword(auth, email, password);
-      // Partners land on their read-only dashboard; everyone else honours the
-      // redirect param (defaulting to home).
+      // Partners land on their read-only dashboard, managers on their first
+      // allowed admin page; everyone else honours the redirect param.
       let destination = redirectPath.startsWith("/") ? redirectPath : "/";
       if (destination === "/") {
         try {
           const profile = await getDoc(doc(db, "users", cred.user.uid));
-          if (profile.exists() && profile.data().role === "partner") destination = "/partner";
+          const role = profile.exists() ? profile.data().role : "";
+          if (role === "partner") destination = "/partner";
+          else if (role === "manager" || role === "admin") destination = "/admin";
         } catch { /* fall back to the default destination */ }
       }
       navigate(destination, { replace: true });

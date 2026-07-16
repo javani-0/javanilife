@@ -29,7 +29,7 @@ const UpiPaymentDialog = ({ open, onClose, target, amountInPaise, title, note, c
   const { toast } = useToast();
   const [settings, setSettings] = useState<PaymentSettings>(defaultPaymentSettings);
   const [loadingSettings, setLoadingSettings] = useState(true);
-  const [copied, setCopied] = useState(false);
+  const [copied, setCopied] = useState<"" | "id" | "number">("");
   const [file, setFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string>("");
   const [upiRef, setUpiRef] = useState("");
@@ -44,7 +44,7 @@ const UpiPaymentDialog = ({ open, onClose, target, amountInPaise, title, note, c
 
   // Reset the form each time the dialog opens.
   useEffect(() => {
-    if (open) { setFile(null); setPreviewUrl(""); setUpiRef(""); setCopied(false); }
+    if (open) { setFile(null); setPreviewUrl(""); setUpiRef(""); setCopied(""); }
   }, [open]);
 
   useEffect(() => () => { if (previewUrl) URL.revokeObjectURL(previewUrl); }, [previewUrl]);
@@ -55,12 +55,12 @@ const UpiPaymentDialog = ({ open, onClose, target, amountInPaise, title, note, c
     ? buildUpiIntentUrl({ upiId: settings.upiId, name: settings.upiName, amountInPaise, note: note || title })
     : "";
 
-  const handleCopy = async () => {
-    if (!settings.upiId) return;
+  const handleCopy = async (value: string, which: "id" | "number") => {
+    if (!value) return;
     try {
-      await navigator.clipboard.writeText(settings.upiId);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1800);
+      await navigator.clipboard.writeText(value);
+      setCopied(which);
+      setTimeout(() => setCopied(""), 1800);
     } catch { /* clipboard may be blocked; ignore */ }
   };
 
@@ -153,16 +153,24 @@ const UpiPaymentDialog = ({ open, onClose, target, amountInPaise, title, note, c
                   <p className="font-body text-[0.7rem] uppercase tracking-wide text-muted-foreground">UPI ID</p>
                   <p className="truncate font-body text-sm font-semibold text-foreground">{settings.upiId}</p>
                 </div>
-                <button onClick={handleCopy} className="flex shrink-0 items-center gap-1 rounded-md border border-gold/40 px-2.5 py-1.5 font-body text-xs font-semibold text-gold hover:bg-gold/10">
-                  {copied ? <><Check className="h-3.5 w-3.5" /> Copied</> : <><Copy className="h-3.5 w-3.5" /> Copy</>}
+                <button onClick={() => handleCopy(settings.upiId, "id")} className="flex shrink-0 items-center gap-1 rounded-md border border-gold/40 px-2.5 py-1.5 font-body text-xs font-semibold text-gold hover:bg-gold/10">
+                  {copied === "id" ? <><Check className="h-3.5 w-3.5" /> Copied</> : <><Copy className="h-3.5 w-3.5" /> Copy</>}
                 </button>
               </div>
             )}
 
-            {upiIntentUrl && (
-              <a href={upiIntentUrl} className="mt-2 flex items-center justify-center gap-2 rounded-md border border-gold/40 py-2 font-body text-sm font-semibold text-gold hover:bg-gold/10 sm:hidden">
-                <Smartphone className="h-4 w-4" /> Pay in your UPI app
-              </a>
+            {/* Payment number — copy & pay from any UPI app (replaces the old
+                "Pay in your UPI app" deep link, which was unreliable). */}
+            {settings.upiNumber && (
+              <div className="mt-2 flex items-center justify-between gap-2 rounded-md border border-border bg-background px-3 py-2">
+                <div className="min-w-0">
+                  <p className="flex items-center gap-1 font-body text-[0.7rem] uppercase tracking-wide text-muted-foreground"><Smartphone className="h-3 w-3" /> Payment Number</p>
+                  <p className="truncate font-body text-sm font-semibold text-foreground">{settings.upiNumber}</p>
+                </div>
+                <button onClick={() => handleCopy(settings.upiNumber, "number")} className="flex shrink-0 items-center gap-1 rounded-md border border-gold/40 px-2.5 py-1.5 font-body text-xs font-semibold text-gold hover:bg-gold/10">
+                  {copied === "number" ? <><Check className="h-3.5 w-3.5" /> Copied</> : <><Copy className="h-3.5 w-3.5" /> Copy</>}
+                </button>
+              </div>
             )}
 
             {settings.instructions && (

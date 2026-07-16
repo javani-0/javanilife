@@ -31,7 +31,9 @@ export interface UserProfile {
   phone?: string;
   whatsappNumber?: string;
   callNumber?: string;
-  role: "admin" | "user" | "partner";
+  role: "admin" | "user" | "partner" | "manager";
+  // Manager-only: the admin pages this manager may open (see src/lib/adminPages.ts).
+  managerPages?: string[];
   createdAt?: Timestamp;
 }
 

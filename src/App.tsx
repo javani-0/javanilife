@@ -96,6 +96,7 @@ const AdminOrders = lazyWithRetry(() => import("./pages/admin/AdminOrders"));
 const AdminOrderDetail = lazyWithRetry(() => import("./pages/admin/AdminOrderDetail"));
 const AdminCustomers = lazyWithRetry(() => import("./pages/admin/AdminCustomers"));
 const AdminPartners = lazyWithRetry(() => import("./pages/admin/AdminPartners"));
+const AdminManagers = lazyWithRetry(() => import("./pages/admin/AdminManagers"));
 const AdminFaculty = lazyWithRetry(() => import("./pages/admin/AdminFaculty"));
 const AdminFinance = lazyWithRetry(() => import("./pages/admin/AdminFinance"));
 const AdminSiteSettings = lazyWithRetry(() => import("./pages/admin/AdminSiteSettings"));
@@ -237,6 +238,7 @@ const App = () => {
                       <Route path="orders/:orderId" element={<AdminOrderDetail />} />
                       <Route path="customers" element={<AdminCustomers />} />
                       <Route path="partners" element={<AdminPartners />} />
+                      <Route path="managers" element={<AdminManagers />} />
                       <Route path="faculty" element={<AdminFaculty />} />
                       <Route path="finance" element={<AdminFinance />} />
                       <Route path="site-settings" element={<AdminSiteSettings />} />

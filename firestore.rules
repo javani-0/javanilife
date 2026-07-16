@@ -24,6 +24,18 @@ service cloud.firestore {
       return hasRole('partner');
     }
 
+    function isManager() {
+      return hasRole('manager');
+    }
+
+    // Admin, or a MANAGER granted at least one of these admin pages (the page
+    // keys the admin toggles on users/{uid}.managerPages — see Managers page).
+    function staffAny(pages) {
+      return isAdmin()
+        || (isManager()
+            && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('managerPages', []).hasAny(pages));
+    }
+
     function isSafeOwnUserProfileWrite(userId) {
       return isOwner(userId)
         && request.resource.data.uid == userId
@@ -56,15 +68,15 @@ service cloud.firestore {
 
     match /products/{id} {
       allow read: if true;
-      allow write: if isAdmin();
+      allow write: if staffAny(['products']);
     }
 
     match /orders/{id} {
       allow create: if signedIn()
         && request.resource.data.customerId == request.auth.uid;
-      allow read: if isAdmin()
+      allow read: if staffAny(['orders', 'customers', 'finance'])
         || (signedIn() && resource.data.customerId == request.auth.uid);
-      allow update, delete: if isAdmin();
+      allow update, delete: if staffAny(['orders']);
     }
 
     match /userTokens/{tokenId} {
@@ -91,7 +103,7 @@ service cloud.firestore {
     // Admin writes; admin + partner read (the partner dashboard needs the % and
     // partner name — no customer data lives here).
     match /finance/{id} {
-      allow read: if isAdmin() || isPartner();
+      allow read: if staffAny(['finance']) || isPartner();
       allow write: if isAdmin();
     }
 
@@ -112,18 +124,25 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    // Manager sign-in credentials the admin creates (req) — ADMIN-ONLY, same
+    // model as partnerCredentials. Writes happen server-side (Admin SDK).
+    match /managerCredentials/{id} {
+      allow read: if isAdmin();
+      allow write: if isAdmin();
+    }
+
     // Business expenses — admin enters/edits; admin + partner may read. The
     // partner dashboard reads aggregates via the server, but allowing read here
     // keeps the admin console working and exposes no customer PII.
     match /expenses/{id} {
-      allow read: if isAdmin() || isPartner();
-      allow write: if isAdmin();
+      allow read: if staffAny(['finance']) || isPartner();
+      allow write: if staffAny(['finance']);
     }
 
     // Manually-entered extra income — same access model as expenses.
     match /manualIncome/{id} {
-      allow read: if isAdmin() || isPartner();
-      allow write: if isAdmin();
+      allow read: if staffAny(['finance']) || isPartner();
+      allow write: if staffAny(['finance']);
     }
 
     match /courses/{id} {
@@ -143,12 +162,12 @@ service cloud.firestore {
 
     match /siteSettings/{id} {
       allow read: if true;
-      allow write: if isAdmin();
+      allow write: if staffAny(['site-settings', 'payment-settings', 'delivery-settings']);
     }
 
     match /coupons/{code} {
       allow read: if true;
-      allow write: if isAdmin();
+      allow write: if staffAny(['coupons']);
     }
 
     // Faculty collection — public read, authenticated write
@@ -159,7 +178,7 @@ service cloud.firestore {
 
     // Users collection — user can read/write own doc
     match /users/{userId} {
-      allow read: if isOwner(userId) || isAdmin();
+      allow read: if isOwner(userId) || staffAny(['customers']);
       allow create: if isSafeOwnUserProfileWrite(userId) || isAdmin();
       allow update: if isSafeOwnUserProfileUpdate(userId) || isAdmin();
 
@@ -192,30 +211,30 @@ service cloud.firestore {
     // Class catalog — public read, admin write.
     match /classes/{id} {
       allow read: if true;
-      allow write: if isAdmin();
+      allow write: if staffAny(['classes']);
     }
 
     // Enrollments — parent owns their student records; admin has full access.
     // Money/status/autopay transitions are driven server-side (Admin SDK) or by
     // an admin; a parent may only keep their own ownership on update.
     match /enrollments/{id} {
-      allow read: if isAdmin()
+      allow read: if staffAny(['enrollments', 'fee-collections', 'classes'])
         || (signedIn() && resource.data.parentUserId == request.auth.uid);
       allow create: if signedIn()
         && request.resource.data.parentUserId == request.auth.uid;
-      allow update: if isAdmin()
+      allow update: if staffAny(['enrollments', 'fee-collections'])
         || (signedIn()
             && resource.data.parentUserId == request.auth.uid
             && request.resource.data.parentUserId == request.auth.uid);
-      allow delete: if isAdmin();
+      allow delete: if staffAny(['enrollments']);
     }
 
     // Fee ledger — parent reads own; all money-bearing writes are server-side
     // (webhook/cron via Admin SDK, which bypasses rules) or an admin console.
     match /feePayments/{id} {
-      allow read: if isAdmin()
+      allow read: if staffAny(['fee-collections', 'enrollments', 'customers', 'finance'])
         || (signedIn() && resource.data.parentUserId == request.auth.uid);
-      allow write: if isAdmin();
+      allow write: if staffAny(['fee-collections', 'enrollments']);
     }
   }
 }

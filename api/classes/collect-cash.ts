@@ -10,6 +10,7 @@ import {
   type EnrollmentRecord,
 } from "../_lib/fee-store.js";
 import { sendClassFeeNotifications } from "../_lib/notify.js";
+import { isStaffForPage } from "../_lib/staff.js";
 
 interface CollectCashBody {
   enrollmentId?: string;
@@ -28,9 +29,10 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     const decoded = await getFirebaseAdminAuth().verifyIdToken(idToken);
     const db = getFirebaseAdminDb();
 
-    // Only admins can collect cash.
+    // Admin, or a manager granted Sign Up / Fee Collections.
     const userSnapshot = await db.doc(`users/${decoded.uid}`).get();
-    if (userSnapshot.data()?.role !== "admin") {
+    const callerData = userSnapshot.data();
+    if (!isStaffForPage(callerData, "fee-collections") && !isStaffForPage(callerData, "enrollments")) {
       sendError(response, 403, "Only admins can collect cash payments.");
       return;
     }

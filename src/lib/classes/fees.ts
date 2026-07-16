@@ -226,6 +226,32 @@ export const markFeeCash = async (feeId: string, adminNote?: string): Promise<vo
 };
 
 /**
+ * Admin: full fee edit (req) — amount, due date (past/present/future), billed
+ * month, and the Pre-payment/Regular label. Changing the month rewrites the
+ * period label; the Pre-payment suffix follows the toggle. NOTE: fee doc ids
+ * are `${enrollmentId}_${monthKey}` — moving a fee to another month keeps the
+ * old id, so the ledger self-heal may regenerate a pending due for the
+ * original month (waive it if the student shouldn't pay it).
+ */
+export const updateFeeDetails = async (
+  fee: Pick<FeePaymentDoc, "id" | "periodLabel">,
+  params: { amountInPaise: number; dueDate: string; monthKey?: string; prepayment: boolean },
+): Promise<void> => {
+  const base = params.monthKey && /^\d{4}-\d{2}$/.test(params.monthKey)
+    ? periodLabelFor(params.monthKey)
+    : (fee.periodLabel || "").replace(/\s*·\s*Pre-payment$/, "");
+  const periodLabel = params.prepayment ? `${base} · Pre-payment` : base;
+  await updateDoc(doc(db, FEE_PAYMENTS_COLLECTION, fee.id), {
+    amountInPaise: Math.max(100, Math.round(params.amountInPaise)),
+    dueDate: params.dueDate || "",
+    ...(params.monthKey && /^\d{4}-\d{2}$/.test(params.monthKey) ? { monthKey: params.monthKey } : {}),
+    periodLabel,
+    prepayment: params.prepayment,
+    updatedAt: serverTimestamp(),
+  });
+};
+
+/**
  * Admin: collect a fee in cash with an editable amount + REQUIRED proof
  * screenshot (req). Appends a "cash-collected" entry to the audit trail so the
  * collection (and any later undo) stays in the record forever.

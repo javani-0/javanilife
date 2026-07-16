@@ -1,15 +1,16 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { NavLink, useLocation, useNavigate, Outlet } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
+import { pageKeyForPath } from "@/lib/adminPages";
 import {
   LayoutDashboard, ClipboardList, BookOpen, Image, ShoppingBag, Users,
   Handshake, SlidersHorizontal, LogOut, Menu, X, PackageCheck,
   ChevronLeft, ChevronRight, TicketPercent, Truck,
-  GraduationCap, UserCheck, Wallet, PiggyBank, QrCode,
+  GraduationCap, UserCheck, Wallet, PiggyBank, QrCode, UserCog,
 } from "lucide-react";
 import logoWhite from "@/assets/logo-white.png";
 
-const navItems = [
+const allNavItems = [
   { label: "Dashboard", icon: LayoutDashboard, path: "/admin/dashboard" },
   { label: "Enquiries", icon: ClipboardList, path: "/admin/enquiries" },
   { label: "Courses Manager", icon: BookOpen, path: "/admin/courses" },
@@ -25,18 +26,32 @@ const navItems = [
   { label: "Customers", icon: Users, path: "/admin/customers" },
   { label: "Finance", icon: PiggyBank, path: "/admin/finance" },
   { label: "Partners Manager", icon: Handshake, path: "/admin/partners" },
+  { label: "Managers", icon: UserCog, path: "/admin/managers" },
   { label: "Faculty Manager", icon: Users, path: "/admin/faculty" },
   { label: "Site Settings", icon: SlidersHorizontal, path: "/admin/site-settings" },
 ];
 
 const AdminLayout = () => {
-  const { user, logout } = useAuth();
+  const { user, userProfile, logout } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
 
-  const currentPage = navItems.find((n) => location.pathname.startsWith(n.path))?.label || "Dashboard";
+  // Managers see ONLY the pages the admin switched on (req); pages without a
+  // manager key (Dashboard, Partners, Managers, Faculty) stay admin-only.
+  const isManagerRole = userProfile?.role === "manager";
+  const navItems = useMemo(() => {
+    if (!isManagerRole) return allNavItems;
+    const allowed = userProfile?.managerPages || [];
+    return allNavItems.filter((item) => {
+      const key = pageKeyForPath(item.path);
+      return key ? allowed.includes(key) : false;
+    });
+  }, [isManagerRole, userProfile?.managerPages]);
+
+  const roleBadge = isManagerRole ? "Manager" : "Admin";
+  const currentPage = navItems.find((n) => location.pathname.startsWith(n.path))?.label || (isManagerRole ? "" : "Dashboard");
 
   const handleLogout = async () => {
     await logout();
@@ -97,7 +112,7 @@ const AdminLayout = () => {
             <>
               <div className="flex flex-col gap-1">
                 <img src={logoWhite} alt="Javani" className="h-10 w-auto object-contain" />
-                <span className="inline-block px-2 py-0.5 rounded text-[0.58rem] font-body text-white/50 bg-white/10 tracking-widest uppercase w-fit">Admin</span>
+                <span className="inline-block px-2 py-0.5 rounded text-[0.58rem] font-body text-white/50 bg-white/10 tracking-widest uppercase w-fit">{roleBadge}</span>
               </div>
               <button
                 onClick={() => setCollapsed(true)}
@@ -141,7 +156,7 @@ const AdminLayout = () => {
             </button>
             <div className="border-b border-white/10 flex flex-col items-start p-6 gap-2">
               <img src={logoWhite} alt="Javani" className="h-12 w-auto object-contain" />
-              <span className="inline-block px-3 py-0.5 rounded text-[0.65rem] font-body text-white/60 bg-white/10 tracking-widest uppercase">Admin</span>
+              <span className="inline-block px-3 py-0.5 rounded text-[0.65rem] font-body text-white/60 bg-white/10 tracking-widest uppercase">{roleBadge}</span>
             </div>
             <nav className="flex-1 py-4 space-y-1 px-3">
               {navItems.map((item) => (

@@ -3,6 +3,7 @@ import { getBearerToken, readJsonBody, requirePost, sendError, sendJson, type Ap
 import { daysUntil } from "../_lib/class-fees.js";
 import { FEE_PAYMENTS_COLLECTION, notificationContextFromFee } from "../_lib/fee-store.js";
 import { sendClassFeeNotifications, type ClassFeeNotificationEvent } from "../_lib/notify.js";
+import { isStaffForPage } from "../_lib/staff.js";
 
 interface NotifyClassFeeBody {
   feePaymentId?: string;
@@ -47,14 +48,15 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     }
 
     const fee = feeSnapshot.data() || {};
-    const isAdmin = userSnapshot.data()?.role === "admin";
+    // Admin, or a manager granted Fee Collections, or the fee's own parent.
+    const isStaff = isStaffForPage(userSnapshot.data(), "fee-collections");
     const isOwner = fee.parentUserId === decoded.uid;
-    if (!isAdmin && !isOwner) {
+    if (!isStaff && !isOwner) {
       sendError(response, 403, "You do not have permission to notify this fee.");
       return;
     }
-    // Only an admin can announce a collection reversal.
-    if (event === "collection-undone" && !isAdmin) {
+    // Only staff can announce a collection reversal.
+    if (event === "collection-undone" && !isStaff) {
       sendError(response, 403, "Only an admin can send this notification.");
       return;
     }

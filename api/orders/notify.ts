@@ -1,5 +1,6 @@
 import { getFirebaseAdminAuth, getFirebaseAdminDb, getFirebaseAdminMessaging, FieldValue } from "../_lib/firebase-admin.js";
 import { getBearerToken, readJsonBody, requirePost, sendError, sendJson, type ApiRequest, type ApiResponse } from "../_lib/http.js";
+import { isStaffForPage } from "../_lib/staff.js";
 import { getWhatsAppConfigStatus, getWhatsAppEnvValue, sendWhatsAppTemplate, sanitizeWhatsAppNumber } from "../_lib/whatsapp.js";
 
 export type OrderAutomationEvent = "order-placed" | "order-status-updated" | "payment-status-updated";
@@ -538,7 +539,7 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     }
 
     const order = orderSnapshot.data() as OrderSnapshot;
-    const isAdmin = userSnapshot.data()?.role === "admin";
+    const isAdmin = isStaffForPage(userSnapshot.data(), "orders");
     const isCustomer = order.customerId === decoded.uid;
     if (!isAdmin && !isCustomer) {
       sendError(response, 403, "You do not have permission to notify this order.");

@@ -91,6 +91,11 @@ const AdminPaymentSettings = () => {
                 <input value={form.upiName} onChange={(e) => setForm({ ...form, upiName: e.target.value })} placeholder="Javani Spiritual Hub" className={inputClass} />
               </div>
               <div>
+                <label className={labelClass}>Payment number (optional)</label>
+                <input value={form.upiNumber} onChange={(e) => setForm({ ...form, upiNumber: e.target.value.replace(/[^0-9+ ]/g, "") })} inputMode="tel" placeholder="e.g. 9030200263" className={inputClass} />
+                <p className="mt-1 font-body text-[0.7rem] text-muted-foreground">Shown on the pay screen with a Copy button (like the UPI ID) — students paste it into any UPI app to pay.</p>
+              </div>
+              <div>
                 <label className={labelClass}>QR image (optional — shown instead of the generated QR)</label>
                 <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleUpload} />
                 <div className="flex items-center gap-3">

@@ -7,6 +7,7 @@ import {
   notificationContextFromFee,
 } from "../_lib/fee-store.js";
 import { sendClassFeeNotifications } from "../_lib/notify.js";
+import { isStaffForPage } from "../_lib/staff.js";
 
 // ---------------------------------------------------------------------------
 // POST /api/razorpay/approve-payment  (admin only)
@@ -50,9 +51,9 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     const decoded = await getFirebaseAdminAuth().verifyIdToken(token);
     const db = getFirebaseAdminDb();
 
-    // Admin-only.
+    // Admin, or a manager granted Fee Collections.
     const userSnapshot = await db.doc(`users/${decoded.uid}`).get();
-    if (String(userSnapshot.data()?.role || "") !== "admin") {
+    if (!isStaffForPage(userSnapshot.data(), "fee-collections")) {
       sendError(response, 403, "Only an admin can approve payments.");
       return;
     }

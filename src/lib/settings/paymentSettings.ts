@@ -14,6 +14,7 @@ import { db } from "@/lib/firebase";
 export interface PaymentSettings {
   upiId: string;         // VPA, e.g. "javani@okhdfcbank"
   upiName: string;       // payee name shown in the UPI app
+  upiNumber: string;     // UPI-linked payment number (copyable in the pay dialog)
   qrImageUrl: string;    // admin-uploaded static QR image (preferred if set)
   instructions: string;  // optional note shown to students on the pay screen
   manualPaymentsEnabled: boolean; // master switch for the manual-UPI flow
@@ -24,6 +25,7 @@ export const PAYMENT_SETTINGS_DOC = { collection: "siteSettings", id: "payment" 
 export const defaultPaymentSettings: PaymentSettings = {
   upiId: "",
   upiName: "Javani Spiritual Hub",
+  upiNumber: "",
   qrImageUrl: "",
   instructions: "",
   manualPaymentsEnabled: true,
@@ -34,6 +36,7 @@ const getString = (value: unknown, fallback = "") => (typeof value === "string" 
 export const normalizePaymentSettings = (data: DocumentData = {}): PaymentSettings => ({
   upiId: getString(data.upiId).trim(),
   upiName: getString(data.upiName, defaultPaymentSettings.upiName).trim() || defaultPaymentSettings.upiName,
+  upiNumber: getString(data.upiNumber).trim(),
   qrImageUrl: getString(data.qrImageUrl).trim(),
   instructions: getString(data.instructions).trim(),
   manualPaymentsEnabled: data.manualPaymentsEnabled !== false,
@@ -59,6 +62,7 @@ export const savePaymentSettings = async (settings: Partial<PaymentSettings>): P
     {
       ...(settings.upiId !== undefined ? { upiId: settings.upiId.trim() } : {}),
       ...(settings.upiName !== undefined ? { upiName: settings.upiName.trim() } : {}),
+      ...(settings.upiNumber !== undefined ? { upiNumber: settings.upiNumber.trim() } : {}),
       ...(settings.qrImageUrl !== undefined ? { qrImageUrl: settings.qrImageUrl.trim() } : {}),
       ...(settings.instructions !== undefined ? { instructions: settings.instructions.trim() } : {}),
       ...(settings.manualPaymentsEnabled !== undefined ? { manualPaymentsEnabled: settings.manualPaymentsEnabled } : {}),
