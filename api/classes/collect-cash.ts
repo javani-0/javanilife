@@ -1,11 +1,13 @@
 import { getFirebaseAdminAuth, getFirebaseAdminDb, FieldValue } from "../_lib/firebase-admin.js";
 import { getBearerToken, readJsonBody, requirePost, sendError, sendJson, type ApiRequest, type ApiResponse } from "../_lib/http.js";
-import { monthKeyFor } from "../_lib/class-fees.js";
+import { addMonths, monthKeyFor } from "../_lib/class-fees.js";
 import {
   countSlotSeatOnce,
+  ensureCustomFeePayment,
   ensureFeePayment,
   ENROLLMENTS_COLLECTION,
   FEE_PAYMENTS_COLLECTION,
+  isPrepaymentEnrollment,
   notificationContextFromFee,
   type EnrollmentRecord,
 } from "../_lib/fee-store.js";
@@ -53,27 +55,38 @@ export default async function handler(request: ApiRequest, response: ApiResponse
 
     const enrollment = { id: enrollmentSnapshot.id, ...(enrollmentSnapshot.data() as Omit<EnrollmentRecord, "id">) };
 
-    // Create / reuse the fee doc for the current month.
-    const monthKey = monthKeyFor(new Date());
-    const { id: feeId } = await ensureFeePayment(db, enrollment, monthKey);
+    // Which fee is being collected?
+    //  • Prepayment enrolment still PENDING → the standalone Pre-payment (not a
+    //    month's fee — fixed structure). The joining month's fee arrives next
+    //    month via the arrears roll-forward.
+    //  • Prepayment enrolment already ACTIVE → the current arrears due; never
+    //    the joining month itself (nothing is due until the month after).
+    //  • Everything else → the current month's fee (unchanged).
+    const prepay = isPrepaymentEnrollment(enrollment) && enrollment.status === "pending";
+    let feeId: string;
+    if (prepay) {
+      const result = await ensureCustomFeePayment(db, enrollment, {
+        suffix: "prepayment",
+        amountInPaise: Math.max(0, Math.round(Number(enrollment.monthlyFeeInPaise || 0))),
+        periodLabel: "Pre-payment",
+        dueDate: new Date().toISOString().slice(0, 10),
+      });
+      feeId = result.id;
+    } else {
+      let monthKey = monthKeyFor(new Date());
+      if (isPrepaymentEnrollment(enrollment)) {
+        const firstBillable = addMonths(String(enrollment.startMonthKey || monthKey), 1);
+        if (monthKey < firstBillable) monthKey = firstBillable;
+      }
+      const result = await ensureFeePayment(db, enrollment, monthKey);
+      feeId = result.id;
+    }
 
     // Mark it as cash-paid.
     const feeRef = db.collection(FEE_PAYMENTS_COLLECTION).doc(feeId);
     const feeSnapshot = await feeRef.get();
     const feeData = feeSnapshot.data() || {};
-
-    // A NEW student's first (enrolment-activating) collection is a Pre-payment:
-    // enrich periodLabel so history + the WhatsApp confirmation say so.
-    const isPrepayment = enrollment.studentStatus === "new" && enrollment.status === "pending";
-    const currentPeriodLabel = String(feeData.periodLabel || "");
-    const prepaymentUpdate: Record<string, unknown> = isPrepayment
-      ? {
-          prepayment: true,
-          ...(currentPeriodLabel && !currentPeriodLabel.includes("Pre-payment")
-            ? { periodLabel: `${currentPeriodLabel} · Pre-payment` }
-            : {}),
-        }
-      : {};
+    const prepaymentUpdate: Record<string, unknown> = prepay ? { prepayment: true } : {};
 
     if (feeData.status !== "paid") {
       await feeRef.update({

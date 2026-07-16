@@ -86,12 +86,16 @@ export const composeAgeGroup = (from?: number, to?: number): string => {
   return "";
 };
 
-/** Whole calendar months between two "YYYY-MM-DD" dates (min 1). 0 if unparseable. */
+/**
+ * Calendar months a course RUNS THROUGH, inclusive of both endpoints (min 1).
+ * 14 Jul → 31 Dec touches Jul, Aug, Sep, Oct, Nov, Dec = 6 months (the old
+ * difference-only count said 5 — user-reported bug). 0 if unparseable.
+ */
 export const monthsBetween = (startDate?: string, endDate?: string): number => {
   const start = startDate ? new Date(startDate) : null;
   const end = endDate ? new Date(endDate) : null;
   if (!start || !end || Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return 0;
-  const months = (end.getFullYear() - start.getFullYear()) * 12 + (end.getMonth() - start.getMonth());
+  const months = (end.getFullYear() - start.getFullYear()) * 12 + (end.getMonth() - start.getMonth()) + 1;
   return Math.max(1, months);
 };
 

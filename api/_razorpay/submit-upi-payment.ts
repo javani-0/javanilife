@@ -8,6 +8,7 @@ import {
   ensureFeePayment,
   ENROLLMENTS_COLLECTION,
   FEE_PAYMENTS_COLLECTION,
+  isPrepaymentEnrollment,
   isTermEnrollment,
   type EnrollmentRecord,
 } from "../_lib/fee-store.js";
@@ -108,12 +109,23 @@ export default async function handler(request: ApiRequest, response: ApiResponse
           dueDate: monthKeyFor(new Date()) + "-01",
         });
         feePaymentId = id;
+      } else if (isPrepaymentEnrollment(enrollment) && !body.monthKey) {
+        // FIXED STRUCTURE: a new student's enrolment payment is a standalone
+        // Pre-payment — NOT any month's fee. Their first monthly fee (the
+        // joining month, billed in arrears) is created next month by the
+        // roll-forward and falls due on that month's billing day.
+        const { id } = await ensureCustomFeePayment(db, enrollment, {
+          suffix: "prepayment",
+          amountInPaise: Math.max(0, Math.round(Number(enrollment.monthlyFeeInPaise || 0))),
+          periodLabel: "Pre-payment",
+          dueDate: new Date().toISOString().slice(0, 10),
+        });
+        feePaymentId = id;
+        isPrepayment = true;
       } else {
         // Monthly: current month by default, or a chosen future month (advance).
         const { id } = await ensureFeePayment(db, enrollment, resolveMonthKey(body.monthKey));
         feePaymentId = id;
-        // Enrolment-time payment (no explicit monthKey) by a NEW student → Pre-payment.
-        isPrepayment = !body.monthKey && enrollment.studentStatus === "new";
       }
     }
 

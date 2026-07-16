@@ -5,6 +5,7 @@ import {
   ensureFeePayment,
   ENROLLMENTS_COLLECTION,
   FEE_PAYMENTS_COLLECTION,
+  isPrepaymentEnrollment,
   isTermEnrollment,
   notificationContextFromFee,
   type EnrollmentRecord,
@@ -66,6 +67,10 @@ export default async function handler(request: ApiRequest, response: ApiResponse
       if (!enrollment.classId || !enrollment.parentUserId) continue;
       // Term courses have a fixed installment/full schedule — never roll a monthly fee.
       if (isTermEnrollment(enrollment)) continue;
+      // Prepayment (new-student) enrolments bill in arrears: the first monthly
+      // due is collected the month AFTER joining (June joiner → July doc =
+      // "June 2026"). Never create a due for the joining month or earlier.
+      if (isPrepaymentEnrollment(enrollment) && monthKey <= String(enrollment.startMonthKey || "")) continue;
       await ensureFeePayment(db, enrollment, monthKey);
       rolledForward += 1;
     }

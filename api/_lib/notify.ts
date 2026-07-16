@@ -197,13 +197,16 @@ export const sendClassFeeNotifications = async (
       : days === 1 ? "Due tomorrow"
       : `Pay in ${days} days`;
     const dueNice = niceDate(ctx.dueDate) || ctx.dueDate || "";
-    const dueParam = days === undefined ? dueNice
-      : days < 0 ? `${dueNice} — OVERDUE, please pay now`
-      : days === 0 ? `${dueNice} — due TODAY, pay now`
-      : days === 1 ? `${dueNice} — due tomorrow`
-      : `${dueNice} — pay in ${days} days`;
+    // Name the month being paid ("June 2026 fee — due 5 Jul") so the arrears
+    // structure is unambiguous. {{5}} is a free-text variable — no template edit.
+    const monthPrefix = ctx.monthLabel ? `${ctx.monthLabel} fee — ` : "";
+    const dueParam = days === undefined ? `${monthPrefix}${dueNice}`
+      : days < 0 ? `${monthPrefix}${dueNice} — OVERDUE, please pay now`
+      : days === 0 ? `${monthPrefix}${dueNice} — due TODAY, pay now`
+      : days === 1 ? `${monthPrefix}${dueNice} — due tomorrow`
+      : `${monthPrefix}${dueNice} — pay in ${days} days`;
     const pushTitle = countdown || "Upcoming fee";
-    const pushBody = `${countdown ? `${countdown} — ` : ""}₹${amount} for ${ctx.studentName}'s ${ctx.className}${ctx.dueDate ? ` (due ${niceDate(ctx.dueDate)})` : ""}. Tap to pay now.`;
+    const pushBody = `${countdown ? `${countdown} — ` : ""}₹${amount} for ${ctx.studentName}'s ${ctx.className}${ctx.monthLabel ? ` (${ctx.monthLabel})` : ""}${ctx.dueDate ? `, due ${niceDate(ctx.dueDate)}` : ""}. Tap to pay now.`;
     const [parentWhatsApp, parentPush] = await Promise.allSettled([
       parentNumber
         ? sendWhatsAppTemplate({ to: parentNumber, templateName: classFeeReminderTemplate(), languageCode: templateLanguage(), params: [firstName(ctx.parentName), ctx.studentName, ctx.className, amount, dueParam], urlSuffix: ctx.feePaymentId })

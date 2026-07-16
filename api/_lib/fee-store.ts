@@ -54,7 +54,21 @@ export interface EnrollmentRecord {
   // "new" | "existing" — a NEW student's first Pay Now is labelled "Pre-payment"
   // in history + WhatsApp (the fee doc gets prepayment: true).
   studentStatus?: string;
+  // "YYYY-MM" the student joined — the prepayment structure bills their first
+  // monthly fee the month AFTER this one.
+  startMonthKey?: string;
 }
+
+/**
+ * FIXED STRUCTURE (client-confirmed): a NEW student's enrolment payment is a
+ * standalone "Pre-payment" that is NOT any month's fee. Their monthly fees are
+ * billed in ARREARS — June's fee is due on July's billing day ("paid the fee of
+ * the month June on this date"). Existing students keep the advance rail.
+ */
+export const isPrepaymentEnrollment = (enrollment: EnrollmentRecord): boolean =>
+  getString(enrollment.paymentPlan) === "manual"
+  && getString(enrollment.studentStatus) === "new"
+  && enrollment.feeType !== "term";
 
 export const CLASSES_COLLECTION = "classes";
 
@@ -142,8 +156,12 @@ const slotAndPlanFields = (enrollment: EnrollmentRecord) => ({
 /** Denormalized base fields for a monthly fee doc derived from an enrollment + month. */
 export const buildFeePaymentSeed = (enrollment: EnrollmentRecord, monthKey: string) => {
   const billingDay = clampBillingDay(toNumber(enrollment.billingDayOfMonth, 5));
-  // Monthly fee → 1-month period, shifted to arrears unless it's the Advance Fee rail.
-  const billing = computeBillingPeriodFromMonthKey(monthKey, enrollment.paymentPlan, 1);
+  // Monthly fee → 1-month period, shifted to arrears unless it's the Advance Fee
+  // rail. Prepayment enrolments (new students) are ALWAYS arrears: the July
+  // collection is "June 2026" — their enrolment payment was the standalone
+  // Pre-payment, not a month's fee.
+  const billingMethod = isPrepaymentEnrollment(enrollment) ? "arrears" : enrollment.paymentPlan;
+  const billing = computeBillingPeriodFromMonthKey(monthKey, billingMethod, 1);
   return {
     enrollmentId: enrollment.id,
     classId: getString(enrollment.classId),

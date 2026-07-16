@@ -5,7 +5,22 @@ import Footer from "@/components/Footer";
 import PageHero from "@/components/PageHero";
 import SEO from "@/components/SEO";
 import ShareButton from "@/components/ShareButton";
-import { getAutopayFeeLabel, getClassFeeLabel, getTermPayFullOfferLabel, hasAutopayDiscount, hasTermPayFullOffer, isClassEnrollable, subscribeToActiveClasses, type ClassDoc } from "@/lib/classes";
+import { classOffersMonthly, classOffersTerm, getAutopayFeeLabel, getClassFeeLabel, getTermPayFullOfferLabel, hasAutopayDiscount, hasTermPayFullOffer, isClassEnrollable, subscribeToActiveClasses, type ClassDoc } from "@/lib/classes";
+
+// Payment options shown on the preview card (req) so parents know what's
+// available (Autopay / Pay Now / Pay Full / EMI) before opening the class.
+const paymentOptionChips = (classDoc: ClassDoc): string[] => {
+  const chips: string[] = [];
+  if (classOffersMonthly(classDoc)) {
+    if (classDoc.payment?.autopay) chips.push("Autopay");
+    chips.push("Pay Now"); // always available for monthly classes
+  }
+  if (classOffersTerm(classDoc)) {
+    if (classDoc.payment?.full) chips.push("Pay Full");
+    if (classDoc.payment?.emi) chips.push("EMI");
+  }
+  return chips;
+};
 import heroDancer1 from "@/assets/hero-dancer-1.jpg";
 import heroDancer2 from "@/assets/hero-dancer-2.jpg";
 import heroDancer3 from "@/assets/hero-dancer-3.jpg";
@@ -57,6 +72,14 @@ const ClassCard = ({ classDoc }: { classDoc: ClassDoc }) => {
         {classDoc.ageGroup && <p className="flex items-center gap-2"><Users className="h-3.5 w-3.5 text-gold" /> {classDoc.ageGroup}</p>}
       </div>
       <p className="mt-3 font-display text-[1.2rem] font-bold text-primary">{getClassFeeLabel(classDoc)}</p>
+      {/* Available payment options (req) — visible right on the preview */}
+      {paymentOptionChips(classDoc).length > 0 && (
+        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+          {paymentOptionChips(classDoc).map((chip) => (
+            <span key={chip} className="rounded-full border border-gold/30 bg-gold/10 px-2 py-0.5 font-body text-[0.66rem] font-semibold text-gold">{chip}</span>
+          ))}
+        </div>
+      )}
       {hasAutopayDiscount(classDoc) && (
         <p className="mt-1 flex items-center gap-1 font-body text-[0.78rem] text-green-700">
           <span className="inline-block h-1.5 w-1.5 rounded-full bg-green-500" />

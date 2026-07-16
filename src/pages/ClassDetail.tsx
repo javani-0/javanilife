@@ -295,8 +295,10 @@ const ClassDetail = () => {
         billingStartMonth: billing.startMonthKey,
         billingEndMonth: billing.endMonthKey,
         billingPeriodLabel: billing.periodLabel,
-        // "Pre-payment" = the manual monthly option pays this cycle upfront.
-        advancePaid: method === "manual" ? true : undefined,
+        // Existing students on the manual rail pre-pay the current cycle
+        // ("advance"). New students pay the standalone Pre-payment instead —
+        // their joining month's fee stays owed (due next month, in arrears).
+        advancePaid: method === "manual" && studentStatus !== "new" ? true : undefined,
         studentStatus,
         emi: method === "emi" ? emiConfig : undefined,
         installmentPlan,
@@ -354,7 +356,7 @@ const ClassDetail = () => {
           open: true,
           target: { enrollmentId, kind: method === "full" ? "full" : "monthly" },
           amount: upiAmount,
-          title: `${classDoc.name} — ${method === "full" ? "full course fee" : studentStatus === "new" ? "pre-payment (first month)" : "monthly fee"}`,
+          title: `${classDoc.name} — ${method === "full" ? "full course fee" : studentStatus === "new" ? "pre-payment" : "monthly fee"}`,
           couponCode: couponDiscountInPaise > 0 ? appliedCouponCode : undefined,
         });
       }
@@ -572,7 +574,7 @@ const ClassDetail = () => {
                     const isNewStudentPrepay = method === "manual" && studentStatus === "new" && activeTrack !== "term";
                     const title = isNewStudentPrepay ? "Pre-payment (Pay Now)" : meta.title;
                     const blurb = isNewStudentPrepay
-                      ? "Pre-pay your first month now — scan the QR and upload the receipt, or submit without one to pay at the counter."
+                      ? "Pay the one-time pre-payment to join — this month's fee is then due next month. Scan the QR & upload the receipt, or submit without one to pay at the counter."
                       : meta.blurb;
                     return (
                       <button type="button" key={method} onClick={() => setPaymentMethod(method)} className={`flex flex-col gap-1 rounded-xl border p-4 text-left transition-colors ${active ? "border-gold bg-gold/10" : "border-border hover:border-gold/40"}`}>

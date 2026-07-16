@@ -17,6 +17,7 @@ import {
   formatNiceDate,
   getClassFeeLabel,
   isFeePayable,
+  isPrepaymentEnrollment,
   monthKeyFor,
   payFeeNow,
   periodLabel,
@@ -113,12 +114,17 @@ const Classes = () => {
     return addMonths(base, 1);
   };
 
+  // Prepayment (new-student) enrolments bill in arrears: the doc collected in
+  // month M is the fee OF month M-1 — label the advance button accordingly.
+  const advanceFeeLabel = (enrollment: EnrollmentDoc, monthKey: string): string =>
+    isPrepaymentEnrollment(enrollment) ? periodLabel(addMonths(monthKey, -1)) : periodLabel(monthKey);
+
   const handlePayAdvance = (enrollment: EnrollmentDoc) => {
     const monthKey = nextAdvanceMonthKey(enrollment);
     setUpiDialog({
       target: { enrollmentId: enrollment.id, kind: "monthly", monthKey },
       amount: enrollment.monthlyFeeInPaise,
-      title: `${enrollment.className} — ${periodLabel(monthKey)} (advance)`,
+      title: `${enrollment.className} — ${advanceFeeLabel(enrollment, monthKey)} (advance)`,
     });
   };
 
@@ -229,7 +235,7 @@ const Classes = () => {
                       onClick={() => handlePayAdvance(enrollment)}
                       className="flex items-center gap-1.5 rounded-md border border-gold/40 px-3 py-1.5 font-body text-xs font-semibold text-gold transition-colors hover:bg-gold/10"
                     >
-                      <CalendarClock className="h-3.5 w-3.5" /> Pay {periodLabel(nextAdvanceMonthKey(enrollment))} in advance
+                      <CalendarClock className="h-3.5 w-3.5" /> Pay {advanceFeeLabel(enrollment, nextAdvanceMonthKey(enrollment))} in advance
                     </button>
                   )}
                   {enrollment.status !== "cancelled" && (

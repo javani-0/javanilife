@@ -17,6 +17,7 @@ import {
 import { db } from "@/lib/firebase";
 import { formatPaiseAsRupees } from "@/lib/ecommerce";
 import {
+  addMonths as addMonthsKey,
   buildFeePaymentId,
   clampBillingDay,
   computeBillingPeriodFromMonthKey,
@@ -155,20 +156,36 @@ export const listFeesForEnrollment = async (enrollmentId: string): Promise<FeePa
  * appears in Pending totals and receives the daily WhatsApp reminders).
  * Returns true when a doc was created, false when it already existed.
  */
+/**
+ * FIXED STRUCTURE (client-confirmed): a NEW student's enrolment payment is a
+ * standalone "Pre-payment" (not any month's fee); their monthly fees bill in
+ * ARREARS — June's fee is due on July's billing day. Mirrors the server's
+ * isPrepaymentEnrollment in api/_lib/fee-store.ts — keep in sync.
+ */
+export const isPrepaymentEnrollment = (
+  enrollment: Pick<EnrollmentDoc, "paymentPlan" | "studentStatus" | "feeType">,
+): boolean =>
+  enrollment.paymentPlan === "manual" && enrollment.studentStatus === "new" && enrollment.feeType !== "term";
+
 export const ensureMonthlyDueFee = async (
   enrollment: Pick<
     EnrollmentDoc,
-    "id" | "classId" | "className" | "parentUserId" | "student" | "parent" | "monthlyFeeInPaise" | "billingDayOfMonth" | "paymentPlan" | "slotId" | "slotLabel"
+    "id" | "classId" | "className" | "parentUserId" | "student" | "parent" | "monthlyFeeInPaise" | "billingDayOfMonth" | "paymentPlan" | "slotId" | "slotLabel" | "studentStatus" | "feeType" | "startMonthKey"
   >,
   monthKey: string,
 ): Promise<boolean> => {
+  // Prepayment enrolments: never create a due for the joining month or earlier
+  // (their first collectable month is the one AFTER joining, billed in arrears).
+  if (isPrepaymentEnrollment(enrollment) && monthKey <= (enrollment.startMonthKey || "")) return false;
+
   const id = buildFeePaymentId(enrollment.id, monthKey);
   const ref = doc(db, FEE_PAYMENTS_COLLECTION, id);
   const existing = await getDoc(ref);
   if (existing.exists()) return false;
 
   const billingDay = clampBillingDay(enrollment.billingDayOfMonth);
-  const billing = computeBillingPeriodFromMonthKey(monthKey, enrollment.paymentPlan, 1);
+  const billingMethod = isPrepaymentEnrollment(enrollment) ? "arrears" : enrollment.paymentPlan;
+  const billing = computeBillingPeriodFromMonthKey(monthKey, billingMethod, 1);
   await setDoc(ref, {
     enrollmentId: enrollment.id,
     classId: enrollment.classId || "",
@@ -234,12 +251,17 @@ export const markFeeCash = async (feeId: string, adminNote?: string): Promise<vo
  * original month (waive it if the student shouldn't pay it).
  */
 export const updateFeeDetails = async (
-  fee: Pick<FeePaymentDoc, "id" | "periodLabel">,
+  fee: Pick<FeePaymentDoc, "id" | "periodLabel" | "monthKey">,
   params: { amountInPaise: number; dueDate: string; monthKey?: string; prepayment: boolean },
 ): Promise<void> => {
+  // When moving the fee to another collection month, keep its billing offset:
+  // an arrears fee (label = month before its collection month, e.g. doc
+  // 2026-07 labelled "June 2026") stays arrears after the move.
+  const currentBase = (fee.periodLabel || "").replace(/\s*·\s*Pre-payment$/, "");
+  const wasArrears = /^\d{4}-\d{2}$/.test(fee.monthKey || "") && currentBase === periodLabelFor(addMonthsKey(fee.monthKey, -1));
   const base = params.monthKey && /^\d{4}-\d{2}$/.test(params.monthKey)
-    ? periodLabelFor(params.monthKey)
-    : (fee.periodLabel || "").replace(/\s*·\s*Pre-payment$/, "");
+    ? periodLabelFor(wasArrears ? addMonthsKey(params.monthKey, -1) : params.monthKey)
+    : currentBase;
   const periodLabel = params.prepayment ? `${base} · Pre-payment` : base;
   await updateDoc(doc(db, FEE_PAYMENTS_COLLECTION, fee.id), {
     amountInPaise: Math.max(100, Math.round(params.amountInPaise)),
