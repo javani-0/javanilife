@@ -1,5 +1,6 @@
 import type { Timestamp } from "firebase/firestore";
 import type { CourseInstallmentPlan } from "@/lib/ecommerce/types";
+import type { FeeEditChange } from "./feeMath";
 
 // Re-export the pure fee-math helpers so consumers can import everything from
 // "@/lib/classes" in one place.
@@ -196,15 +197,19 @@ export interface FeeReminderInfo {
 
 // 4.3 — the monthly ledger (one per student per month). Doc id =
 // `${enrollmentId}_${monthKey}` for idempotency.
-// One audit entry for an admin cash collection or its undo. Timestamps are ISO
-// strings (Firestore arrayUnion cannot hold serverTimestamp()).
+// One audit entry for an admin cash collection, its undo, or an admin edit of
+// the fee's details (month/price/due date — req: the parent must be able to
+// see what the admin changed). Timestamps are ISO strings (Firestore
+// arrayUnion cannot hold serverTimestamp()).
 export interface FeeCollectionEvent {
-  action: "cash-collected" | "collection-undone";
+  action: "cash-collected" | "collection-undone" | "fee-edited";
   at: string;          // ISO timestamp
   by: string;          // admin uid
   amountInPaise: number;
   proofUrl?: string;
   note?: string;
+  // "fee-edited" only: the before→after diff shown to admin AND parent.
+  changes?: FeeEditChange[];
 }
 
 export interface FeePaymentDoc {

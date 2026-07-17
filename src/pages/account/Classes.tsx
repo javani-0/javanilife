@@ -10,9 +10,12 @@ import {
   addMonths,
   cancelSubscription,
   deriveDisplayFeeStatus,
+  describeFeeEditChanges,
   ENROLLMENT_STATUS_LABELS,
   FEE_STATUS_LABELS,
+  feePaidStatement,
   formatFeeAmount,
+  formatFeeDate,
   formatMonthRange,
   formatNiceDate,
   getClassFeeLabel,
@@ -257,11 +260,25 @@ const Classes = () => {
                     <div className="space-y-2">
                       {enrollmentFees.map((fee) => {
                         const displayStatus = deriveDisplayFeeStatus(fee);
+                        const paidStatement = feePaidStatement(fee);
+                        const adminEdits = (fee.collectionHistory || []).filter((event) => event.action === "fee-edited");
                         return (
-                          <div key={fee.id} id={`fee-${fee.id}`} className="flex items-center justify-between rounded-lg border border-border/60 bg-background/70 px-3 py-2 scroll-mt-28">
-                            <div>
+                          <div key={fee.id} id={`fee-${fee.id}`} className="flex items-center justify-between gap-2 rounded-lg border border-border/60 bg-background/70 px-3 py-2 scroll-mt-28">
+                            <div className="min-w-0">
                               <p className="font-body text-sm font-medium text-foreground">{fee.periodLabel}</p>
                               <p className="font-body text-xs text-muted-foreground">{formatFeeAmount(fee)}{fee.paymentMethod ? ` · ${fee.paymentMethod}` : ""}</p>
+                              {/* Req: say exactly which month's fee was paid on which date —
+                                  arrears billing makes "June 2026 fee paid on 11 July 2026" the
+                                  clear version of an otherwise confusing pair of dates. */}
+                              {paidStatement && (
+                                <p className="mt-0.5 font-body text-[0.7rem] font-medium text-green-700">{paidStatement}</p>
+                              )}
+                              {/* Req: the parent can see exactly what the admin changed. */}
+                              {adminEdits.map((event, index) => (
+                                <p key={index} className="mt-0.5 font-body text-[0.7rem] text-amber-700">
+                                  Updated by admin on {formatFeeDate(event.at)}{event.changes?.length ? ` — ${describeFeeEditChanges(event.changes)}` : ""}
+                                </p>
+                              ))}
                               {displayStatus === "processing" && fee.paymentMethod === "upi" && (
                                 <p className="mt-0.5 font-body text-[0.7rem] text-blue-600">⏳ Awaiting admin approval</p>
                               )}

@@ -57,6 +57,43 @@ export const periodLabel = (monthKey: string): string => {
 
 const SHORT_MONTHS = MONTH_NAMES.map((name) => name.slice(0, 3));
 
+/**
+ * "12 July 2026" from a Firestore Timestamp ({ toDate() }), a Date, or an ISO
+ * string. Full month name on purpose: "11/7/2026" reads as either 11 July or
+ * 7 November depending on the reader — fee records must be unambiguous.
+ */
+export const formatFeeDate = (value: unknown): string => {
+  let date: Date | null = null;
+  if (value instanceof Date) date = value;
+  else if (value && typeof value === "object" && typeof (value as { toDate?: unknown }).toDate === "function") date = (value as { toDate: () => Date }).toDate();
+  else if (typeof value === "string" && value) {
+    const parsed = new Date(value);
+    if (!Number.isNaN(parsed.getTime())) date = parsed;
+  }
+  if (!date || Number.isNaN(date.getTime())) return "";
+  return `${date.getDate()} ${MONTH_NAMES[date.getMonth()]} ${date.getFullYear()}`;
+};
+
+/** Strip the "· Pre-payment" suffix → the plain billed-period label. */
+export const baseFeeLabel = (periodLabelValue?: string): string => (periodLabelValue || "").replace(/\s*·\s*Pre-payment\s*$/, "");
+
+/**
+ * The unambiguous paid statement (req): "June 2026 fee paid on 12 July 2026".
+ * Arrears billing means the collection date's month usually differs from the
+ * billed month — naming both removes the "two June payments?" confusion.
+ * Empty string when the fee isn't paid or has no paid date yet.
+ */
+export const feePaidStatement = (fee: { periodLabel?: string; status?: string; paidAt?: unknown }): string => {
+  if (fee.status !== "paid") return "";
+  const paidOn = formatFeeDate(fee.paidAt);
+  if (!paidOn) return "";
+  const base = baseFeeLabel(fee.periodLabel);
+  if (!base) return `Paid on ${paidOn}`;
+  // "Full course fee" already ends in "fee" — avoid "fee fee".
+  const subject = /fee\s*$/i.test(base) ? base : `${base} fee`;
+  return `${subject} paid on ${paidOn}`;
+};
+
 /** "1 Jul 2026" for "2026-07-01". Returns the input unchanged if not a date. */
 export const formatNiceDate = (iso?: string): string => {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || "");
@@ -152,6 +189,88 @@ export const dueDateFor = (monthKey: string, billingDay: number): string => {
 
 /** Deterministic, idempotent fee-doc id: `${enrollmentId}_${monthKey}`. */
 export const buildFeePaymentId = (enrollmentId: string, monthKey: string): string => `${enrollmentId}_${monthKey}`;
+
+// ---------------------------------------------------------------------------
+// Admin fee-edit audit trail (req): every admin edit of a fee's month/price is
+// recorded on the fee doc, so the parent's own dashboard can show exactly what
+// the admin changed and when.
+// ---------------------------------------------------------------------------
+
+/** One before→after change inside a "fee-edited" audit event. Values are display strings. */
+export interface FeeEditChange {
+  field: "amount" | "month" | "dueDate" | "type";
+  from: string;
+  to: string;
+}
+
+/** The inputs of an admin fee edit (mirrors the Edit fee dialog). */
+export interface FeeEditParams {
+  amountInPaise: number;
+  dueDate: string;
+  monthKey?: string;
+  prepayment: boolean;
+}
+
+/**
+ * The period label after an edit. Extracted from updateFeeDetails so the audit
+ * diff and the write share one rule: moving a fee to another collection month
+ * keeps its billing offset — an arrears fee (label = the month before its
+ * collection month) stays arrears after the move.
+ */
+export const nextFeePeriodLabel = (
+  fee: { periodLabel?: string; monthKey?: string },
+  params: Pick<FeeEditParams, "monthKey" | "prepayment">,
+): string => {
+  const currentBase = baseFeeLabel(fee.periodLabel);
+  const wasArrears = /^\d{4}-\d{2}$/.test(fee.monthKey || "") && currentBase === periodLabel(addMonths(fee.monthKey || "", -1));
+  const base = params.monthKey && /^\d{4}-\d{2}$/.test(params.monthKey)
+    ? periodLabel(wasArrears ? addMonths(params.monthKey, -1) : params.monthKey)
+    : currentBase;
+  return params.prepayment ? `${base} · Pre-payment` : base;
+};
+
+const formatRupees = (amountInPaise: number): string => {
+  const rupees = Math.max(0, Math.round(amountInPaise)) / 100;
+  const digits = Number.isInteger(rupees) ? 0 : 2;
+  return `₹${new Intl.NumberFormat("en-IN", { minimumFractionDigits: digits, maximumFractionDigits: digits }).format(rupees)}`;
+};
+
+/**
+ * Diff an admin edit against the fee's current values. The "month" entry uses
+ * the labels the parent actually sees (period labels, not raw month keys), so
+ * the audit line reads "Month: June 2026 → July 2026".
+ */
+export const computeFeeEditChanges = (
+  fee: { amountInPaise?: number; dueDate?: string; monthKey?: string; periodLabel?: string },
+  params: FeeEditParams,
+): FeeEditChange[] => {
+  const changes: FeeEditChange[] = [];
+  const oldAmount = Math.max(0, Math.round(fee.amountInPaise || 0));
+  const newAmount = Math.max(100, Math.round(params.amountInPaise));
+  if (newAmount !== oldAmount) changes.push({ field: "amount", from: formatRupees(oldAmount), to: formatRupees(newAmount) });
+  const oldBase = baseFeeLabel(fee.periodLabel);
+  const newBase = baseFeeLabel(nextFeePeriodLabel(fee, params));
+  if (newBase !== oldBase) changes.push({ field: "month", from: oldBase || "—", to: newBase || "—" });
+  const oldDue = fee.dueDate || "";
+  const newDue = params.dueDate || "";
+  if (newDue !== oldDue) changes.push({ field: "dueDate", from: formatNiceDate(oldDue) || "—", to: formatNiceDate(newDue) || "—" });
+  const wasPrepayment = /·\s*Pre-payment\s*$/.test(fee.periodLabel || "");
+  if (params.prepayment !== wasPrepayment) {
+    changes.push({ field: "type", from: wasPrepayment ? "Pre-payment" : "Regular fee", to: params.prepayment ? "Pre-payment" : "Regular fee" });
+  }
+  return changes;
+};
+
+const FEE_EDIT_FIELD_LABELS: Record<FeeEditChange["field"], string> = {
+  amount: "Amount",
+  month: "Month",
+  dueDate: "Due date",
+  type: "Type",
+};
+
+/** "Amount: ₹1,850 → ₹2,000 · Month: June 2026 → July 2026" for an audit event. */
+export const describeFeeEditChanges = (changes?: FeeEditChange[]): string =>
+  (changes || []).map((change) => `${FEE_EDIT_FIELD_LABELS[change.field] || change.field}: ${change.from} → ${change.to}`).join(" · ");
 
 const toUtcMidnight = (dateKey: string): Date | null => {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateKey || "");

@@ -8,10 +8,13 @@ import { createPortal } from "react-dom";
 import { formatPaiseAsRupees } from "@/lib/ecommerce";
 import {
   deriveDisplayFeeStatus,
+  describeFeeEditChanges,
   FEE_PAYMENT_METHOD_LABELS,
   FEE_STATUS_LABELS,
   collectFeeCash,
   deleteFee,
+  feePaidStatement,
+  formatFeeDate,
   formatMonthRange,
   formatNiceDate,
   approveUpiPayment,
@@ -286,9 +289,19 @@ const AdminFeeCollections = () => {
         dueDate: editDueDate,
         monthKey: editMonth && editMonth !== editFee.monthKey ? editMonth : undefined,
         prepayment: editPrepayment,
+        adminUid: user?.uid,
       });
       toast({ title: "Fee updated", description: `${editFee.studentName} · amount, dates & label saved.` });
       setEditFee(null);
+      // The Payment history dialog may be open under this edit — refresh it so
+      // the row shows the new values + the "edited by admin" audit line.
+      if (historyFee) {
+        try {
+          setHistoryRows(await listFeesForEnrollment(historyFee.enrollmentId));
+        } catch (refreshError) {
+          console.error("Fee saved but the history list could not refresh", refreshError);
+        }
+      }
     } catch (error) {
       toast({ title: "Could not update the fee", description: error instanceof Error ? error.message : undefined, variant: "destructive" });
     } finally {
@@ -559,7 +572,7 @@ const AdminFeeCollections = () => {
                       <td className="px-4 py-3 font-display text-sm font-bold text-primary">{formatPaiseAsRupees(fee.amountInPaise)}</td>
                       <td className="px-4 py-3">
                         <span className={`rounded-full px-2 py-1 font-body text-[0.7rem] ${statusStyles[displayStatus]}`}>{FEE_STATUS_LABELS[displayStatus]}</span>
-                        {fee.paidAt && <p className="mt-0.5 font-body text-[0.65rem] text-muted-foreground">{formatTimestamp(fee.paidAt)}</p>}
+                        {fee.paidAt && <p className="mt-0.5 font-body text-[0.65rem] text-muted-foreground">{feePaidStatement(fee) || `paid ${formatFeeDate(fee.paidAt)}`}</p>}
                       </td>
                       <td className="px-4 py-3 font-body text-xs text-muted-foreground">{feeMethodLabel(fee)}</td>
                       <td className="px-4 py-3" onClick={(event) => event.stopPropagation()}>
@@ -637,9 +650,9 @@ const AdminFeeCollections = () => {
                       </div>
                     )}
                     {fee.paidAt && (
-                      <div className="flex justify-between pt-1">
+                      <div className="flex justify-between gap-2 pt-1">
                         <span className="text-muted-foreground">Paid On</span>
-                        <span className="text-foreground">{formatTimestamp(fee.paidAt)}</span>
+                        <span className="text-right text-foreground">{feePaidStatement(fee) || formatFeeDate(fee.paidAt)}</span>
                       </div>
                     )}
                   </div>
@@ -704,7 +717,7 @@ const AdminFeeCollections = () => {
             ["Payment method", feeMethodLabel(fee)],
             ["Billing Period", `${billingPeriod}${termFee && displayStatus === "paid" ? " · Paid" : ""}`],
             ["Next Charge Date", nextCharge ? formatNiceDate(nextCharge) : "—"],
-            ["Paid On", formatTimestamp(fee.paidAt) || "—"],
+            ["Paid On", feePaidStatement(fee) || formatFeeDate(fee.paidAt) || "—"],
             ["Parent", `${fee.parentName} · ${fee.parentPhone}`],
           ];
           return (
@@ -733,13 +746,20 @@ const AdminFeeCollections = () => {
                     <p className="mb-1.5 font-body text-xs font-semibold uppercase tracking-wide text-muted-foreground">Collection record</p>
                     <div className="space-y-1.5">
                       {fee.collectionHistory!.map((event, index) => (
-                        <p key={index} className="flex items-center justify-between gap-2 font-body text-xs">
-                          <span className={event.action === "cash-collected" ? "text-green-700" : "text-amber-700"}>
-                            {event.action === "cash-collected" ? "✓ Cash collected" : "↩ Collection undone"}
-                            {event.proofUrl && <a href={event.proofUrl} target="_blank" rel="noreferrer" className="ml-1.5 text-gold hover:underline">(proof)</a>}
-                          </span>
-                          <span className="shrink-0 text-muted-foreground">{formatPaiseAsRupees(event.amountInPaise)} · {new Date(event.at).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</span>
-                        </p>
+                        <div key={index} className="font-body text-xs">
+                          <p className="flex items-center justify-between gap-2">
+                            <span className={event.action === "cash-collected" ? "text-green-700" : event.action === "fee-edited" ? "text-blue-700" : "text-amber-700"}>
+                              {event.action === "cash-collected" ? "✓ Cash collected" : event.action === "fee-edited" ? "✎ Details edited by admin" : "↩ Collection undone"}
+                              {event.proofUrl && <a href={event.proofUrl} target="_blank" rel="noreferrer" className="ml-1.5 text-gold hover:underline">(proof)</a>}
+                            </span>
+                            <span className="shrink-0 text-muted-foreground">
+                              {event.action === "fee-edited" ? formatFeeDate(event.at) : `${formatPaiseAsRupees(event.amountInPaise)} · ${new Date(event.at).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}`}
+                            </span>
+                          </p>
+                          {event.action === "fee-edited" && (event.changes?.length || 0) > 0 && (
+                            <p className="mt-0.5 text-muted-foreground">{describeFeeEditChanges(event.changes)}</p>
+                          )}
+                        </div>
                       ))}
                     </div>
                   </div>
@@ -776,17 +796,33 @@ const AdminFeeCollections = () => {
                 <div className="space-y-2">
                   {historyRows.map((row) => {
                     const rowStatus = deriveDisplayFeeStatus(row);
+                    const paidStatement = feePaidStatement(row);
+                    const editEvents = (row.collectionHistory || []).filter((event) => event.action === "fee-edited");
                     return (
-                      <div key={row.id} className="flex items-center justify-between rounded-lg border border-border/60 bg-background/70 px-3 py-2">
-                        <div>
+                      <div key={row.id} className="flex items-start justify-between gap-2 rounded-lg border border-border/60 bg-background/70 px-3 py-2">
+                        <div className="min-w-0">
                           <p className="font-body text-sm font-medium text-foreground">{row.periodLabel}</p>
                           <p className="font-body text-xs text-muted-foreground">
                             {formatPaiseAsRupees(row.amountInPaise)}
                             {row.paymentMethod ? ` · ${feeMethodLabel(row)}` : ""}
-                            {formatTimestamp(row.paidAt) ? ` · paid ${formatTimestamp(row.paidAt)}` : row.dueDate ? ` · due ${formatNiceDate(row.dueDate)}` : ""}
                           </p>
+                          {paidStatement ? (
+                            <p className="mt-0.5 font-body text-xs font-medium text-green-700">{paidStatement}</p>
+                          ) : row.dueDate ? (
+                            <p className="mt-0.5 font-body text-xs text-muted-foreground">Due {formatNiceDate(row.dueDate)}</p>
+                          ) : null}
+                          {editEvents.map((event, index) => (
+                            <p key={index} className="mt-0.5 font-body text-[0.7rem] text-amber-700">
+                              ✎ Admin updated on {formatFeeDate(event.at)}{event.changes?.length ? ` — ${describeFeeEditChanges(event.changes)}` : ""}
+                            </p>
+                          ))}
                         </div>
-                        <span className={`rounded-full px-2.5 py-1 font-body text-xs font-semibold ${statusStyles[rowStatus]}`}>{FEE_STATUS_LABELS[rowStatus]}</span>
+                        <div className="flex shrink-0 flex-col items-end gap-1.5">
+                          <span className={`rounded-full px-2.5 py-1 font-body text-xs font-semibold ${statusStyles[rowStatus]}`}>{FEE_STATUS_LABELS[rowStatus]}</span>
+                          <button onClick={() => openEditDialog(row)} className="flex items-center gap-1 rounded border border-blue-300 px-2 py-1 font-body text-[0.7rem] font-semibold text-blue-700 hover:bg-blue-50" title="Edit this fee's month & amount">
+                            <Pencil className="h-3 w-3" /> Edit
+                          </button>
+                        </div>
                       </div>
                     );
                   })}

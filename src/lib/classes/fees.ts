@@ -17,12 +17,13 @@ import {
 import { db } from "@/lib/firebase";
 import { formatPaiseAsRupees } from "@/lib/ecommerce";
 import {
-  addMonths as addMonthsKey,
   buildFeePaymentId,
   clampBillingDay,
   computeBillingPeriodFromMonthKey,
+  computeFeeEditChanges,
   dueDateFor,
   isOverdue,
+  nextFeePeriodLabel,
   periodLabel as periodLabelFor,
   type EnrollmentDoc,
   type FeeCollectionEvent,
@@ -245,30 +246,35 @@ export const markFeeCash = async (feeId: string, adminNote?: string): Promise<vo
 /**
  * Admin: full fee edit (req) — amount, due date (past/present/future), billed
  * month, and the Pre-payment/Regular label. Changing the month rewrites the
- * period label; the Pre-payment suffix follows the toggle. NOTE: fee doc ids
+ * period label; the Pre-payment suffix follows the toggle. Every edit that
+ * actually changes something is appended to `collectionHistory` as a
+ * "fee-edited" audit event, so both the admin popups and the parent's own
+ * dashboard show what was changed, by whom, and when (req). NOTE: fee doc ids
  * are `${enrollmentId}_${monthKey}` — moving a fee to another month keeps the
  * old id, so the ledger self-heal may regenerate a pending due for the
  * original month (waive it if the student shouldn't pay it).
  */
 export const updateFeeDetails = async (
-  fee: Pick<FeePaymentDoc, "id" | "periodLabel" | "monthKey">,
-  params: { amountInPaise: number; dueDate: string; monthKey?: string; prepayment: boolean },
+  fee: Pick<FeePaymentDoc, "id" | "periodLabel" | "monthKey" | "amountInPaise" | "dueDate">,
+  params: { amountInPaise: number; dueDate: string; monthKey?: string; prepayment: boolean; adminUid?: string },
 ): Promise<void> => {
-  // When moving the fee to another collection month, keep its billing offset:
-  // an arrears fee (label = month before its collection month, e.g. doc
-  // 2026-07 labelled "June 2026") stays arrears after the move.
-  const currentBase = (fee.periodLabel || "").replace(/\s*·\s*Pre-payment$/, "");
-  const wasArrears = /^\d{4}-\d{2}$/.test(fee.monthKey || "") && currentBase === periodLabelFor(addMonthsKey(fee.monthKey, -1));
-  const base = params.monthKey && /^\d{4}-\d{2}$/.test(params.monthKey)
-    ? periodLabelFor(wasArrears ? addMonthsKey(params.monthKey, -1) : params.monthKey)
-    : currentBase;
-  const periodLabel = params.prepayment ? `${base} · Pre-payment` : base;
+  const periodLabel = nextFeePeriodLabel(fee, params);
+  const changes = computeFeeEditChanges(fee, params);
   await updateDoc(doc(db, FEE_PAYMENTS_COLLECTION, fee.id), {
     amountInPaise: Math.max(100, Math.round(params.amountInPaise)),
     dueDate: params.dueDate || "",
     ...(params.monthKey && /^\d{4}-\d{2}$/.test(params.monthKey) ? { monthKey: params.monthKey } : {}),
     periodLabel,
     prepayment: params.prepayment,
+    ...(changes.length > 0 ? {
+      collectionHistory: arrayUnion({
+        action: "fee-edited",
+        at: new Date().toISOString(),
+        by: params.adminUid || "",
+        amountInPaise: Math.max(100, Math.round(params.amountInPaise)),
+        changes,
+      } satisfies FeeCollectionEvent),
+    } : {}),
     updatedAt: serverTimestamp(),
   });
 };
