@@ -27,6 +27,7 @@ import Courses from "./pages/Courses";
 import Classes from "./pages/Classes";
 import ClassDetail from "./pages/ClassDetail";
 import AccountClasses from "./pages/account/Classes";
+import AccountClassRoom from "./pages/account/ClassRoom";
 import Grading from "./pages/Grading";
 import Gallery from "./pages/Gallery";
 import Products from "./pages/Products";
@@ -46,6 +47,7 @@ import Signup from "./pages/Signup";
 import ProductDetail from "./pages/ProductDetail";
 import CourseDetail from "./pages/CourseDetail";
 import TermsAndConditions from "./pages/TermsAndConditions";
+import OnboardingPay from "./pages/OnboardingPay";
 
 /**
  * `lazy()` that survives a failed chunk fetch.
@@ -88,6 +90,7 @@ const AdminEnquiries = lazyWithRetry(() => import("./pages/admin/AdminEnquiries"
 const AdminCourses = lazyWithRetry(() => import("./pages/admin/AdminCourses"));
 const AdminClasses = lazyWithRetry(() => import("./pages/admin/AdminClasses"));
 const AdminEnrollments = lazyWithRetry(() => import("./pages/admin/AdminEnrollments"));
+const AdminStudents = lazyWithRetry(() => import("./pages/admin/AdminStudents"));
 const AdminFeeCollections = lazyWithRetry(() => import("./pages/admin/AdminFeeCollections"));
 const AdminGallery = lazyWithRetry(() => import("./pages/admin/AdminGallery"));
 const AdminProducts = lazyWithRetry(() => import("./pages/admin/AdminProducts"));
@@ -130,6 +133,7 @@ const PublicFloatingButtons = () => {
     pathname.startsWith("/account") ||
     pathname === "/login" ||
     pathname === "/signup" ||
+    pathname.startsWith("/pay/") ||
     pathname.startsWith("/partner")
   ) return null;
   return <FloatingButtons />;
@@ -137,13 +141,13 @@ const PublicFloatingButtons = () => {
 
 const PublicScrollProgress = () => {
   const { pathname } = useLocation();
-  if (pathname.startsWith("/admin") || pathname.startsWith("/partner")) return null;
+  if (pathname.startsWith("/admin") || pathname.startsWith("/partner") || pathname.startsWith("/pay/")) return null;
   return <ScrollProgressBar />;
 };
 
 const PublicNavbar = () => {
   const { pathname } = useLocation();
-  if (pathname.startsWith("/admin") || pathname.startsWith("/partner") || pathname === "/login" || pathname === "/signup") return null;
+  if (pathname.startsWith("/admin") || pathname.startsWith("/partner") || pathname.startsWith("/pay/") || pathname === "/login" || pathname === "/signup") return null;
   return <Navbar />;
 };
 
@@ -207,6 +211,7 @@ const App = () => {
                     <Route path="/account/profile" element={<AccountRoute><AccountProfile /></AccountRoute>} />
                     <Route path="/account/orders" element={<AccountRoute><AccountOrders /></AccountRoute>} />
                     <Route path="/account/classes" element={<AccountRoute><AccountClasses /></AccountRoute>} />
+                    <Route path="/account/classes/:enrollmentId" element={<AccountRoute><AccountClassRoom /></AccountRoute>} />
                     <Route path="/account/emi" element={<AccountRoute><AccountEmiDashboard /></AccountRoute>} />
                     <Route path="/account/orders/:id" element={<AccountRoute><AccountOrderDetail /></AccountRoute>} />
                     <Route path="/account/wishlist" element={<AccountRoute><AccountWishlist /></AccountRoute>} />
@@ -220,6 +225,7 @@ const App = () => {
                     <Route path="/terms-and-conditions" element={<TermsAndConditions />} />
                     <Route path="/login" element={<Login />} />
                     <Route path="/signup" element={<Signup />} />
+                    <Route path="/pay/:token" element={<OnboardingPay />} />
                     <Route path="/admin/login" element={<AdminLogin />} />
                     <Route path="/admin" element={<ProtectedRoute><AdminLayout /></ProtectedRoute>}>
                       <Route index element={<AdminDashboard />} />
@@ -228,6 +234,7 @@ const App = () => {
                       <Route path="courses" element={<AdminCourses />} />
                       <Route path="classes" element={<AdminClasses />} />
                       <Route path="enrollments" element={<AdminEnrollments />} />
+                      <Route path="students" element={<AdminStudents />} />
                       <Route path="fee-collections" element={<AdminFeeCollections />} />
                       <Route path="payment-settings" element={<AdminPaymentSettings />} />
                       <Route path="gallery" element={<AdminGallery />} />

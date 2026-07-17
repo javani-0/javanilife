@@ -131,6 +131,36 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    // Student Manager (req): admin-created student profiles + onboarding state.
+    // Staff with the `students` page manage them; approval writes (STU id,
+    // login, enrolment) happen server-side via the Admin SDK.
+    match /students/{id} {
+      allow read, write: if staffAny(['students']);
+    }
+
+    // Student sign-in credentials (email + password = STU id) — staff-only,
+    // same plaintext-for-resharing model as partner/manager credentials. Writes
+    // happen server-side (Admin SDK) at approval.
+    match /studentCredentials/{id} {
+      allow read: if staffAny(['students']);
+      allow write: if staffAny(['students']);
+    }
+
+    // Public onboarding payment links. Read by DIRECT token only (never listed)
+    // so a parent can open their own link without logging in; every parent-side
+    // change goes through the server (Admin SDK). Staff manage/refresh the doc.
+    match /onboardingLinks/{token} {
+      allow get: if true;
+      allow list: if staffAny(['students']);
+      allow write: if staffAny(['students']);
+    }
+
+    // Server-only counters (e.g. counters/studentIds → next STU id). No client
+    // access; the Admin SDK bypasses these rules.
+    match /counters/{id} {
+      allow read, write: if false;
+    }
+
     // Business expenses — admin enters/edits; admin + partner may read. The
     // partner dashboard reads aggregates via the server, but allowing read here
     // keeps the admin console working and exposes no customer PII.

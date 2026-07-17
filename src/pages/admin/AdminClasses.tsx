@@ -4,7 +4,7 @@ import { deleteDoc, doc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { CLOUDINARY_CLOUD_NAME, CLOUDINARY_UPLOAD_PRESET } from "@/lib/cloudinary";
 import { openSquareCropper } from "@/components/SquareImageCropper";
-import { Plus, Pencil, Trash2, X, Upload, BadgeIndianRupee, AlertTriangle, GraduationCap, CalendarRange, Repeat, Clock, Wallet } from "lucide-react";
+import { Plus, Pencil, Trash2, X, Upload, BadgeIndianRupee, AlertTriangle, GraduationCap, CalendarRange, Repeat, Clock, Wallet, Video, FileText, MonitorPlay } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { formatPaiseAsRupees, parsePriceToPaise } from "@/lib/ecommerce";
 import {
@@ -27,6 +27,7 @@ import {
   subscribeToClasses,
   upsertClass,
   WEEKDAYS,
+  type ClassContentLink,
   type ClassDoc,
   type ClassEmiConfig,
   type ClassTimeSlot,
@@ -73,6 +74,11 @@ interface ClassFormState {
   emiInstallments: string;   // "25, 25"
   emiSurchargeRupees: string; // flat ₹ convenience fee added once for EMI
   timeSlots: SlotFormState[];
+  // Student-portal class content (req): live class link + recorded class links
+  // + study material files. Admin can add any number of rows of each.
+  liveClassUrl: string;
+  recordings: ClassContentLink[];
+  materials: ClassContentLink[];
 }
 
 const defaultForm: ClassFormState = {
@@ -106,10 +112,16 @@ const defaultForm: ClassFormState = {
   emiInstallments: DEFAULT_CLASS_EMI_CONFIG.installmentPercentages.join(", "),
   emiSurchargeRupees: "",
   timeSlots: [],
+  liveClassUrl: "",
+  recordings: [],
+  materials: [],
 };
 
 let slotIdCounter = 0;
 const newSlot = (): SlotFormState => ({ id: `slot-${Date.now()}-${slotIdCounter++}`, days: [], start: "", end: "", seats: "" });
+
+let contentIdCounter = 0;
+const newContentLink = (prefix: string): ClassContentLink => ({ id: `${prefix}-${Date.now()}-${contentIdCounter++}`, title: "", url: "" });
 
 /** Parse "50" + "25, 25" (+ optional surcharge ₹) into a ClassEmiConfig; returns null if the split is invalid. */
 const parseEmiConfig = (upfrontStr: string, installmentsStr: string, surchargeRupees = ""): { config: ClassEmiConfig | null; sum: number } => {
@@ -173,8 +185,10 @@ const AdminClasses = () => {
   const [editing, setEditing] = useState<string | null>(null);
   const [form, setForm] = useState<ClassFormState>(defaultForm);
   const [imageUploading, setImageUploading] = useState(false);
+  const [materialsUploading, setMaterialsUploading] = useState(false);
   const [saving, setSaving] = useState(false);
   const imageRef = useRef<HTMLInputElement>(null);
+  const materialsRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
   useEffect(() => subscribeToClasses(setClasses, (error) => {
@@ -248,6 +262,9 @@ const AdminClasses = () => {
         end: slot.end || "",
         seats: slot.seatsTotal != null ? String(slot.seatsTotal) : "",
       })),
+      liveClassUrl: classDoc.liveClassUrl || "",
+      recordings: (classDoc.recordings || []).map((link) => ({ ...link })),
+      materials: (classDoc.materials || []).map((link) => ({ ...link })),
     });
     setEditing(classDoc.id);
     setShowModal(true);
@@ -266,6 +283,42 @@ const AdminClasses = () => {
           : slot,
       ),
     }));
+
+  // Class-content rows (recordings / materials): add, edit, remove + bulk
+  // material file upload (multiple PDFs at once via Cloudinary).
+  const addContentLink = (kind: "recordings" | "materials") =>
+    setForm((current) => ({ ...current, [kind]: [...current[kind], newContentLink(kind === "recordings" ? "rec" : "mat")] }));
+  const removeContentLink = (kind: "recordings" | "materials", id: string) =>
+    setForm((current) => ({ ...current, [kind]: current[kind].filter((link) => link.id !== id) }));
+  const updateContentLink = (kind: "recordings" | "materials", id: string, patch: Partial<ClassContentLink>) =>
+    setForm((current) => ({ ...current, [kind]: current[kind].map((link) => (link.id === id ? { ...link, ...patch } : link)) }));
+
+  const handleMaterialFiles = async (files: FileList | null) => {
+    const list = Array.from(files || []);
+    if (list.length === 0) return;
+    setMaterialsUploading(true);
+    try {
+      for (const file of list) {
+        const formData = new FormData();
+        formData.append("file", file);
+        formData.append("upload_preset", CLOUDINARY_UPLOAD_PRESET);
+        formData.append("folder", "class-materials");
+        // `auto/upload` accepts PDFs and other documents, not just images.
+        const response = await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/auto/upload`, { method: "POST", body: formData });
+        const data = await response.json();
+        if (!data.secure_url) throw new Error(data?.error?.message || "No URL returned");
+        const title = file.name.replace(/\.[^.]+$/, "");
+        setForm((current) => ({ ...current, materials: [...current.materials, { ...newContentLink("mat"), title, url: data.secure_url }] }));
+      }
+      toast({ title: `${list.length} file${list.length > 1 ? "s" : ""} uploaded` });
+    } catch (error) {
+      console.error("Material upload failed", error);
+      toast({ title: "Upload failed", description: error instanceof Error ? error.message : "Please try again or paste the file URL instead.", variant: "destructive" });
+    } finally {
+      setMaterialsUploading(false);
+      if (materialsRef.current) materialsRef.current.value = "";
+    }
+  };
 
   const closeModal = () => { setShowModal(false); setEditing(null); setForm(defaultForm); };
 
@@ -371,6 +424,9 @@ const AdminClasses = () => {
         },
         emi: offersTerm && form.payEmi ? emiParsed.config : null,
         timeSlots,
+        liveClassUrl: form.liveClassUrl,
+        recordings: form.recordings.filter((link) => link.url.trim()),
+        materials: form.materials.filter((link) => link.url.trim()),
       });
       toast({ title: editing ? "Class updated" : "Class added" });
       closeModal();
@@ -723,6 +779,58 @@ const AdminClasses = () => {
                       </div>
                       );
                     })}
+                  </div>
+                )}
+              </div>
+              {/* Class content — powers the student-portal class room (req):
+                  live class link, recorded class links, study material PDFs. */}
+              <div className="sm:col-span-2 rounded-md border border-border/70 p-3">
+                <p className="mb-2 flex items-center gap-2 font-body text-[0.85rem] font-semibold text-foreground">
+                  <MonitorPlay className="h-4 w-4 text-gold" /> Class Content <span className="font-normal text-muted-foreground">(shown to enrolled students in their portal)</span>
+                </p>
+                <label className={labelClass}>Live class link (Google Meet / Zoom)</label>
+                <input value={form.liveClassUrl} onChange={(event) => setForm({ ...form, liveClassUrl: event.target.value })} className={inputClass} placeholder="https://meet.google.com/xxx-xxxx-xxx" />
+                <p className="mt-1 font-body text-[0.72rem] text-muted-foreground">Students see a "Join Live Class" button with this link. Update it whenever the meeting changes.</p>
+
+                <div className="mt-3 flex items-center justify-between">
+                  <span className="flex items-center gap-1.5 font-body text-[0.8rem] font-semibold text-foreground"><Video className="h-4 w-4 text-gold" /> Class recordings</span>
+                  <button type="button" onClick={() => addContentLink("recordings")} className="flex items-center gap-1 rounded-md border border-gold/40 px-2.5 py-1.5 font-body text-[0.75rem] font-semibold text-gold hover:bg-gold/10"><Plus className="h-3.5 w-3.5" /> Add link</button>
+                </div>
+                {form.recordings.length === 0 ? (
+                  <p className="mt-1.5 font-body text-[0.72rem] text-muted-foreground">No recordings yet. Add YouTube/Drive links of past classes — students can rewatch them anytime.</p>
+                ) : (
+                  <div className="mt-2 space-y-2">
+                    {form.recordings.map((link, index) => (
+                      <div key={link.id} className="flex flex-col gap-2 rounded-lg border border-border bg-background/60 p-2.5 sm:flex-row sm:items-center">
+                        <input value={link.title} onChange={(event) => updateContentLink("recordings", link.id, { title: event.target.value })} className={`${inputClass} sm:max-w-[38%]`} placeholder={`Recording title (e.g. Class ${index + 1})`} />
+                        <input value={link.url} onChange={(event) => updateContentLink("recordings", link.id, { url: event.target.value })} className={`${inputClass} flex-1`} placeholder="https://youtu.be/…" />
+                        <button type="button" onClick={() => removeContentLink("recordings", link.id)} className="self-end rounded p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive sm:self-auto" aria-label={`Remove recording ${index + 1}`}><Trash2 className="h-4 w-4" /></button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                  <span className="flex items-center gap-1.5 font-body text-[0.8rem] font-semibold text-foreground"><FileText className="h-4 w-4 text-gold" /> Study materials (PDFs)</span>
+                  <div className="flex items-center gap-2">
+                    <button type="button" onClick={() => materialsRef.current?.click()} disabled={materialsUploading} className="flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 font-body text-[0.75rem] font-semibold text-muted-foreground hover:bg-muted disabled:opacity-50">
+                      <Upload className="h-3.5 w-3.5" /> {materialsUploading ? "Uploading…" : "Upload PDFs"}
+                    </button>
+                    <button type="button" onClick={() => addContentLink("materials")} className="flex items-center gap-1 rounded-md border border-gold/40 px-2.5 py-1.5 font-body text-[0.75rem] font-semibold text-gold hover:bg-gold/10"><Plus className="h-3.5 w-3.5" /> Add link</button>
+                  </div>
+                </div>
+                <input ref={materialsRef} type="file" accept="application/pdf,.pdf,.doc,.docx,.ppt,.pptx" multiple hidden onChange={(event) => handleMaterialFiles(event.target.files)} />
+                {form.materials.length === 0 ? (
+                  <p className="mt-1.5 font-body text-[0.72rem] text-muted-foreground">Upload one or many PDFs at once, or paste Drive links — students can download them from their portal.</p>
+                ) : (
+                  <div className="mt-2 space-y-2">
+                    {form.materials.map((link, index) => (
+                      <div key={link.id} className="flex flex-col gap-2 rounded-lg border border-border bg-background/60 p-2.5 sm:flex-row sm:items-center">
+                        <input value={link.title} onChange={(event) => updateContentLink("materials", link.id, { title: event.target.value })} className={`${inputClass} sm:max-w-[38%]`} placeholder="Material title (e.g. Notes — Week 1)" />
+                        <input value={link.url} onChange={(event) => updateContentLink("materials", link.id, { url: event.target.value })} className={`${inputClass} flex-1`} placeholder="https://…/file.pdf" />
+                        <button type="button" onClick={() => removeContentLink("materials", link.id)} className="self-end rounded p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive sm:self-auto" aria-label={`Remove material ${index + 1}`}><Trash2 className="h-4 w-4" /></button>
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>

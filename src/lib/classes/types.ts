@@ -45,6 +45,16 @@ export interface ClassEmiConfig {
   emiSurchargeInPaise?: number;
 }
 
+// One link row of class content (a recorded-class video or a study material).
+// Admin manages these in the Classes Manager; enrolled students see them in
+// their portal class room. `url` may be a YouTube/Drive link or an uploaded
+// Cloudinary file (PDFs).
+export interface ClassContentLink {
+  id: string;
+  title: string;
+  url: string;
+}
+
 // One bookable time slot. Admin can create several per class; parent picks one.
 export interface ClassTimeSlot {
   id: string;
@@ -114,6 +124,11 @@ export interface ClassDoc {
   payment: ClassPaymentOptions;
   emi?: ClassEmiConfig;      // per-class EMI split (term + emi enabled)
   timeSlots?: ClassTimeSlot[];
+  // Portal class-room content (req): the daily live-class link, past recorded
+  // class links, and downloadable study materials (PDFs).
+  liveClassUrl?: string;
+  recordings?: ClassContentLink[];
+  materials?: ClassContentLink[];
   createdAt?: Timestamp;
   updatedAt?: Timestamp;
 }
@@ -182,6 +197,11 @@ export interface EnrollmentDoc {
   advancePaid?: boolean;
   // Parent-declared enrolment status: a "new" student is not forced into autopay.
   studentStatus?: "new" | "existing";
+  // Admin onboarded this student with the Razorpay/autopay option enabled — the
+  // parent is invited to complete the recurring mandate from their portal (a
+  // UPI/RBI mandate can only be authorized by the payer, not set up on their
+  // behalf), so it surfaces an "Enable autopay" CTA in My Classes.
+  autopayInvited?: boolean;
   createdAt?: Timestamp;
   updatedAt?: Timestamp;
 }

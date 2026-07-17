@@ -20,6 +20,7 @@ import {
   clampBillingDay,
   DEFAULT_CLASS_EMI_CONFIG,
   DEFAULT_CLASS_PAYMENT_OPTIONS,
+  type ClassContentLink,
   type ClassDoc,
   type ClassEmiConfig,
   type ClassFeeType,
@@ -141,6 +142,24 @@ const normalizeEmiConfig = (raw: unknown): ClassEmiConfig | undefined => {
   };
 };
 
+/** Normalize a stored/draft class-content link row (recording or material). */
+export const normalizeContentLink = (raw: unknown, index = 0, prefix = "link"): ClassContentLink | null => {
+  if (!raw || typeof raw !== "object") return null;
+  const data = raw as Record<string, unknown>;
+  const url = typeof data.url === "string" ? data.url.trim() : "";
+  if (!url) return null;
+  return {
+    id: typeof data.id === "string" && data.id ? data.id : `${prefix}-${index + 1}`,
+    title: typeof data.title === "string" ? data.title.trim() : "",
+    url,
+  };
+};
+
+const normalizeContentLinks = (raw: unknown, prefix: string): ClassContentLink[] =>
+  Array.isArray(raw)
+    ? raw.map((item, index) => normalizeContentLink(item, index, prefix)).filter((item): item is ClassContentLink => item != null)
+    : [];
+
 /** The flat EMI convenience fee (paise) configured for a class's EMI split. */
 export const getClassEmiSurchargeInPaise = (emi?: Pick<ClassEmiConfig, "emiSurchargeInPaise">): number =>
   Math.max(0, Math.round(Number(emi?.emiSurchargeInPaise || 0)));
@@ -206,6 +225,9 @@ export const normalizeClass = (id: string, data: DocumentData = {}): ClassDoc =>
   timeSlots: Array.isArray(data.timeSlots)
     ? data.timeSlots.map((slot: Record<string, unknown>, index: number) => normalizeTimeSlot(slot, index))
     : [],
+  liveClassUrl: typeof data.liveClassUrl === "string" ? data.liveClassUrl.trim() : "",
+  recordings: normalizeContentLinks(data.recordings, "rec"),
+  materials: normalizeContentLinks(data.materials, "mat"),
   createdAt: data.createdAt,
   updatedAt: data.updatedAt,
 });
@@ -440,6 +462,10 @@ export interface ClassWritePayload {
   payment?: ClassPaymentOptions;
   emi?: ClassEmiConfig | null;
   timeSlots?: ClassTimeSlot[];
+  // Portal class-room content.
+  liveClassUrl?: string;
+  recordings?: ClassContentLink[];
+  materials?: ClassContentLink[];
 }
 
 const sanitizeTimeSlot = (slot: ClassTimeSlot, index: number) => {
@@ -535,6 +561,13 @@ const buildClassPayload = (payload: ClassWritePayload) => {
       emiSurchargeInPaise: Math.max(0, Math.round(Number(payload.emi.emiSurchargeInPaise || 0))),
     } : null,
     timeSlots,
+    liveClassUrl: (payload.liveClassUrl || "").trim(),
+    recordings: (payload.recordings || [])
+      .map((link, index) => normalizeContentLink(link, index, "rec"))
+      .filter((link): link is ClassContentLink => link != null),
+    materials: (payload.materials || [])
+      .map((link, index) => normalizeContentLink(link, index, "mat"))
+      .filter((link): link is ClassContentLink => link != null),
     updatedAt: serverTimestamp(),
   };
 };

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { CalendarClock, Clock, GraduationCap, Loader2, Repeat, Wallet, XCircle } from "lucide-react";
+import { CalendarClock, Clock, DoorOpen, GraduationCap, Loader2, Repeat, Wallet, XCircle, Zap } from "lucide-react";
 import AccountLayout from "@/components/account/AccountLayout";
 import UpiPaymentDialog from "@/components/classes/UpiPaymentDialog";
 import { useAuth } from "@/contexts/AuthContext";
@@ -9,6 +9,8 @@ import { useScrollHighlight } from "@/hooks/useScrollHighlight";
 import {
   addMonths,
   cancelSubscription,
+  confirmSubscription,
+  createSubscription,
   deriveDisplayFeeStatus,
   describeFeeEditChanges,
   ENROLLMENT_STATUS_LABELS,
@@ -22,6 +24,7 @@ import {
   isFeePayable,
   isPrepaymentEnrollment,
   monthKeyFor,
+  openSubscriptionCheckout,
   payFeeNow,
   periodLabel,
   subscribeToMyEnrollments,
@@ -87,6 +90,39 @@ const Classes = () => {
       toast({ title: "Payment received", description: `${fee.periodLabel} fee is being confirmed.` });
     } catch (error) {
       toast({ title: "Payment not completed", description: error instanceof Error ? error.message : "Please try again.", variant: "destructive" });
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  // Onboarded students whose admin enabled the autopay option complete the
+  // recurring mandate here (a mandate can only be authorized by the payer).
+  const handleEnableAutopay = async (enrollment: EnrollmentDoc) => {
+    if (!user) return;
+    setBusyId(enrollment.id);
+    try {
+      const idToken = await user.getIdToken();
+      const subscription = await createSubscription(idToken, enrollment.id);
+      const mandate = await openSubscriptionCheckout({
+        subscriptionId: subscription.subscriptionId,
+        keyId: subscription.keyId,
+        name: "Javani Spiritual Hub",
+        description: `${enrollment.className} — monthly autopay`,
+        prefill: { name: enrollment.parent.name, email: user.email || "", contact: enrollment.parent.phone },
+      });
+      try {
+        await confirmSubscription(idToken, {
+          enrollmentId: enrollment.id,
+          razorpay_payment_id: mandate.razorpay_payment_id,
+          razorpay_subscription_id: mandate.razorpay_subscription_id,
+          razorpay_signature: mandate.razorpay_signature,
+        });
+      } catch (confirmError) {
+        console.error("Autopay confirmation sync failed (webhook will reconcile)", confirmError);
+      }
+      toast({ title: "Autopay set up", description: "We'll auto-debit the monthly fee and notify you each time." });
+    } catch (error) {
+      toast({ title: "Could not set up autopay", description: error instanceof Error ? error.message : "Please try again.", variant: "destructive" });
     } finally {
       setBusyId(null);
     }
@@ -231,8 +267,23 @@ const Classes = () => {
                   </div>
                 )}
 
-                {/* Actions: pay in advance (monthly, non-autopay) + switch class */}
+                {/* Actions: open class room, enable autopay, pay in advance, switch class */}
                 <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <Link
+                    to={`/account/classes/${enrollment.id}`}
+                    className="flex items-center gap-1.5 rounded-md bg-gold/10 px-3 py-1.5 font-body text-xs font-semibold text-gold transition-colors hover:bg-gold/20"
+                  >
+                    <DoorOpen className="h-3.5 w-3.5" /> Open class
+                  </Link>
+                  {enrollment.feeType !== "term" && enrollment.status === "active" && !autopayOn && enrollment.autopayInvited && (
+                    <button
+                      onClick={() => handleEnableAutopay(enrollment)}
+                      disabled={busyId === enrollment.id}
+                      className="flex items-center gap-1.5 rounded-md border border-gold/40 px-3 py-1.5 font-body text-xs font-semibold text-gold transition-colors hover:bg-gold/10 disabled:opacity-50"
+                    >
+                      <Zap className="h-3.5 w-3.5" /> Enable autopay
+                    </button>
+                  )}
                   {enrollment.feeType !== "term" && enrollment.status === "active" && !autopayOn && (
                     <button
                       onClick={() => handlePayAdvance(enrollment)}

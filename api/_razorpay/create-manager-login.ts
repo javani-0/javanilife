@@ -12,7 +12,7 @@ import { getBearerToken, readJsonBody, requirePost, sendError, sendJson, type Ap
 // ---------------------------------------------------------------------------
 
 const VALID_PAGES = new Set([
-  "enquiries", "courses", "classes", "enrollments", "fee-collections",
+  "enquiries", "courses", "classes", "students", "enrollments", "fee-collections",
   "payment-settings", "gallery", "products", "coupons", "delivery-settings",
   "orders", "customers", "finance", "site-settings",
 ]);
