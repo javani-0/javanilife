@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   BadgeIndianRupee, Check, CheckCircle2, Copy, Eye, EyeOff, GraduationCap, KeyRound,
@@ -123,7 +123,6 @@ const AdminStudents = () => {
   const [search, setSearch] = useState("");
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState("");
-  const justSavedRef = useRef(false);
 
   useEffect(() => subscribeToStudents((items) => { setStudents(items); setLoading(false); }, () => setLoading(false)), []);
   useEffect(() => subscribeToClasses(setClasses, () => undefined), []);
@@ -228,7 +227,6 @@ const AdminStudents = () => {
         await updateStudent(editing, input);
         toast({ title: "Student updated" });
       } else {
-        justSavedRef.current = true;
         await createStudent(input);
         toast({ title: "Student created", description: "Share the payment link from the card, then approve to issue the login." });
       }
