@@ -31,6 +31,11 @@ interface SubmitBody {
   proofUrl?: string;
   upiRef?: string;
   couponCode?: string;
+  // Advance months only: the parent chose "pay at the counter". No proof is
+  // required — we just make sure the fee doc EXISTS (pending) so the admin can
+  // see the request and collect against it (it wouldn't exist yet for a future
+  // month, which made counter-advance payments invisible to the admin — req).
+  counter?: boolean;
 }
 
 // Accept a "YYYY-MM" no more than 12 months ahead of now; else fall back to now.
@@ -62,8 +67,9 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     }
 
     const body = await readJsonBody<SubmitBody>(request);
+    const isCounterRequest = body.counter === true && typeof body.monthKey === "string" && Boolean(body.enrollmentId);
     const proofUrl = (body.proofUrl || "").trim();
-    if (!proofUrl || !isHttpUrl(proofUrl)) {
+    if (!isCounterRequest && (!proofUrl || !isHttpUrl(proofUrl))) {
       sendError(response, 400, "A payment screenshot is required.");
       return;
     }
@@ -148,6 +154,19 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     }
     if (fee.status === "paid" || fee.status === "waived") {
       sendError(response, 409, "This fee is already settled.");
+      return;
+    }
+
+    // Counter choice for an advance month: the doc now exists (created above if
+    // needed) and stays PENDING; we only note the intent so the admin sees who
+    // asked to pay at the centre. Admin settles it via Collect Cash / fee tab.
+    if (isCounterRequest) {
+      await feeRef.update({
+        adminNote: "Parent chose to pay this month at the counter",
+        counterRequestedAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      sendJson(response, 200, { ok: true, feePaymentId, counter: true });
       return;
     }
 

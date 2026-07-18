@@ -121,6 +121,17 @@ export const approveOnboarding = (
 ): Promise<ApproveOnboardingResponse> =>
   postJson("/api/razorpay/approve-onboarding", params, idToken);
 
+/**
+ * ADMIN ONLY (danger zone, req): permanently delete a student and every trace —
+ * fees, enrollment, link, credentials, users doc and the Auth login. Used for
+ * test logins etc.; managers can't call this.
+ */
+export const deleteStudentCompletely = (
+  idToken: string,
+  studentDocId: string,
+): Promise<{ ok: boolean; removed: string[] }> =>
+  postJson("/api/razorpay/delete-student", { studentDocId }, idToken);
+
 // ---------------------------------------------------------------------------
 // WhatsApp share messages (sent from the admin's own WhatsApp via wa.me — the
 // same model as partner/manager credential sharing; no Meta template needed).

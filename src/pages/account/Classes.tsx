@@ -6,6 +6,7 @@ import UpiPaymentDialog from "@/components/classes/UpiPaymentDialog";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { useScrollHighlight } from "@/hooks/useScrollHighlight";
+import { formatPaiseAsRupees } from "@/lib/ecommerce";
 import {
   addMonths,
   cancelSubscription,
@@ -199,6 +200,10 @@ const Classes = () => {
             const enrollmentFees = feesByEnrollment.get(enrollment.id) || [];
             const upcoming = enrollmentFees.find((fee) => isFeePayable({ status: deriveDisplayFeeStatus(fee) }));
             const autopayOn = enrollment.autopay.enabled;
+            // Whether autopay is even OFFERED for this enrolment: on already,
+            // chosen at enrolment, or the admin enabled it in the Student
+            // Manager. When it's not offered, no autopay UI shows at all (req).
+            const autopayOffered = autopayOn || enrollment.autopayInvited === true || enrollment.paymentPlan === "autopay";
             return (
               <div key={enrollment.id} className="rounded-2xl border border-border/60 bg-card p-5 shadow-card sm:p-6">
                 <div className="flex flex-col gap-3 border-b border-border/50 pb-4 sm:flex-row sm:items-start sm:justify-between">
@@ -215,7 +220,7 @@ const Classes = () => {
                       <span className="flex items-center gap-1.5 rounded-full bg-gold/15 px-3 py-1 font-body text-xs font-semibold text-gold">
                         <Repeat className="h-3.5 w-3.5" /> {enrollment.paymentPlan === "emi" ? "EMI plan" : "Course"}
                       </span>
-                    ) : (
+                    ) : autopayOffered ? (
                       <>
                         <span className={`flex items-center gap-1.5 rounded-full px-3 py-1 font-body text-xs font-semibold ${autopayOn ? "bg-green-100 text-green-700" : "bg-muted text-muted-foreground"}`}>
                           <Repeat className="h-3.5 w-3.5" /> Autopay {autopayOn ? "On" : "Off"}
@@ -226,7 +231,7 @@ const Classes = () => {
                           </button>
                         )}
                       </>
-                    )}
+                    ) : null}
                   </div>
                 </div>
 
@@ -318,6 +323,21 @@ const Classes = () => {
                             <div className="min-w-0">
                               <p className="font-body text-sm font-medium text-foreground">{fee.periodLabel}</p>
                               <p className="font-body text-xs text-muted-foreground">{formatFeeAmount(fee)}{fee.paymentMethod ? ` · ${fee.paymentMethod}` : ""}</p>
+                              {/* Itemized split (req): show exactly what was charged —
+                                  kit/books/uniform/pre-payment/discount — like the admin sees. */}
+                              {(fee.breakdown || []).length > 0 && (
+                                <div className="mt-1 max-w-xs rounded-md bg-muted/50 px-2 py-1.5">
+                                  {(fee.breakdown || []).map((row, index) => (
+                                    <div key={index} className="flex justify-between gap-3 font-body text-[0.7rem] text-muted-foreground">
+                                      <span>{row.label}</span>
+                                      <span className={row.amountInPaise < 0 ? "text-green-700" : ""}>{row.amountInPaise < 0 ? "−" : ""}{formatPaiseAsRupees(Math.abs(row.amountInPaise))}</span>
+                                    </div>
+                                  ))}
+                                  <div className="mt-0.5 flex justify-between gap-3 border-t border-border/60 pt-0.5 font-body text-[0.7rem] font-semibold text-foreground">
+                                    <span>Total paid</span><span>{formatFeeAmount(fee)}</span>
+                                  </div>
+                                </div>
+                              )}
                               {/* Req: say exactly which month's fee was paid on which date —
                                   arrears billing makes "June 2026 fee paid on 11 July 2026" the
                                   clear version of an otherwise confusing pair of dates. */}

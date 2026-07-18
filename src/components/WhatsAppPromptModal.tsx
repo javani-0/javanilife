@@ -26,6 +26,12 @@ const WhatsAppPromptModal = () => {
       setOpen(false);
       return;
     }
+    // Admin-managed student accounts can't self-edit (rules block the write) —
+    // the admin keeps their number updated from the Student Manager.
+    if (userProfile.managedByAdmin === true) {
+      setOpen(false);
+      return;
+    }
     const hasNumber = sanitizeDigits(userProfile.whatsappNumber || userProfile.phone || "").length >= 10;
     setOpen(!hasNumber);
   }, [authLoading, user, userProfile, pathname]);

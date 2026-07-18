@@ -53,6 +53,18 @@ export const submitUpiPayment = (
 ): Promise<SubmitUpiResponse> =>
   postJson<SubmitUpiResponse>("/api/razorpay/submit-upi-payment", idToken, { ...target, proofUrl, upiRef, couponCode });
 
+/**
+ * Advance months only: tell the server the parent will pay at the counter.
+ * Creates the (future) month's fee doc as PENDING so the admin actually sees
+ * the request and can collect against it — previously nothing was recorded and
+ * the admin had no row to collect (req).
+ */
+export const requestCounterPayment = (
+  idToken: string,
+  target: { enrollmentId: string; kind: "monthly"; monthKey: string },
+): Promise<SubmitUpiResponse> =>
+  postJson<SubmitUpiResponse>("/api/razorpay/submit-upi-payment", idToken, { ...target, counter: true });
+
 export interface ApprovePaymentResponse { ok: boolean; feePaymentId: string; status: string; warnings?: string[] }
 
 /** Admin: approve (→ paid) or reject (→ pending) a submitted UPI payment. */

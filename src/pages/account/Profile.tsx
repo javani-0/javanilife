@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { collection, onSnapshot, query, serverTimestamp, setDoc, where, doc } from "firebase/firestore";
 import { updateProfile } from "firebase/auth";
-import { BellRing, Heart, MapPin, PackageCheck, Save } from "lucide-react";
+import { BellRing, Heart, Lock, MapPin, PackageCheck, Save } from "lucide-react";
 import AccountLayout from "@/components/account/AccountLayout";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
@@ -61,9 +61,14 @@ const Profile = () => {
     };
   }, [user]);
 
+  // Admin-created student accounts are managed by the admin (req): the parent
+  // can't edit details here — they ask the admin, who updates the Student
+  // Manager record (and Firestore rules block the write anyway).
+  const isManagedAccount = userProfile?.managedByAdmin === true;
+
   const saveProfile = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!user) return;
+    if (!user || isManagedAccount) return;
 
     const trimmedName = username.trim();
     if (!trimmedName) {
@@ -162,23 +167,37 @@ const Profile = () => {
         </section>
 
         <form onSubmit={saveProfile} className="rounded-2xl border border-border/60 bg-card p-5 shadow-card sm:p-6">
-          <h2 className="font-display text-2xl text-foreground">Account Details</h2>
-          <p className="mt-1 font-body text-sm text-muted-foreground">These details connect checkout and future order history.</p>
+          <div className="flex items-center gap-4">
+            {userProfile?.photoURL && (
+              <img src={userProfile.photoURL} alt="Profile" className="h-16 w-16 rounded-full border border-gold/30 object-cover" />
+            )}
+            <div>
+              <h2 className="font-display text-2xl text-foreground">Account Details</h2>
+              <p className="mt-1 font-body text-sm text-muted-foreground">These details connect checkout and future order history.</p>
+            </div>
+          </div>
+
+          {isManagedAccount && (
+            <p className="mt-4 flex items-start gap-2 rounded-md border border-gold/30 bg-gold/5 p-3 font-body text-sm text-muted-foreground">
+              <Lock className="mt-0.5 h-4 w-4 flex-shrink-0 text-gold" />
+              <span>This account is managed by Javani Spiritual Hub. To update your name, phone number or any other detail, please contact the admin (for example on WhatsApp) and they'll update it for you.</span>
+            </p>
+          )}
 
           <div className="mt-6 grid gap-4 sm:grid-cols-2">
             <label className="font-body text-sm font-semibold text-foreground">
               Full name
-              <input value={username} onChange={(event) => setUsername(event.target.value)} className="mt-2 h-11 w-full rounded-md border border-border bg-background px-3 font-body text-sm outline-none transition-colors focus:border-gold focus:ring-2 focus:ring-gold/20" />
+              <input value={username} onChange={(event) => setUsername(event.target.value)} disabled={isManagedAccount} className="mt-2 h-11 w-full rounded-md border border-border bg-background px-3 font-body text-sm outline-none transition-colors focus:border-gold focus:ring-2 focus:ring-gold/20 disabled:bg-muted disabled:text-muted-foreground" />
             </label>
             <label className="font-body text-sm font-semibold text-foreground">
               WhatsApp number
-              <input value={whatsappNumber} onChange={(event) => updateWhatsAppNumber(event.target.value)} className="mt-2 h-11 w-full rounded-md border border-border bg-background px-3 font-body text-sm outline-none transition-colors focus:border-gold focus:ring-2 focus:ring-gold/20" placeholder="Enter only WhatsApp number" inputMode="tel" />
-              <span className="mt-1 block text-xs font-normal text-muted-foreground">Required for order updates. Enter only your active WhatsApp number.</span>
+              <input value={whatsappNumber} onChange={(event) => updateWhatsAppNumber(event.target.value)} disabled={isManagedAccount} className="mt-2 h-11 w-full rounded-md border border-border bg-background px-3 font-body text-sm outline-none transition-colors focus:border-gold focus:ring-2 focus:ring-gold/20 disabled:bg-muted disabled:text-muted-foreground" placeholder="Enter only WhatsApp number" inputMode="tel" />
+              {!isManagedAccount && <span className="mt-1 block text-xs font-normal text-muted-foreground">Required for order updates. Enter only your active WhatsApp number.</span>}
             </label>
             <label className="font-body text-sm font-semibold text-foreground">
               Call number
-              <input value={callNumber} onChange={(event) => updateCallNumber(event.target.value)} className="mt-2 h-11 w-full rounded-md border border-border bg-background px-3 font-body text-sm outline-none transition-colors focus:border-gold focus:ring-2 focus:ring-gold/20" placeholder="Same as WhatsApp" inputMode="tel" />
-              <span className="mt-1 block text-xs font-normal text-muted-foreground">By default this stays same as WhatsApp unless you change it.</span>
+              <input value={callNumber} onChange={(event) => updateCallNumber(event.target.value)} disabled={isManagedAccount} className="mt-2 h-11 w-full rounded-md border border-border bg-background px-3 font-body text-sm outline-none transition-colors focus:border-gold focus:ring-2 focus:ring-gold/20 disabled:bg-muted disabled:text-muted-foreground" placeholder="Same as WhatsApp" inputMode="tel" />
+              {!isManagedAccount && <span className="mt-1 block text-xs font-normal text-muted-foreground">By default this stays same as WhatsApp unless you change it.</span>}
             </label>
             <label className="font-body text-sm font-semibold text-foreground sm:col-span-2">
               Email
@@ -186,9 +205,11 @@ const Profile = () => {
             </label>
           </div>
 
-          <button type="submit" disabled={saving} className="mt-6 inline-flex items-center justify-center gap-2 rounded-sm bg-gradient-primary px-6 py-3 font-display text-sm font-semibold tracking-[0.08em] text-primary-foreground transition-all hover:brightness-110 disabled:opacity-60">
-            <Save className="h-4 w-4" /> {saving ? "Saving..." : "Save Profile"}
-          </button>
+          {!isManagedAccount && (
+            <button type="submit" disabled={saving} className="mt-6 inline-flex items-center justify-center gap-2 rounded-sm bg-gradient-primary px-6 py-3 font-display text-sm font-semibold tracking-[0.08em] text-primary-foreground transition-all hover:brightness-110 disabled:opacity-60">
+              <Save className="h-4 w-4" /> {saving ? "Saving..." : "Save Profile"}
+            </button>
+          )}
         </form>
       </div>
     </AccountLayout>

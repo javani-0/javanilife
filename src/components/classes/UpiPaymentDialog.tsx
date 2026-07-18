@@ -4,7 +4,7 @@ import { Check, Copy, Loader2, Smartphone, Upload, X } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { formatPaiseAsRupees } from "@/lib/ecommerce";
-import { submitUpiPayment, uploadPaymentProof, type UpiPaymentTarget } from "@/lib/classes";
+import { requestCounterPayment, submitUpiPayment, uploadPaymentProof, type UpiPaymentTarget } from "@/lib/classes";
 import {
   buildUpiIntentUrl,
   defaultPaymentSettings,
@@ -75,10 +75,26 @@ const UpiPaymentDialog = ({ open, onClose, target, amountInPaise, title, note, c
   };
 
   // Submitting WITHOUT a screenshot is a valid choice: it's treated as "pay at
-  // the counter" (req 1). We don't create an approval doc — the enrolment/ due
-  // simply stays pending and the admin settles it with "Collect Cash" at the
-  // centre. No Razorpay, no online commission.
-  const handlePayAtCounter = () => {
+  // the counter" (req 1). For current dues/enrolments nothing is written — the
+  // due already exists and the admin settles it with Collect Cash. For an
+  // ADVANCE month the fee doc doesn't exist yet, so we ask the server to create
+  // it as pending — otherwise the admin never sees the request (req).
+  const handlePayAtCounter = async () => {
+    const advanceTarget = target && "enrollmentId" in target && target.kind === "monthly" && target.monthKey
+      ? { enrollmentId: target.enrollmentId, kind: "monthly" as const, monthKey: target.monthKey }
+      : null;
+    if (user && advanceTarget) {
+      setSubmitting(true);
+      try {
+        const idToken = await user.getIdToken();
+        await requestCounterPayment(idToken, advanceTarget);
+      } catch (error) {
+        setSubmitting(false);
+        toast({ title: "Could not record your request", description: error instanceof Error ? error.message : "Please try again.", variant: "destructive" });
+        return;
+      }
+      setSubmitting(false);
+    }
     toast({ title: "Noted — pay at the counter", description: "Please pay at the centre. Your enrolment/fee is confirmed once we collect it." });
     onSuccess?.();
     onClose();

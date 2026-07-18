@@ -10,6 +10,7 @@ import {
   query,
   serverTimestamp,
   setDoc,
+  Timestamp,
   updateDoc,
   where,
   type DocumentData,
@@ -17,6 +18,7 @@ import {
 import { db } from "@/lib/firebase";
 import { formatPaiseAsRupees } from "@/lib/ecommerce";
 import {
+  addMonths,
   buildFeePaymentId,
   clampBillingDay,
   computeBillingPeriodFromMonthKey,
@@ -26,6 +28,7 @@ import {
   nextFeePeriodLabel,
   periodLabel as periodLabelFor,
   type EnrollmentDoc,
+  type FeeBreakdownItem,
   type FeeCollectionEvent,
   type FeePaymentDoc,
   type FeePaymentMethod,
@@ -77,6 +80,14 @@ export const normalizeFeePayment = (id: string, data: DocumentData = {}): FeePay
     approvedAt: data.approvedAt,
     paidAt: data.paidAt,
     prepayment: data.prepayment === true,
+    breakdown: Array.isArray(data.breakdown)
+      ? data.breakdown
+          .map((row: DocumentData): FeeBreakdownItem => ({
+            label: typeof row?.label === "string" ? row.label : "",
+            amountInPaise: Math.round(toNumber(row?.amountInPaise)),
+          }))
+          .filter((row) => row.label)
+      : undefined,
     cashProofUrl: typeof data.cashProofUrl === "string" ? data.cashProofUrl : undefined,
     collectedBy: typeof data.collectedBy === "string" ? data.collectedBy : undefined,
     collectionHistory: Array.isArray(data.collectionHistory) ? data.collectionHistory : undefined,
@@ -302,6 +313,114 @@ export const collectFeeCash = async (
       by: params.adminUid,
       amountInPaise,
       proofUrl: params.proofUrl,
+    } satisfies FeeCollectionEvent),
+    updatedAt: serverTimestamp(),
+  });
+};
+
+/** "2026-07-18" → a Timestamp anchored at noon (avoids timezone day-shift). */
+const paidOnTimestamp = (dateStr: string): Timestamp => {
+  const parsed = new Date(`${dateStr}T12:00:00`);
+  return Timestamp.fromDate(Number.isNaN(parsed.getTime()) ? new Date() : parsed);
+};
+
+/**
+ * Admin (Student Manager fee tab, req): record a fee payment for a specific
+ * month — "fee month | fee ₹ | fee date (default today, editable)". The admin
+ * picks the month the fee is FOR; this maps it to the correct ledger doc id
+ * (arrears-billed enrolments collect month M's fee in month M+1) so the cron /
+ * self-heal never create a duplicate due for the same month. If the doc already
+ * exists (a pending due) it's marked paid instead. Returns the fee doc id.
+ */
+export const recordFeeForMonth = async (
+  enrollment: Pick<
+    EnrollmentDoc,
+    "id" | "classId" | "className" | "parentUserId" | "student" | "parent" | "monthlyFeeInPaise" | "billingDayOfMonth" | "paymentPlan" | "slotId" | "slotLabel" | "studentStatus" | "feeType" | "startMonthKey"
+  >,
+  params: { feeMonthKey: string; amountInPaise: number; paidOn: string; method?: FeePaymentMethod; adminUid: string },
+): Promise<string> => {
+  const billingMethod = isPrepaymentEnrollment(enrollment) ? "arrears" : (enrollment.paymentPlan === "manual" ? "manual" : "arrears");
+  // Advance billing collects month M's fee in M; arrears collects it in M+1.
+  const docMonthKey = billingMethod === "manual" ? params.feeMonthKey : addMonths(params.feeMonthKey, 1);
+  const id = buildFeePaymentId(enrollment.id, docMonthKey);
+  const ref = doc(db, FEE_PAYMENTS_COLLECTION, id);
+  const amountInPaise = Math.max(100, Math.round(params.amountInPaise));
+  const method: FeePaymentMethod = params.method || "cash";
+  const paidAt = paidOnTimestamp(params.paidOn);
+  const audit: FeeCollectionEvent = {
+    action: "cash-collected",
+    at: new Date().toISOString(),
+    by: params.adminUid,
+    amountInPaise,
+    note: `Fee entry added by admin for ${periodLabelFor(params.feeMonthKey)}`,
+  };
+
+  const existing = await getDoc(ref);
+  if (existing.exists()) {
+    await updateDoc(ref, {
+      status: "paid",
+      paymentMethod: method,
+      amountInPaise,
+      paidAt,
+      collectionHistory: arrayUnion(audit),
+      updatedAt: serverTimestamp(),
+    });
+    return id;
+  }
+
+  const billingDay = clampBillingDay(enrollment.billingDayOfMonth);
+  const billing = computeBillingPeriodFromMonthKey(docMonthKey, billingMethod, 1);
+  await setDoc(ref, {
+    enrollmentId: enrollment.id,
+    classId: enrollment.classId || "",
+    className: enrollment.className || "",
+    parentUserId: enrollment.parentUserId || "",
+    studentName: enrollment.student?.name || "",
+    parentName: enrollment.parent?.name || "",
+    parentPhone: enrollment.parent?.whatsappNumber || enrollment.parent?.phone || "",
+    paymentPlan: enrollment.paymentPlan || "",
+    slotId: enrollment.slotId || "",
+    slotLabel: enrollment.slotLabel || "",
+    monthKey: docMonthKey,
+    periodLabel: billing.periodLabel,
+    billingPeriodLabel: billing.periodLabel,
+    billingStartMonth: billing.startMonthKey,
+    billingEndMonth: billing.endMonthKey,
+    nextChargeDate: dueDateFor(billing.nextChargeMonthKey, billingDay),
+    amountInPaise,
+    dueDate: params.paidOn || dueDateFor(docMonthKey, billingDay),
+    status: "paid",
+    paymentMethod: method,
+    paidAt,
+    collectedBy: params.adminUid,
+    collectionHistory: [audit],
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+  return id;
+};
+
+/**
+ * Admin: mark an existing fee row paid with an editable amount, paid-on date
+ * and method (Student Manager fee tab). Audit-trailed like cash collection.
+ */
+export const markFeePaidWithDate = async (
+  feeId: string,
+  params: { amountInPaise: number; paidOn: string; method?: FeePaymentMethod; adminUid: string },
+): Promise<void> => {
+  const amountInPaise = Math.max(100, Math.round(params.amountInPaise));
+  await updateDoc(doc(db, FEE_PAYMENTS_COLLECTION, feeId), {
+    status: "paid",
+    paymentMethod: params.method || "cash",
+    amountInPaise,
+    paidAt: paidOnTimestamp(params.paidOn),
+    collectedBy: params.adminUid,
+    collectionHistory: arrayUnion({
+      action: "cash-collected",
+      at: new Date().toISOString(),
+      by: params.adminUid,
+      amountInPaise,
+      note: "Marked paid by admin",
     } satisfies FeeCollectionEvent),
     updatedAt: serverTimestamp(),
   });

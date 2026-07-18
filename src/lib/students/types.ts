@@ -59,6 +59,9 @@ export interface StudentDoc {
   parentRelation: ParentRelation;
   address: string;
   mode: StudentMode;
+  // Admin-uploaded profile photo (also synced to the login's users doc so the
+  // parent portal shows it). Powers the Student Manager gallery view.
+  photoUrl?: string;
   // B. Class details
   classId: string;
   className: string;

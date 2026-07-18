@@ -62,6 +62,7 @@ export const normalizeStudent = (id: string, data: DocumentData = {}): StudentDo
     parentRelation: allowedRelations.includes(data.parentRelation as ParentRelation) ? (data.parentRelation as ParentRelation) : "guardian",
     address: getString(data.address),
     mode: data.mode === "online" ? "online" : "offline",
+    photoUrl: getString(data.photoUrl) || undefined,
     classId: getString(data.classId),
     className: getString(data.className),
     slotId: getString(data.slotId) || undefined,
@@ -151,6 +152,7 @@ export interface StudentWriteInput {
   parentRelation: ParentRelation;
   address: string;
   mode: StudentMode;
+  photoUrl?: string;
   classId: string;
   className: string;
   slotId?: string;
@@ -180,6 +182,7 @@ const buildStudentPayload = (input: StudentWriteInput) => ({
   parentRelation: input.parentRelation,
   address: input.address.trim(),
   mode: input.mode,
+  photoUrl: (input.photoUrl || "").trim(),
   classId: input.classId,
   className: input.className.trim(),
   slotId: input.slotId || "",
@@ -260,6 +263,16 @@ export const createStudent = async (input: StudentWriteInput): Promise<StudentDo
 export const updateStudent = async (existing: StudentDoc, input: StudentWriteInput): Promise<void> => {
   await updateDoc(doc(db, STUDENTS_COLLECTION, existing.id), buildStudentPayload(input));
   await syncOnboardingLink({ ...existing, ...normalizeStudent(existing.id, buildStudentPayload(input)), linkToken: existing.linkToken, onboardingStatus: existing.onboardingStatus });
+  // Keep the portal avatar in sync for approved students (best-effort — the
+  // admin role may write users docs; managers without that right just skip).
+  const photoUrl = (input.photoUrl || "").trim();
+  if (existing.userUid && photoUrl && photoUrl !== (existing.photoUrl || "")) {
+    try {
+      await updateDoc(doc(db, "users", existing.userUid), { photoURL: photoUrl, updatedAt: serverTimestamp() });
+    } catch (error) {
+      console.error("Could not sync the student photo to the portal account", error);
+    }
+  }
 };
 
 /** Staff: toggle inventory received flags in place. */

@@ -55,6 +55,9 @@ service cloud.firestore {
 
     function isSafeOwnUserProfileUpdate(userId) {
       return isOwner(userId)
+        // Admin-created student accounts are managed by the admin — the parent
+        // asks the admin for changes (the portal hides editing too).
+        && resource.data.get('managedByAdmin', false) != true
         && request.resource.data.uid == userId
         && request.resource.data.role == resource.data.role
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
@@ -248,11 +251,11 @@ service cloud.firestore {
     // Money/status/autopay transitions are driven server-side (Admin SDK) or by
     // an admin; a parent may only keep their own ownership on update.
     match /enrollments/{id} {
-      allow read: if staffAny(['enrollments', 'fee-collections', 'classes'])
+      allow read: if staffAny(['enrollments', 'fee-collections', 'classes', 'students'])
         || (signedIn() && resource.data.parentUserId == request.auth.uid);
       allow create: if signedIn()
         && request.resource.data.parentUserId == request.auth.uid;
-      allow update: if staffAny(['enrollments', 'fee-collections'])
+      allow update: if staffAny(['enrollments', 'fee-collections', 'students'])
         || (signedIn()
             && resource.data.parentUserId == request.auth.uid
             && request.resource.data.parentUserId == request.auth.uid);
@@ -262,9 +265,9 @@ service cloud.firestore {
     // Fee ledger — parent reads own; all money-bearing writes are server-side
     // (webhook/cron via Admin SDK, which bypasses rules) or an admin console.
     match /feePayments/{id} {
-      allow read: if staffAny(['fee-collections', 'enrollments', 'customers', 'finance'])
+      allow read: if staffAny(['fee-collections', 'enrollments', 'customers', 'finance', 'students'])
         || (signedIn() && resource.data.parentUserId == request.auth.uid);
-      allow write: if staffAny(['fee-collections', 'enrollments']);
+      allow write: if staffAny(['fee-collections', 'enrollments', 'students']);
     }
   }
 }

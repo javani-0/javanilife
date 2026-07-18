@@ -1,11 +1,15 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
-  BadgeIndianRupee, Check, CheckCircle2, Copy, Eye, EyeOff, GraduationCap, KeyRound,
-  Loader2, MessageCircle, Pencil, Plus, Power, RefreshCw, Trash2, UserPlus, Wallet, X, XCircle,
+  AlertTriangle, BadgeIndianRupee, Check, CheckCircle2, Copy, Eye, EyeOff, GraduationCap,
+  Images, KeyRound, Loader2, MessageCircle, Pencil, Power, RefreshCw, Trash2, Upload,
+  UserPlus, Wallet, X, XCircle,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
+import { CLOUDINARY_CLOUD_NAME, CLOUDINARY_UPLOAD_PRESET } from "@/lib/cloudinary";
+import { openSquareCropper } from "@/components/SquareImageCropper";
+import StudentFeePanel from "@/components/admin/StudentFeePanel";
 import { formatPaiseAsRupees, parsePriceToPaise } from "@/lib/ecommerce";
 import {
   classOffersMonthly,
@@ -19,6 +23,7 @@ import {
   approveOnboarding,
   buildFeeBreakdown,
   buildPayLinkUrl,
+  deleteStudentCompletely,
   buildPaymentLinkWhatsAppUrl,
   buildStudentCredentialsWhatsAppUrl,
   createStudent,
@@ -55,6 +60,7 @@ interface StudentFormState {
   parentRelation: ParentRelation;
   address: string;
   mode: StudentMode;
+  photoUrl: string;
   classId: string;
   slotId: string;
   track: StudentTrack;
@@ -76,7 +82,7 @@ interface StudentFormState {
 
 const defaultForm: StudentFormState = {
   name: "", age: "", gender: "male", email: "", phone: "",
-  parentName: "", parentRelation: "father", address: "", mode: "offline",
+  parentName: "", parentRelation: "father", address: "", mode: "offline", photoUrl: "",
   classId: "", slotId: "", track: "monthly",
   invUniform: false, invKit: false, invBooks: false,
   studentType: "new",
@@ -106,8 +112,9 @@ const toFormFees = (form: StudentFormState) => ({
 });
 
 const AdminStudents = () => {
-  const { user } = useAuth();
+  const { user, userProfile } = useAuth();
   const { toast } = useToast();
+  const isAdminRole = userProfile?.role === "admin";
 
   const [students, setStudents] = useState<StudentDoc[]>([]);
   const [classes, setClasses] = useState<ClassDoc[]>([]);
@@ -123,6 +130,10 @@ const AdminStudents = () => {
   const [search, setSearch] = useState("");
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState("");
+  const [feesOpenId, setFeesOpenId] = useState<string | null>(null);
+  const [showGallery, setShowGallery] = useState(false);
+  const [photoUploading, setPhotoUploading] = useState(false);
+  const photoRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => subscribeToStudents((items) => { setStudents(items); setLoading(false); }, () => setLoading(false)), []);
   useEffect(() => subscribeToClasses(setClasses, () => undefined), []);
@@ -151,6 +162,7 @@ const AdminStudents = () => {
       parentRelation: student.parentRelation,
       address: student.address,
       mode: student.mode,
+      photoUrl: student.photoUrl || "",
       classId: student.classId,
       slotId: student.slotId || "",
       track: student.fees.track,
@@ -204,6 +216,7 @@ const AdminStudents = () => {
       parentRelation: form.parentRelation,
       address: form.address,
       mode: form.mode,
+      photoUrl: form.photoUrl,
       classId: cls.id,
       className: cls.name,
       slotId: slot?.id,
@@ -311,6 +324,47 @@ const AdminStudents = () => {
     }
   };
 
+  // Danger zone (admin only, req): removes EVERY trace — fees, enrollment,
+  // link, credentials, login. Meant for test students; double confirmation.
+  const handleDeleteCompletely = async (student: StudentDoc) => {
+    if (!user || !isAdminRole) return;
+    if (!confirm(`PERMANENTLY delete ${student.name}${student.studentId ? ` (${student.studentId})` : ""}?\n\nThis removes the student, their login, enrollment and ALL fee history. There is no undo.`)) return;
+    const typed = prompt(`Type DELETE to permanently remove ${student.name}:`);
+    if ((typed || "").trim().toUpperCase() !== "DELETE") { toast({ title: "Deletion cancelled" }); return; }
+    setBusyId(student.id);
+    try {
+      const idToken = await user.getIdToken();
+      const result = await deleteStudentCompletely(idToken, student.id);
+      toast({ title: "Student deleted completely", description: `Removed: ${result.removed.join(", ")}.` });
+    } catch (error) {
+      toast({ title: "Could not delete", description: error instanceof Error ? error.message : undefined, variant: "destructive" });
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const handlePhotoFile = async (file: File | null) => {
+    if (!file) return;
+    const square = await openSquareCropper(file);
+    if (!square) return;
+    setPhotoUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", square);
+      formData.append("upload_preset", CLOUDINARY_UPLOAD_PRESET);
+      formData.append("folder", "student-profiles");
+      const response = await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`, { method: "POST", body: formData });
+      const data = await response.json();
+      if (!data.secure_url) throw new Error(data?.error?.message || "No URL returned");
+      setForm((current) => ({ ...current, photoUrl: data.secure_url }));
+    } catch (error) {
+      toast({ title: "Photo upload failed", description: error instanceof Error ? error.message : undefined, variant: "destructive" });
+    } finally {
+      setPhotoUploading(false);
+      if (photoRef.current) photoRef.current.value = "";
+    }
+  };
+
   const loginUrl = typeof window !== "undefined" ? `${window.location.origin}/login` : "/login";
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -355,7 +409,38 @@ const AdminStudents = () => {
         </div>
       </div>
 
-      <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search by name, email, parent, class or STU id…" className={`${inputClass} max-w-md`} />
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search by name, email, parent, class or STU id…" className={`${inputClass} sm:max-w-md`} />
+        <button onClick={() => setShowGallery((v) => !v)} className={`flex shrink-0 items-center gap-1.5 rounded-md border px-3 py-2 font-body text-[0.8rem] font-semibold transition-colors ${showGallery ? "border-gold bg-gold/10 text-gold" : "border-border text-muted-foreground hover:border-gold/40"}`}>
+          <Images className="h-4 w-4" /> {showGallery ? "Hide gallery" : "Student gallery"}
+        </button>
+      </div>
+
+      {/* Student gallery — the admin-uploaded profile photos at a glance */}
+      {showGallery && (
+        <div className="rounded-xl border border-border/60 bg-card p-4 shadow-card">
+          <p className="mb-3 font-body text-sm font-semibold text-foreground">Student gallery</p>
+          {filtered.length === 0 ? (
+            <p className="font-body text-xs text-muted-foreground">No students to show.</p>
+          ) : (
+            <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8">
+              {filtered.map((student) => (
+                <button key={student.id} onClick={() => openEdit(student)} className="group text-center" title={`Edit ${student.name}`}>
+                  {student.photoUrl ? (
+                    <img src={student.photoUrl} alt={student.name} className="mx-auto aspect-square w-full rounded-xl border border-border object-cover transition-transform group-hover:scale-[1.03]" loading="lazy" />
+                  ) : (
+                    <div className="mx-auto flex aspect-square w-full items-center justify-center rounded-xl border border-dashed border-border bg-muted/40 font-display text-xl text-muted-foreground">
+                      {(student.name || "?").charAt(0).toUpperCase()}
+                    </div>
+                  )}
+                  <p className="mt-1 truncate font-body text-[0.7rem] font-medium text-foreground">{student.name}</p>
+                  {student.studentId && <p className="truncate font-body text-[0.65rem] text-muted-foreground">{student.studentId}</p>}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {loading ? (
         <div className="flex items-center justify-center rounded-2xl border border-border/60 bg-card p-10"><Loader2 className="h-6 w-6 animate-spin text-gold" /></div>
@@ -376,6 +461,14 @@ const AdminStudents = () => {
             return (
               <div key={student.id} className="rounded-xl border border-border/60 bg-card p-4 shadow-card sm:p-5">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="flex min-w-0 items-start gap-3">
+                    {student.photoUrl ? (
+                      <img src={student.photoUrl} alt={student.name} className="h-12 w-12 shrink-0 rounded-full border border-border object-cover" loading="lazy" />
+                    ) : (
+                      <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-gold/15 font-display text-lg text-gold">
+                        {(student.name || "?").charAt(0).toUpperCase()}
+                      </div>
+                    )}
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
                       <h3 className="font-display text-lg text-foreground">{student.name}</h3>
@@ -394,7 +487,16 @@ const AdminStudents = () => {
                       <p className="mt-1 font-body text-xs text-destructive">Sent back: {student.rejectReason}</p>
                     )}
                   </div>
+                  </div>
                   <div className="flex shrink-0 items-center gap-1">
+                    {student.onboardingStatus === "approved" && student.enrollmentId && (
+                      <button
+                        onClick={() => setFeesOpenId((current) => (current === student.id ? null : student.id))}
+                        className={`flex items-center gap-1 rounded-md border px-2.5 py-1.5 font-body text-[0.72rem] font-semibold transition-colors ${feesOpenId === student.id ? "border-gold bg-gold/10 text-gold" : "border-border text-muted-foreground hover:border-gold/40 hover:text-gold"}`}
+                      >
+                        <Wallet className="h-3.5 w-3.5" /> Fees
+                      </button>
+                    )}
                     <button onClick={() => openEdit(student)} className="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-gold" title="Edit"><Pencil className="h-4 w-4" /></button>
                     {student.onboardingStatus === "approved" ? (
                       <button onClick={() => handleToggleActive(student)} disabled={busyId === student.id} className="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-gold disabled:opacity-50" title={student.active ? "Mark inactive" : "Mark active"}><Power className={`h-4 w-4 ${student.active ? "text-green-600" : ""}`} /></button>
@@ -473,6 +575,21 @@ const AdminStudents = () => {
                     <a href={buildStudentCredentialsWhatsAppUrl(credential, loginUrl)} target="_blank" rel="noreferrer" className="flex shrink-0 items-center gap-1.5 self-start rounded-md bg-[#25D366] px-3 py-1.5 font-body text-[0.72rem] font-semibold text-white hover:brightness-110 sm:self-auto"><MessageCircle className="h-3.5 w-3.5" /> Share login</a>
                   </div>
                 )}
+
+                {/* Per-student fee collections (req): full ledger + manual entry */}
+                {feesOpenId === student.id && user && (
+                  <StudentFeePanel student={student} adminUid={user.uid} />
+                )}
+
+                {/* Danger zone — admin only, for test logins etc. (req) */}
+                {feesOpenId === student.id && isAdminRole && student.onboardingStatus === "approved" && (
+                  <div className="mt-3 flex flex-col gap-2 rounded-lg border border-destructive/30 bg-destructive/5 p-3 sm:flex-row sm:items-center sm:justify-between">
+                    <p className="flex items-center gap-1.5 font-body text-xs text-destructive"><AlertTriangle className="h-3.5 w-3.5" /> Danger zone: permanently removes the student, login, enrollment and all fee history.</p>
+                    <button onClick={() => handleDeleteCompletely(student)} disabled={busyId === student.id} className="flex shrink-0 items-center gap-1.5 self-start rounded-md border border-destructive/50 px-3 py-1.5 font-body text-[0.72rem] font-semibold text-destructive hover:bg-destructive hover:text-white disabled:opacity-50 sm:self-auto">
+                      {busyId === student.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />} Delete completely
+                    </button>
+                  </div>
+                )}
               </div>
             );
           })}
@@ -494,6 +611,24 @@ const AdminStudents = () => {
             {/* A. Personal details */}
             <p className="mb-2 font-display text-[0.95rem] font-semibold text-foreground">Personal details</p>
             <div className="grid gap-3 sm:grid-cols-2">
+              <div className="sm:col-span-2 flex items-center gap-3">
+                {form.photoUrl ? (
+                  <img src={form.photoUrl} alt="Student" className="h-16 w-16 rounded-full border border-border object-cover" />
+                ) : (
+                  <div className="flex h-16 w-16 items-center justify-center rounded-full bg-gold/15 font-display text-xl text-gold">
+                    {(form.name || "?").charAt(0).toUpperCase()}
+                  </div>
+                )}
+                <div>
+                  <input ref={photoRef} type="file" accept="image/*" hidden onChange={(e) => handlePhotoFile(e.target.files?.[0] || null)} />
+                  <button type="button" onClick={() => photoRef.current?.click()} disabled={photoUploading} className="flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 font-body text-[0.78rem] font-semibold text-muted-foreground hover:bg-muted disabled:opacity-50">
+                    <Upload className="h-3.5 w-3.5" /> {photoUploading ? "Uploading…" : form.photoUrl ? "Change photo" : "Upload profile photo"}
+                  </button>
+                  {form.photoUrl && (
+                    <button type="button" onClick={() => setForm({ ...form, photoUrl: "" })} className="mt-1 block font-body text-[0.7rem] text-destructive hover:underline">Remove photo</button>
+                  )}
+                </div>
+              </div>
               <div className="sm:col-span-2">
                 <label className={labelClass}>Student name *</label>
                 <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className={inputClass} placeholder="Full name" />

@@ -34,6 +34,12 @@ export interface UserProfile {
   role: "admin" | "user" | "partner" | "manager";
   // Manager-only: the admin pages this manager may open (see src/lib/adminPages.ts).
   managerPages?: string[];
+  // Admin-created student logins are managed by the admin: the portal hides
+  // self-editing (parents ask the admin for changes) so the Student Manager
+  // record stays the source of truth.
+  managedByAdmin?: boolean;
+  // Admin-uploaded student profile photo (Student Manager).
+  photoURL?: string;
   createdAt?: Timestamp;
 }
 

@@ -232,6 +232,14 @@ export interface FeeCollectionEvent {
   changes?: FeeEditChange[];
 }
 
+// One line of an itemized fee (the onboarding/admission payment stores the
+// kit/books/uniform/pre-payment/discount split so parents see exactly what
+// they paid for, not just one total). Negative amount = discount row.
+export interface FeeBreakdownItem {
+  label: string;
+  amountInPaise: number;
+}
+
 export interface FeePaymentDoc {
   id: string;
   enrollmentId: string;
@@ -279,6 +287,8 @@ export interface FeePaymentDoc {
   paidAt?: Timestamp;
   // NEW student's enrolment-time payment — shown as "Pre-payment" (req).
   prepayment?: boolean;
+  // Itemized split of this payment (admission fees). Shown to parent + admin.
+  breakdown?: FeeBreakdownItem[];
   // Admin cash collection (Fee Collections): required proof screenshot + a full
   // audit trail of collect/undo actions (undo keeps the record, per req).
   cashProofUrl?: string;

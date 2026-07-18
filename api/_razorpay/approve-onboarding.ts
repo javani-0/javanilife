@@ -48,16 +48,27 @@ const errorCode = (error: unknown): string =>
 
 const formatStudentId = (sequence: number): string => `STU${String(Math.max(1, Math.round(sequence))).padStart(3, "0")}`;
 
-/** Rebuild the onboarding total server-side (mirror of src/lib/students/types.ts). */
-const onboardingTotalInPaise = (fees: Record<string, unknown>): number => {
+/**
+ * Rebuild the onboarding breakdown + total server-side (mirror of
+ * src/lib/students/types.ts buildFeeBreakdown). The rows are stored on the fee
+ * doc so the parent's payment history shows the same itemized split the admin
+ * saw (req), not just one total.
+ */
+const buildOnboardingBreakdown = (fees: Record<string, unknown>): { rows: Array<{ label: string; amountInPaise: number }>; totalInPaise: number } => {
   const studentType = getString(fees.studentType, "new");
   const track = getString(fees.track, "monthly");
-  let subtotal = clampPaise(fees.kitFeeInPaise) + clampPaise(fees.booksFeeInPaise) + clampPaise(fees.uniformFeeInPaise);
+  const rows: Array<{ label: string; amountInPaise: number }> = [];
+  if (clampPaise(fees.kitFeeInPaise) > 0) rows.push({ label: "Kit fee", amountInPaise: clampPaise(fees.kitFeeInPaise) });
+  if (clampPaise(fees.booksFeeInPaise) > 0) rows.push({ label: "Books fee", amountInPaise: clampPaise(fees.booksFeeInPaise) });
+  if (clampPaise(fees.uniformFeeInPaise) > 0) rows.push({ label: "Uniform fee", amountInPaise: clampPaise(fees.uniformFeeInPaise) });
   if (studentType === "new") {
-    subtotal += track === "term" ? clampPaise(fees.termFeeInPaise) : clampPaise(fees.monthlyFeeInPaise);
+    if (track === "term" && clampPaise(fees.termFeeInPaise) > 0) rows.push({ label: "Course fee (full term)", amountInPaise: clampPaise(fees.termFeeInPaise) });
+    if (track !== "term" && clampPaise(fees.monthlyFeeInPaise) > 0) rows.push({ label: "Pre-payment (first fee)", amountInPaise: clampPaise(fees.monthlyFeeInPaise) });
   }
+  const subtotal = rows.reduce((sum, row) => sum + row.amountInPaise, 0);
   const discount = Math.min(clampPaise(fees.discountInPaise), subtotal);
-  return Math.max(0, subtotal - discount);
+  if (discount > 0) rows.push({ label: "Discount", amountInPaise: -discount });
+  return { rows, totalInPaise: Math.max(0, subtotal - discount) };
 };
 
 export default async function handler(request: ApiRequest, response: ApiResponse) {
@@ -190,6 +201,11 @@ export default async function handler(request: ApiRequest, response: ApiResponse
       username: getString(student.parentName) || studentName,
       ...(phone ? { whatsappNumber: phone, phone } : {}),
       role: "user",
+      // Admin-created accounts are managed by the admin: the parent portal
+      // hides self-editing and rules block it — the parent asks the admin for
+      // changes so the Student Manager record stays the source of truth (req).
+      managedByAdmin: true,
+      ...(getString(student.photoUrl) ? { photoURL: getString(student.photoUrl) } : {}),
       updatedAt: FieldValue.serverTimestamp(),
       ...(createdUser ? { createdAt: FieldValue.serverTimestamp() } : {}),
     }, { merge: true });
@@ -249,7 +265,7 @@ export default async function handler(request: ApiRequest, response: ApiResponse
 
     // 4. Record the onboarding payment as a PAID fee (history + finance + admin).
     const warnings: string[] = [];
-    const totalInPaise = onboardingTotalInPaise(fees);
+    const { rows: breakdownRows, totalInPaise } = buildOnboardingBreakdown(fees);
     const paidVia = getString(student.paidVia);
     const paymentMethod = body.paymentMethod
       || (paidVia === "qr" ? "upi" : paidVia === "counter" ? "cash" : paidVia === "razorpay" ? "manual" : "cash");
@@ -264,6 +280,7 @@ export default async function handler(request: ApiRequest, response: ApiResponse
       await db.collection(FEE_PAYMENTS_COLLECTION).doc(feeId).set({
         status: "paid",
         paymentMethod,
+        breakdown: breakdownRows,
         ...(isPrepaymentStyle ? { prepayment: true } : {}),
         ...(getString(student.proofUrl) ? { upiProofUrl: getString(student.proofUrl) } : {}),
         ...(getString(student.upiRef) ? { upiRef: getString(student.upiRef) } : {}),
@@ -321,6 +338,9 @@ export default async function handler(request: ApiRequest, response: ApiResponse
       studentId,
       userUid: uid,
       enrollmentId,
+      // Whether approval CREATED this auth account (vs. reusing an existing
+      // user) — the danger-zone delete uses it to decide if the login goes too.
+      authUserCreated: createdUser,
       onboardingStatus: "approved",
       paidVia: paidVia || (paymentMethod === "cash" ? "counter" : paymentMethod === "upi" ? "qr" : "razorpay"),
       active: true,
