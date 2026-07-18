@@ -160,16 +160,48 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     const classData = classSnap.data() || {};
     const billingDay = clampBillingDay(toNumber(classData.billingDayOfMonth, 5));
 
-    // 1. Next student id — transaction so two approvals never share a number.
+    // 1. The roll number / student id. The admin's chosen number wins (req —
+    //    e.g. reassigning a dropped student's number); a number still held by
+    //    an ACTIVE approved student is rejected. Blank → next auto number via
+    //    the counter transaction (never shared between two approvals).
     const counterRef = db.doc("counters/studentIds");
-    const sequence = await db.runTransaction(async (tx) => {
-      const snap = await tx.get(counterRef);
-      const next = Math.max(1, Math.round(toNumber(snap.data()?.next, 1)));
-      tx.set(counterRef, { next: next + 1, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
-      return next;
-    });
-    const studentId = formatStudentId(sequence);
-    const password = studentId; // req: password = the auto-generated Student ID
+    const desiredId = getString(student.desiredStudentId).trim().toUpperCase();
+    let studentId = "";
+    if (desiredId) {
+      if (!/^[A-Z0-9-]{6,20}$/.test(desiredId)) {
+        sendError(response, 400, "Roll number must be 6–20 letters/numbers (it becomes the login password).");
+        return;
+      }
+      const holders = await db.collection(STUDENTS).where("studentId", "==", desiredId).get();
+      const activeHolder = holders.docs.find((docSnap) =>
+        docSnap.id !== studentDocId
+        && docSnap.data()?.active !== false
+        && getString(docSnap.data()?.onboardingStatus) === "approved");
+      if (activeHolder) {
+        sendError(response, 409, `Roll number ${desiredId} already belongs to an active student (${getString(activeHolder.data()?.name) || "unnamed"}). Mark them inactive first or pick another number.`);
+        return;
+      }
+      studentId = desiredId;
+      // Keep the auto-suggestion ahead of manually assigned numeric ids.
+      const numeric = /(\d+)$/.exec(desiredId);
+      if (numeric) {
+        const used = Number(numeric[1]);
+        await db.runTransaction(async (tx) => {
+          const snap = await tx.get(counterRef);
+          const next = Math.max(1, Math.round(toNumber(snap.data()?.next, 1)));
+          if (used + 1 > next) tx.set(counterRef, { next: used + 1, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+        });
+      }
+    } else {
+      const sequence = await db.runTransaction(async (tx) => {
+        const snap = await tx.get(counterRef);
+        const next = Math.max(1, Math.round(toNumber(snap.data()?.next, 1)));
+        tx.set(counterRef, { next: next + 1, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+        return next;
+      });
+      studentId = formatStudentId(sequence);
+    }
+    const password = studentId; // req: password = the roll number / Student ID
 
     // 2. The login. Reuse an existing account for this email but never touch a
     //    privileged one; reset its password so the shared credentials work.

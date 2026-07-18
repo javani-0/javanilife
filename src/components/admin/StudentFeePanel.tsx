@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { BadgeIndianRupee, CalendarPlus, Loader2, RefreshCw, Trash2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useAdminLog } from "@/hooks/useAdminLog";
 import { confirmDialog } from "@/components/ConfirmDialogHost";
 import { formatPaiseAsRupees, parsePriceToPaise } from "@/lib/ecommerce";
 import {
@@ -43,6 +44,15 @@ const statusStyles: Record<FeeStatus, string> = {
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
 
+// Firestore Timestamp / Date / string → "YYYY-MM-DD" (for the edit prefill).
+const toDateInput = (value: unknown): string => {
+  const ts = value as { toDate?: () => Date } | undefined;
+  const date = typeof ts?.toDate === "function" ? ts.toDate() : value instanceof Date ? value : null;
+  if (!date || Number.isNaN(date.getTime())) return todayIso();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+};
+
 interface StudentFeePanelProps {
   student: StudentDoc;
   adminUid: string;
@@ -50,6 +60,8 @@ interface StudentFeePanelProps {
 
 const StudentFeePanel = ({ student, adminUid }: StudentFeePanelProps) => {
   const { toast } = useToast();
+  const logAction = useAdminLog();
+  const studentLabel = `${student.name}${student.studentId ? ` (${student.studentId})` : ""}`;
   const [enrollment, setEnrollment] = useState<EnrollmentDoc | null>(null);
   const [fees, setFees] = useState<FeePaymentDoc[]>([]);
   const [loading, setLoading] = useState(true);
@@ -102,6 +114,7 @@ const StudentFeePanel = ({ student, adminUid }: StudentFeePanelProps) => {
         adminUid,
       });
       toast({ title: "Fee entry added", description: `${periodLabel(entryMonth)} · ${formatPaiseAsRupees(amountInPaise)} recorded as paid.` });
+      logAction("Recorded fee", `${studentLabel} · ${periodLabel(entryMonth)} · ${formatPaiseAsRupees(amountInPaise)} · ${entryMethod}`);
       await refresh();
     } catch (error) {
       toast({ title: "Could not add the entry", description: error instanceof Error ? error.message : undefined, variant: "destructive" });
@@ -113,8 +126,9 @@ const StudentFeePanel = ({ student, adminUid }: StudentFeePanelProps) => {
   const openMarkPaid = (fee: FeePaymentDoc) => {
     setPayingId(fee.id);
     setPayAmount(String(fee.amountInPaise / 100));
-    setPayDate(todayIso());
-    setPayMethod("cash");
+    // Editing a PAID entry keeps its recorded date/method; new collections default to today/cash.
+    setPayDate(fee.status === "paid" ? toDateInput(fee.paidAt) : todayIso());
+    setPayMethod(fee.status === "paid" && (fee.paymentMethod === "upi" || fee.paymentMethod === "cash") ? fee.paymentMethod : "cash");
   };
 
   const handleMarkPaid = async (fee: FeePaymentDoc) => {
@@ -122,8 +136,10 @@ const StudentFeePanel = ({ student, adminUid }: StudentFeePanelProps) => {
     if (amountInPaise < 100) { toast({ title: "Enter a valid amount", variant: "destructive" }); return; }
     setBusyId(fee.id);
     try {
+      const wasEdit = fee.status === "paid";
       await markFeePaidWithDate(fee.id, { amountInPaise, paidOn: payDate || todayIso(), method: payMethod, adminUid });
-      toast({ title: "Marked paid", description: `${fee.periodLabel} · ${formatPaiseAsRupees(amountInPaise)}` });
+      toast({ title: wasEdit ? "Entry updated" : "Marked paid", description: `${fee.periodLabel} · ${formatPaiseAsRupees(amountInPaise)}` });
+      logAction(wasEdit ? "Edited fee entry" : "Marked fee paid", `${studentLabel} · ${fee.periodLabel} · ${formatPaiseAsRupees(amountInPaise)} · ${payMethod}`);
       setPayingId(null);
       await refresh();
     } catch (error) {
@@ -142,6 +158,7 @@ const StudentFeePanel = ({ student, adminUid }: StudentFeePanelProps) => {
     setBusyId(fee.id);
     try {
       await waiveFee(fee.id, "Waived from Student Manager");
+      logAction("Waived fee", `${studentLabel} · ${fee.periodLabel}`);
       await refresh();
     } catch (error) {
       toast({ title: "Could not waive", description: error instanceof Error ? error.message : undefined, variant: "destructive" });
@@ -160,6 +177,7 @@ const StudentFeePanel = ({ student, adminUid }: StudentFeePanelProps) => {
     setBusyId(fee.id);
     try {
       await deleteFee(fee.id);
+      logAction("Deleted fee record", `${studentLabel} · ${fee.periodLabel} · ${formatPaiseAsRupees(fee.amountInPaise)}`);
       await refresh();
     } catch (error) {
       toast({ title: "Could not delete", description: error instanceof Error ? error.message : undefined, variant: "destructive" });
@@ -255,6 +273,12 @@ const StudentFeePanel = ({ student, adminUid }: StudentFeePanelProps) => {
                     {payable && (
                       <button onClick={() => (payingId === fee.id ? setPayingId(null) : openMarkPaid(fee))} disabled={busyId === fee.id} className="rounded-md border border-gold/40 px-2.5 py-1 font-body text-[0.7rem] font-semibold text-gold hover:bg-gold/10 disabled:opacity-50">
                         Mark paid
+                      </button>
+                    )}
+                    {/* Edit a recorded payment (req): amount, paid date, method */}
+                    {displayStatus === "paid" && (
+                      <button onClick={() => (payingId === fee.id ? setPayingId(null) : openMarkPaid(fee))} disabled={busyId === fee.id} className="rounded-md border border-gold/40 px-2.5 py-1 font-body text-[0.7rem] font-semibold text-gold hover:bg-gold/10 disabled:opacity-50">
+                        Edit
                       </button>
                     )}
                     {payable && (

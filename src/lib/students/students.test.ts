@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { buildFeeBreakdown, formatStudentId, isPaymentFreeOnboarding, type StudentFeeSetup } from "./types";
+import {
+  buildFeeBreakdown,
+  formatStudentId,
+  isPaymentFreeOnboarding,
+  ROLL_NUMBER_PATTERN,
+  suggestNextStudentId,
+  type StudentFeeSetup,
+} from "./types";
 
 const baseFees: StudentFeeSetup = {
   studentType: "new",
@@ -61,6 +68,36 @@ describe("buildFeeBreakdown", () => {
   it("skips zero rows", () => {
     const { rows } = buildFeeBreakdown({ ...baseFees, kitFeeInPaise: 0, booksFeeInPaise: 0, uniformFeeInPaise: 0 });
     expect(rows.map((row) => row.label)).toEqual(["Pre-payment (first fee)"]);
+  });
+});
+
+describe("suggestNextStudentId", () => {
+  it("suggests one past the highest number in use", () => {
+    expect(suggestNextStudentId([{ studentId: "STU002" }, { studentId: "STU007" }])).toBe("STU008");
+  });
+  it("counts pending (desired) numbers too", () => {
+    expect(suggestNextStudentId([{ studentId: "STU003" }, { desiredStudentId: "STU010" }])).toBe("STU011");
+  });
+  it("starts at STU001 with no students", () => {
+    expect(suggestNextStudentId([])).toBe("STU001");
+  });
+  it("ignores non-numeric ids", () => {
+    expect(suggestNextStudentId([{ studentId: "CUSTOM" }, { studentId: "STU004" }])).toBe("STU005");
+  });
+});
+
+describe("ROLL_NUMBER_PATTERN", () => {
+  it("accepts standard and custom ids of 6-20 chars", () => {
+    expect(ROLL_NUMBER_PATTERN.test("STU001")).toBe(true);
+    expect(ROLL_NUMBER_PATTERN.test("JAV-2026-01")).toBe(true);
+  });
+  it("rejects ids too short to be a Firebase password", () => {
+    expect(ROLL_NUMBER_PATTERN.test("STU1")).toBe(false);
+    expect(ROLL_NUMBER_PATTERN.test("")).toBe(false);
+  });
+  it("rejects spaces and symbols", () => {
+    expect(ROLL_NUMBER_PATTERN.test("STU 001")).toBe(false);
+    expect(ROLL_NUMBER_PATTERN.test("STU@001")).toBe(false);
   });
 });
 

@@ -3,6 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import { BellRing, Banknote, Download, IndianRupee, Search, XCircle, Trash2, LayoutGrid, List, X, Check, ExternalLink, Loader2, History, Undo2, Upload, Pencil } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
+import { useAdminLog } from "@/hooks/useAdminLog";
 import { confirmDialog, promptDialog } from "@/components/ConfirmDialogHost";
 import { useScrollHighlight } from "@/hooks/useScrollHighlight";
 import { createPortal } from "react-dom";
@@ -90,6 +91,7 @@ const Tile = ({ label, value, sub, accent, onClick, active }: { label: string; v
 const AdminFeeCollections = () => {
   const { user } = useAuth();
   const { toast } = useToast();
+  const logAction = useAdminLog();
   const [searchParams] = useSearchParams();
   // A deep-linked fee id (`<enrollmentId>_<YYYY-MM>`) carries its month — open it.
   const [monthKey, setMonthKey] = useState(() => {
@@ -160,6 +162,7 @@ const AdminFeeCollections = () => {
       const idToken = await user.getIdToken();
       await approveUpiPayment(idToken, fee.id, approve, note);
       toast({ title: approve ? "Payment approved" : "Payment rejected", description: `${fee.studentName} · ${fee.periodLabel}` });
+      logAction(approve ? "Approved UPI payment" : "Rejected UPI payment", `${fee.studentName} · ${fee.periodLabel} · ${formatPaiseAsRupees(fee.amountInPaise)}${note ? ` · "${note}"` : ""}`);
     } catch (error) {
       toast({ title: "Action failed", description: error instanceof Error ? error.message : undefined, variant: "destructive" });
     } finally {
@@ -266,6 +269,8 @@ const AdminFeeCollections = () => {
     try {
       await action();
       toast({ title: label });
+      const fee = fees.find((item) => item.id === feeId);
+      logAction(label, fee ? `${fee.studentName} · ${fee.periodLabel} · ${formatPaiseAsRupees(fee.amountInPaise)}` : feeId);
     } catch (error) {
       console.error(label, error);
       toast({ title: "Action failed", description: error instanceof Error ? error.message : undefined, variant: "destructive" });
@@ -314,6 +319,7 @@ const AdminFeeCollections = () => {
         adminUid: user?.uid,
       });
       toast({ title: "Fee updated", description: `${editFee.studentName} · amount, dates & label saved.` });
+      logAction("Edited fee details", `${editFee.studentName} · ${editFee.periodLabel} · now ${formatPaiseAsRupees(Math.round(rupees * 100))}`);
       setEditFee(null);
       // The Payment history dialog may be open under this edit — refresh it so
       // the row shows the new values + the "edited by admin" audit line.
@@ -375,6 +381,7 @@ const AdminFeeCollections = () => {
       const proofUrl = await uploadPaymentProof(cashProofFile);
       await collectFeeCash(cashFee.id, { amountInPaise: Math.round(rupees * 100), proofUrl, adminUid: user.uid });
       toast({ title: "Cash collected", description: `${cashFee.studentName} · ${cashFee.periodLabel} · ₹${rupees.toLocaleString("en-IN")}` });
+      logAction("Collected cash", `${cashFee.studentName} · ${cashFee.periodLabel} · ₹${rupees.toLocaleString("en-IN")}`);
       // Notify parent + admin (WhatsApp + push) — best-effort.
       try {
         const idToken = await user.getIdToken();
@@ -405,6 +412,7 @@ const AdminFeeCollections = () => {
     try {
       await undoFeeCollection(fee.id, { adminUid: user.uid, amountInPaise: fee.amountInPaise });
       toast({ title: "Collection undone", description: `${fee.studentName} · ${fee.periodLabel} is pending again.` });
+      logAction("Undid cash collection", `${fee.studentName} · ${fee.periodLabel} · ${formatPaiseAsRupees(fee.amountInPaise)}`);
       try {
         const idToken = await user.getIdToken();
         await notifyClassFee(idToken, fee.id, "fee-collection-undone");

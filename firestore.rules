@@ -164,6 +164,14 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // Admin activity log (req): append-only audit trail of admin/manager
+    // actions. Staff write; only the admin reads; nothing is ever edited.
+    match /adminLogs/{id} {
+      allow read: if isAdmin();
+      allow create: if isAdmin() || isManager();
+      allow update, delete: if false;
+    }
+
     // Business expenses — admin enters/edits; admin + partner may read. The
     // partner dashboard reads aggregates via the server, but allowing read here
     // keeps the admin console working and exposes no customer PII.

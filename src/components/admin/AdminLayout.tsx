@@ -6,7 +6,7 @@ import {
   LayoutDashboard, ClipboardList, BookOpen, Image, ShoppingBag, Users,
   Handshake, SlidersHorizontal, LogOut, Menu, X, PackageCheck,
   ChevronLeft, ChevronRight, TicketPercent, Truck,
-  GraduationCap, UserCheck, Wallet, PiggyBank, QrCode, UserCog, UserPlus,
+  GraduationCap, UserCheck, Wallet, PiggyBank, QrCode, UserCog, UserPlus, ScrollText,
 } from "lucide-react";
 import logoWhite from "@/assets/logo-white.png";
 
@@ -28,6 +28,7 @@ const allNavItems = [
   { label: "Finance", icon: PiggyBank, path: "/admin/finance" },
   { label: "Partners Manager", icon: Handshake, path: "/admin/partners" },
   { label: "Managers", icon: UserCog, path: "/admin/managers" },
+  { label: "Activity Log", icon: ScrollText, path: "/admin/activity" },
   { label: "Faculty Manager", icon: Users, path: "/admin/faculty" },
   { label: "Site Settings", icon: SlidersHorizontal, path: "/admin/site-settings" },
 ];

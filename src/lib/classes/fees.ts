@@ -332,16 +332,31 @@ const paidOnTimestamp = (dateStr: string): Timestamp => {
  * self-heal never create a duplicate due for the same month. If the doc already
  * exists (a pending due) it's marked paid instead. Returns the fee doc id.
  */
+type FeeEntryEnrollment = Pick<
+  EnrollmentDoc,
+  "id" | "classId" | "className" | "parentUserId" | "student" | "parent" | "monthlyFeeInPaise" | "billingDayOfMonth" | "paymentPlan" | "slotId" | "slotLabel" | "studentStatus" | "feeType" | "startMonthKey"
+>;
+
+/**
+ * The ledger doc month that carries the fee OF `feeMonthKey` for this
+ * enrolment: advance billing (existing manual students) collects month M's fee
+ * in M; every arrears rail collects it in M+1. Shared by the entry forms so
+ * the duplicate-month guard and the write always agree.
+ */
+export const feeDocMonthKeyFor = (
+  enrollment: Pick<EnrollmentDoc, "paymentPlan" | "studentStatus" | "feeType">,
+  feeMonthKey: string,
+): string => {
+  const billingMethod = isPrepaymentEnrollment(enrollment) ? "arrears" : (enrollment.paymentPlan === "manual" ? "manual" : "arrears");
+  return billingMethod === "manual" ? feeMonthKey : addMonths(feeMonthKey, 1);
+};
+
 export const recordFeeForMonth = async (
-  enrollment: Pick<
-    EnrollmentDoc,
-    "id" | "classId" | "className" | "parentUserId" | "student" | "parent" | "monthlyFeeInPaise" | "billingDayOfMonth" | "paymentPlan" | "slotId" | "slotLabel" | "studentStatus" | "feeType" | "startMonthKey"
-  >,
+  enrollment: FeeEntryEnrollment,
   params: { feeMonthKey: string; amountInPaise: number; paidOn: string; method?: FeePaymentMethod; adminUid: string },
 ): Promise<string> => {
   const billingMethod = isPrepaymentEnrollment(enrollment) ? "arrears" : (enrollment.paymentPlan === "manual" ? "manual" : "arrears");
-  // Advance billing collects month M's fee in M; arrears collects it in M+1.
-  const docMonthKey = billingMethod === "manual" ? params.feeMonthKey : addMonths(params.feeMonthKey, 1);
+  const docMonthKey = feeDocMonthKeyFor(enrollment, params.feeMonthKey);
   const id = buildFeePaymentId(enrollment.id, docMonthKey);
   const ref = doc(db, FEE_PAYMENTS_COLLECTION, id);
   const amountInPaise = Math.max(100, Math.round(params.amountInPaise));
@@ -356,6 +371,13 @@ export const recordFeeForMonth = async (
   };
 
   const existing = await getDoc(ref);
+  // Guard (req): never silently double-collect a month that's already settled.
+  if (existing.exists() && existing.data()?.status === "paid") {
+    throw new Error(`${periodLabelFor(params.feeMonthKey)} fee is already paid. Use Edit on that entry instead.`);
+  }
+  if (existing.exists() && existing.data()?.status === "waived") {
+    throw new Error(`${periodLabelFor(params.feeMonthKey)} was waived. Delete the waived record first if you want to collect it.`);
+  }
   if (existing.exists()) {
     await updateDoc(ref, {
       status: "paid",

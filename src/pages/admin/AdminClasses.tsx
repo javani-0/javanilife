@@ -6,6 +6,7 @@ import { CLOUDINARY_CLOUD_NAME, CLOUDINARY_UPLOAD_PRESET } from "@/lib/cloudinar
 import { openSquareCropper } from "@/components/SquareImageCropper";
 import { Plus, Pencil, Trash2, X, Upload, BadgeIndianRupee, AlertTriangle, GraduationCap, CalendarRange, Repeat, Clock, Wallet, Video, FileText, MonitorPlay } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useAdminLog } from "@/hooks/useAdminLog";
 import { confirmDialog } from "@/components/ConfirmDialogHost";
 import { formatPaiseAsRupees, parsePriceToPaise } from "@/lib/ecommerce";
 import {
@@ -191,6 +192,7 @@ const AdminClasses = () => {
   const imageRef = useRef<HTMLInputElement>(null);
   const materialsRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
+  const logAction = useAdminLog();
 
   useEffect(() => subscribeToClasses(setClasses, (error) => {
     console.error("Unable to load classes", error);
@@ -430,6 +432,7 @@ const AdminClasses = () => {
         materials: form.materials.filter((link) => link.url.trim()),
       });
       toast({ title: editing ? "Class updated" : "Class added" });
+      logAction(editing ? "Updated class" : "Created class", form.name.trim());
       closeModal();
     } catch (error) {
       console.error("Error saving class", error);
@@ -448,6 +451,7 @@ const AdminClasses = () => {
     }))) return;
     await deleteDoc(doc(db, CLASSES_COLLECTION, id));
     toast({ title: "Class deleted" });
+    logAction("Deleted class", name);
   };
 
   return (

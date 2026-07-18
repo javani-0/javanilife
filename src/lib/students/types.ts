@@ -80,6 +80,10 @@ export interface StudentDoc {
   paidVia?: "qr" | "counter" | "razorpay";
   razorpayPaymentId?: string;
   linkSharedAt?: Timestamp;
+  // Admin-chosen roll number (req): suggested at creation, editable until
+  // approval. Becomes the Student ID AND the login password at approval. A
+  // dropped (inactive) student's number may be reassigned to a new student.
+  desiredStudentId?: string;
   // Issued at approval
   studentId?: string;    // "STU001"
   userUid?: string;
@@ -146,6 +150,27 @@ export const ONBOARDING_STATUS_LABELS: Record<OnboardingStatus, string> = {
 /** "STU001" from a sequence number (grows past 999 naturally: "STU1000"). */
 export const formatStudentId = (sequence: number): string =>
   `STU${String(Math.max(1, Math.round(sequence))).padStart(3, "0")}`;
+
+/** Roll numbers double as the login password — Firebase needs ≥ 6 chars. */
+export const ROLL_NUMBER_PATTERN = /^[A-Za-z0-9-]{6,20}$/;
+
+/**
+ * Suggest the next roll number from the numbers already in use (assigned or
+ * pending): highest numeric suffix + 1. The admin can overwrite it (req) —
+ * e.g. to reassign a dropped student's number.
+ */
+export const suggestNextStudentId = (
+  students: Array<Pick<StudentDoc, "studentId" | "desiredStudentId">>,
+): string => {
+  let highest = 0;
+  for (const student of students) {
+    for (const value of [student.studentId, student.desiredStudentId]) {
+      const match = /(\d+)\s*$/.exec(value || "");
+      if (match) highest = Math.max(highest, Number(match[1]));
+    }
+  }
+  return formatStudentId(highest + 1);
+};
 
 const clampPaise = (value: number): number => Math.max(0, Math.round(Number(value) || 0));
 

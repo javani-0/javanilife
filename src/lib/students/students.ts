@@ -88,6 +88,7 @@ export const normalizeStudent = (id: string, data: DocumentData = {}): StudentDo
       qr: methods.qr !== false,
       counter: methods.counter !== false,
     },
+    desiredStudentId: getString(data.desiredStudentId) || undefined,
     linkToken: getString(data.linkToken),
     onboardingStatus: allowedStatuses.includes(data.onboardingStatus as OnboardingStatus)
       ? (data.onboardingStatus as OnboardingStatus)
@@ -157,6 +158,7 @@ export interface StudentWriteInput {
   className: string;
   slotId?: string;
   slotLabel?: string;
+  desiredStudentId?: string;
   inventory: StudentInventory;
   fees: {
     studentType: StudentType;
@@ -187,6 +189,7 @@ const buildStudentPayload = (input: StudentWriteInput) => ({
   className: input.className.trim(),
   slotId: input.slotId || "",
   slotLabel: input.slotLabel || "",
+  desiredStudentId: (input.desiredStudentId || "").trim().toUpperCase(),
   inventory: {
     uniform: input.inventory.uniform === true,
     kit: input.inventory.kit === true,

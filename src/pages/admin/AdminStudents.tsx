@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
+import { useAdminLog } from "@/hooks/useAdminLog";
 import { confirmDialog } from "@/components/ConfirmDialogHost";
 import { CLOUDINARY_CLOUD_NAME, CLOUDINARY_UPLOAD_PRESET } from "@/lib/cloudinary";
 import { openSquareCropper } from "@/components/SquareImageCropper";
@@ -35,7 +36,9 @@ import {
   ONBOARDING_STATUS_LABELS,
   PARENT_RELATION_LABELS,
   regenerateLinkToken,
+  ROLL_NUMBER_PATTERN,
   setStudentActive,
+  suggestNextStudentId,
   subscribeToStudentCredentials,
   subscribeToStudents,
   updateStudent,
@@ -63,6 +66,7 @@ interface StudentFormState {
   address: string;
   mode: StudentMode;
   photoUrl: string;
+  rollNumber: string;
   classId: string;
   slotId: string;
   track: StudentTrack;
@@ -84,7 +88,7 @@ interface StudentFormState {
 
 const defaultForm: StudentFormState = {
   name: "", age: "", gender: "male", email: "", phone: "",
-  parentName: "", parentRelation: "father", address: "", mode: "offline", photoUrl: "",
+  parentName: "", parentRelation: "father", address: "", mode: "offline", photoUrl: "", rollNumber: "",
   classId: "", slotId: "", track: "monthly",
   invUniform: false, invKit: false, invBooks: false,
   studentType: "new",
@@ -116,6 +120,7 @@ const toFormFees = (form: StudentFormState) => ({
 const AdminStudents = () => {
   const { user, userProfile } = useAuth();
   const { toast } = useToast();
+  const logAction = useAdminLog();
   const isAdminRole = userProfile?.role === "admin";
 
   const [students, setStudents] = useState<StudentDoc[]>([]);
@@ -151,7 +156,12 @@ const AdminStudents = () => {
   const previewFees = useMemo(() => buildFeeBreakdown(toFormFees(form)), [form]);
   const paymentFree = isPaymentFreeOnboarding(toFormFees(form));
 
-  const openAdd = () => { setForm(defaultForm); setEditing(null); setShowModal(true); };
+  const openAdd = () => {
+    // Suggest the next roll number — the admin can overwrite it (req).
+    setForm({ ...defaultForm, rollNumber: suggestNextStudentId(students) });
+    setEditing(null);
+    setShowModal(true);
+  };
 
   const openEdit = (student: StudentDoc) => {
     setEditing(student);
@@ -166,6 +176,7 @@ const AdminStudents = () => {
       address: student.address,
       mode: student.mode,
       photoUrl: student.photoUrl || "",
+      rollNumber: student.studentId || student.desiredStudentId || "",
       classId: student.classId,
       slotId: student.slotId || "",
       track: student.fees.track,
@@ -207,6 +218,15 @@ const AdminStudents = () => {
     const cls = classes.find((item) => item.id === form.classId);
     if (!form.name.trim()) { toast({ title: "Student name is required", variant: "destructive" }); return null; }
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(form.email.trim())) { toast({ title: "A valid login email is required", description: "The parent signs in with this email.", variant: "destructive" }); return null; }
+    const rollNumber = form.rollNumber.trim().toUpperCase();
+    if (rollNumber && !ROLL_NUMBER_PATTERN.test(rollNumber)) {
+      toast({ title: "Invalid roll number", description: "Use 6–20 letters/numbers (it becomes the login password), e.g. STU005.", variant: "destructive" });
+      return null;
+    }
+    if (rollNumber) {
+      const activeHolder = students.find((s) => s.id !== editing?.id && s.onboardingStatus === "approved" && s.active && s.studentId === rollNumber);
+      if (activeHolder) { toast({ title: `Roll number ${rollNumber} is taken`, description: `It belongs to ${activeHolder.name}. Mark them inactive first or pick another number.`, variant: "destructive" }); return null; }
+    }
     if (!cls) { toast({ title: "Pick a class", variant: "destructive" }); return null; }
     const slot = (cls.timeSlots || []).find((item) => item.id === form.slotId);
     return {
@@ -220,6 +240,7 @@ const AdminStudents = () => {
       address: form.address,
       mode: form.mode,
       photoUrl: form.photoUrl,
+      desiredStudentId: rollNumber,
       classId: cls.id,
       className: cls.name,
       slotId: slot?.id,
@@ -242,9 +263,11 @@ const AdminStudents = () => {
       if (editing) {
         await updateStudent(editing, input);
         toast({ title: "Student updated" });
+        logAction("Updated student", `${input.name}${editing.studentId ? ` (${editing.studentId})` : ""} · ${input.className}`);
       } else {
         await createStudent(input);
         toast({ title: "Student created", description: "Share the payment link from the card, then approve to issue the login." });
+        logAction("Created student", `${input.name} · ${input.className}${input.desiredStudentId ? ` · roll ${input.desiredStudentId}` : ""}`);
       }
       closeModal();
     } catch (error) {
@@ -266,6 +289,7 @@ const AdminStudents = () => {
       const idToken = await user.getIdToken();
       const result = await approveOnboarding(idToken, { studentDocId: student.id, approve: true, paymentMethod });
       toast({ title: `Approved — ${result.studentId}`, description: `Login: ${result.credentials.email} · password ${result.credentials.password}. Share it from the card.` });
+      logAction("Approved student & issued login", `${student.name} → ${result.studentId} · ${student.className} · via ${paymentMethod}`);
       (result.warnings || []).forEach((warning) => toast({ title: "Heads up", description: warning }));
     } catch (error) {
       toast({ title: "Could not approve", description: error instanceof Error ? error.message : undefined, variant: "destructive" });
@@ -281,6 +305,7 @@ const AdminStudents = () => {
       const idToken = await user.getIdToken();
       await approveOnboarding(idToken, { studentDocId: student.id, approve: false, rejectReason: rejectReason.trim() });
       toast({ title: "Sent back to the parent", description: "They'll see the reason and can pay again." });
+      logAction("Rejected onboarding payment", `${student.name} · ${student.className}${rejectReason.trim() ? ` · "${rejectReason.trim()}"` : ""}`);
       setRejectingId(null); setRejectReason("");
     } catch (error) {
       toast({ title: "Could not reject", description: error instanceof Error ? error.message : undefined, variant: "destructive" });
@@ -294,6 +319,7 @@ const AdminStudents = () => {
     try {
       await setStudentActive(student, !student.active);
       toast({ title: student.active ? "Marked inactive" : "Marked active", description: student.active ? "Dues paused; history kept." : "Class resumed." });
+      logAction(student.active ? "Marked student inactive" : "Marked student active", `${student.name}${student.studentId ? ` (${student.studentId})` : ""}`);
     } catch (error) {
       toast({ title: "Could not update status", description: error instanceof Error ? error.message : undefined, variant: "destructive" });
     } finally {
@@ -311,6 +337,7 @@ const AdminStudents = () => {
     try {
       await regenerateLinkToken(student);
       toast({ title: "New link ready", description: "Share the fresh link with the parent." });
+      logAction("Regenerated payment link", student.name);
     } catch (error) {
       toast({ title: "Could not regenerate", description: error instanceof Error ? error.message : undefined, variant: "destructive" });
     } finally {
@@ -329,6 +356,7 @@ const AdminStudents = () => {
     try {
       await deleteDraftStudent(student);
       toast({ title: "Draft deleted" });
+      logAction("Deleted student draft", `${student.name} · ${student.className}`);
     } catch (error) {
       toast({ title: "Could not delete", description: error instanceof Error ? error.message : undefined, variant: "destructive" });
     } finally {
@@ -352,6 +380,7 @@ const AdminStudents = () => {
       const idToken = await user.getIdToken();
       const result = await deleteStudentCompletely(idToken, student.id);
       toast({ title: "Student deleted completely", description: `Removed: ${result.removed.join(", ")}.` });
+      logAction("PERMANENTLY deleted student", `${student.name}${student.studentId ? ` (${student.studentId})` : ""} · removed: ${result.removed.join(", ")}`);
     } catch (error) {
       toast({ title: "Could not delete", description: error instanceof Error ? error.message : undefined, variant: "destructive" });
     } finally {
@@ -551,7 +580,7 @@ const AdminStudents = () => {
                     </div>
                     <div className="flex flex-wrap items-center gap-1.5">
                       <button onClick={() => copyText(payUrl, "Link")} className="flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 font-body text-[0.72rem] font-semibold text-muted-foreground hover:bg-muted"><Copy className="h-3.5 w-3.5" /> Copy</button>
-                      <a href={buildPaymentLinkWhatsAppUrl(student, totalInPaise, payUrl)} target="_blank" rel="noreferrer" onClick={() => markLinkShared(student.id)} className="flex items-center gap-1.5 rounded-md bg-[#25D366] px-3 py-1.5 font-body text-[0.72rem] font-semibold text-white hover:brightness-110"><MessageCircle className="h-3.5 w-3.5" /> Send link</a>
+                      <a href={buildPaymentLinkWhatsAppUrl(student, totalInPaise, payUrl)} target="_blank" rel="noreferrer" onClick={() => { markLinkShared(student.id); logAction("Sent payment link on WhatsApp", `${student.name} · ${formatPaiseAsRupees(totalInPaise)}`); }} className="flex items-center gap-1.5 rounded-md bg-[#25D366] px-3 py-1.5 font-body text-[0.72rem] font-semibold text-white hover:brightness-110"><MessageCircle className="h-3.5 w-3.5" /> Send link</a>
                       <button onClick={() => handleRegenerate(student)} disabled={busyId === student.id} className="flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 font-body text-[0.72rem] font-semibold text-muted-foreground hover:bg-muted disabled:opacity-50" title="New link"><RefreshCw className="h-3.5 w-3.5" /></button>
                     </div>
                   </div>
@@ -686,6 +715,21 @@ const AdminStudents = () => {
               <div>
                 <label className={labelClass}>Email (login id) *</label>
                 <input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className={inputClass} placeholder="parent@email.com" />
+              </div>
+              <div>
+                <label className={labelClass}>Roll number (Student ID)</label>
+                <input
+                  value={form.rollNumber}
+                  onChange={(e) => setForm({ ...form, rollNumber: e.target.value.toUpperCase() })}
+                  className={`${inputClass} ${editing?.onboardingStatus === "approved" ? "bg-muted text-muted-foreground" : ""}`}
+                  placeholder="e.g. STU005"
+                  disabled={editing?.onboardingStatus === "approved"}
+                />
+                <p className="mt-1 font-body text-[0.7rem] text-muted-foreground">
+                  {editing?.onboardingStatus === "approved"
+                    ? "Assigned at approval — it's also their password."
+                    : "Suggested — edit it if you like (e.g. reuse a dropped student's number). It becomes the login password."}
+                </p>
               </div>
               <div>
                 <label className={labelClass}>Phone (WhatsApp)</label>
