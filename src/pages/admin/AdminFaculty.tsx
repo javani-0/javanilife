@@ -15,6 +15,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { useToast } from "@/hooks/use-toast";
+import { confirmDialog } from "@/components/ConfirmDialogHost";
 import {
   Faculty,
   FacultyFormData,
@@ -242,7 +243,7 @@ const AdminFaculty = () => {
 
   // Delete faculty member
   const handleDelete = async (member: Faculty) => {
-    if (!confirm(`Delete ${member.name}? This action cannot be undone.`)) return;
+    if (!(await confirmDialog({ title: `Delete ${member.name}?`, description: "This action cannot be undone.", confirmText: "Delete faculty", destructive: true }))) return;
 
     try {
       await deleteFaculty(member.id);

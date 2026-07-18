@@ -5,6 +5,7 @@ import { useNavigate } from "react-router-dom";
 import { BellRing, ClipboardList, TrendingUp, Clock, ShoppingBag, Check, Trash2, LayoutGrid, List } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 import { useToast } from "@/hooks/use-toast";
+import { confirmDialog } from "@/components/ConfirmDialogHost";
 import { useWebNotifications } from "@/hooks/useWebNotifications";
 import ClassFeeSummaryCards from "@/components/admin/ClassFeeSummaryCards";
 
@@ -84,7 +85,7 @@ const AdminDashboard = () => {
   };
 
   const deleteEnquiry = async (id: string) => {
-    if (!confirm("Delete this enquiry?")) return;
+    if (!(await confirmDialog({ title: "Delete this enquiry?", confirmText: "Delete enquiry", destructive: true }))) return;
     try {
       await deleteDoc(doc(db, "enquiries", id));
       toast({ title: "Enquiry deleted" });

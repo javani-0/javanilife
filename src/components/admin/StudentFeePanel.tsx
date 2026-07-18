@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { BadgeIndianRupee, CalendarPlus, Loader2, RefreshCw, Trash2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { confirmDialog } from "@/components/ConfirmDialogHost";
 import { formatPaiseAsRupees, parsePriceToPaise } from "@/lib/ecommerce";
 import {
   deriveDisplayFeeStatus,
@@ -133,7 +134,11 @@ const StudentFeePanel = ({ student, adminUid }: StudentFeePanelProps) => {
   };
 
   const handleWaive = async (fee: FeePaymentDoc) => {
-    if (!confirm(`Waive ${fee.periodLabel}? The student won't be asked to pay it.`)) return;
+    if (!(await confirmDialog({
+      title: `Waive ${fee.periodLabel}?`,
+      description: "The student won't be asked to pay this month. The record stays in the ledger as waived.",
+      confirmText: "Waive month",
+    }))) return;
     setBusyId(fee.id);
     try {
       await waiveFee(fee.id, "Waived from Student Manager");
@@ -146,7 +151,12 @@ const StudentFeePanel = ({ student, adminUid }: StudentFeePanelProps) => {
   };
 
   const handleDelete = async (fee: FeePaymentDoc) => {
-    if (!confirm(`Delete the ${fee.periodLabel} record? Prefer Waive — deleted monthly dues can regenerate.`)) return;
+    if (!(await confirmDialog({
+      title: `Delete the ${fee.periodLabel} record?`,
+      description: "Prefer Waive — a deleted monthly due can regenerate on the next roll-forward.",
+      confirmText: "Delete record",
+      destructive: true,
+    }))) return;
     setBusyId(fee.id);
     try {
       await deleteFee(fee.id);

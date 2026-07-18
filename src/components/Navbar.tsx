@@ -47,8 +47,10 @@ const Navbar = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const isHome = location.pathname === "/";
-  const { user, logout } = useAuth();
+  const { user, userProfile, logout } = useAuth();
   const { totalItems, openCart } = useCart();
+  // Admin-uploaded student photo (Student Manager) shows as the account avatar.
+  const avatarUrl = userProfile?.photoURL || "";
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 40);
@@ -193,13 +195,17 @@ const Navbar = () => {
               <div className="relative">
                 <button
                   onClick={() => setUserMenuOpen(!userMenuOpen)}
-                  className={`w-9 h-9 rounded-full flex items-center justify-center border-2 transition-all duration-300 ${
+                  className={`w-9 h-9 rounded-full flex items-center justify-center overflow-hidden border-2 transition-all duration-300 ${
                     isSolid
                       ? "border-gold/50 text-foreground hover:bg-gold/10"
                       : "border-white/40 text-white/90 hover:bg-white/10"
                   }`}
                 >
-                  <User className="w-4 h-4" />
+                  {avatarUrl ? (
+                    <img src={avatarUrl} alt="Profile" className="h-full w-full object-cover" />
+                  ) : (
+                    <User className="w-4 h-4" />
+                  )}
                 </button>
                 {userMenuOpen && (
                   <>
@@ -250,7 +256,11 @@ const Navbar = () => {
                 className={`relative p-2 transition-colors ${textColor}`}
                 aria-label="Open account"
               >
-                <User className="w-5 h-5" />
+                {avatarUrl ? (
+                  <img src={avatarUrl} alt="Profile" className="h-6 w-6 rounded-full border border-gold/40 object-cover" />
+                ) : (
+                  <User className="w-5 h-5" />
+                )}
               </Link>
             )}
             <button

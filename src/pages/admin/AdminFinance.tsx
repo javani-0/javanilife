@@ -4,6 +4,7 @@ import { collection, onSnapshot } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
+import { confirmDialog } from "@/components/ConfirmDialogHost";
 import { formatPaiseAsRupees } from "@/lib/ecommerce";
 import {
   EXPENSE_CATEGORIES,
@@ -204,7 +205,7 @@ const AdminFinance = () => {
   };
 
   const handleDeleteIncome = async (entry: IncomeDoc) => {
-    if (!confirm(`Delete income "${entry.title}"?`)) return;
+    if (!(await confirmDialog({ title: `Delete income "${entry.title}"?`, confirmText: "Delete income", destructive: true }))) return;
     setBusyIncomeId(entry.id);
     try {
       await deleteManualIncome(entry.id);
@@ -217,7 +218,7 @@ const AdminFinance = () => {
   };
 
   const handleDeleteExpense = async (expense: ExpenseDoc) => {
-    if (!confirm(`Delete expense "${expense.title}"?`)) return;
+    if (!(await confirmDialog({ title: `Delete expense "${expense.title}"?`, confirmText: "Delete expense", destructive: true }))) return;
     setBusyId(expense.id);
     try {
       await deleteExpense(expense.id);

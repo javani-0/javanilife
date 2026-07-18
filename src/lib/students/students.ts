@@ -273,6 +273,19 @@ export const updateStudent = async (existing: StudentDoc, input: StudentWriteInp
       console.error("Could not sync the student photo to the portal account", error);
     }
   }
+  // Keep the parent's autopay OPTION in sync (req): turning the Razorpay
+  // toggle off in the Student Manager removes the autopay UI from their
+  // portal immediately (and turning it on invites them to enable it).
+  if (existing.enrollmentId && input.methods.razorpay !== existing.methods.razorpay) {
+    try {
+      await updateDoc(doc(db, "enrollments", existing.enrollmentId), {
+        autopayInvited: input.methods.razorpay === true,
+        updatedAt: serverTimestamp(),
+      });
+    } catch (error) {
+      console.error("Could not sync the autopay option to the enrollment", error);
+    }
+  }
 };
 
 /** Staff: toggle inventory received flags in place. */

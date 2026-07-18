@@ -5,6 +5,7 @@ import { CLOUDINARY_CLOUD_NAME, CLOUDINARY_UPLOAD_PRESET } from "@/lib/cloudinar
 import { openSquareCropper } from "@/components/SquareImageCropper";
 import { Upload, Trash2, Edit2, Save, X, Link2, ShieldCheck, Handshake, GraduationCap, BookOpen, Package, KeyRound, Phone, MessageCircle, Copy, Eye, EyeOff, Link as LinkIcon } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { confirmDialog } from "@/components/ConfirmDialogHost";
 import { useAuth } from "@/contexts/AuthContext";
 import { Progress } from "@/components/ui/progress";
 import {
@@ -318,7 +319,7 @@ const AdminPartners = () => {
 
   const deletePartner = async (partner: Partner) => {
     const hasAccess = Boolean(partner.email || partner.partnerUid);
-    if (!confirm(`Delete ${partner.name || partner.email || "this partner"}?${hasAccess ? " Their financial access will also be revoked." : ""}`)) return;
+    if (!(await confirmDialog({ title: `Delete ${partner.name || partner.email || "this partner"}?`, description: hasAccess ? "Their financial access will also be revoked." : undefined, confirmText: "Delete partner", destructive: true }))) return;
 
     try {
       // Delete from Cloudinary

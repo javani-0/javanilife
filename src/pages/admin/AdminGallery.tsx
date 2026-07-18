@@ -4,6 +4,7 @@ import { db } from "@/lib/firebase";
 import { CLOUDINARY_CLOUD_NAME, CLOUDINARY_UPLOAD_PRESET } from "@/lib/cloudinary";
 import { Upload, Trash2, Image as ImageIcon, AlertTriangle, Link as LinkIcon } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { confirmDialog } from "@/components/ConfirmDialogHost";
 import { Progress } from "@/components/ui/progress";
 import { openSquareCropper } from "@/components/SquareImageCropper";
 
@@ -115,7 +116,7 @@ const AdminGallery = () => {
   };
 
   const deleteImage = async (item: GalleryItem) => {
-    if (!confirm("Remove this image from gallery?")) return;
+    if (!(await confirmDialog({ title: "Remove this image from the gallery?", confirmText: "Remove image", destructive: true }))) return;
     await deleteDoc(doc(db, "gallery", item.id));
     toast({ title: "Image removed from gallery" });
   };

@@ -16,7 +16,8 @@ const allNavItems = [
   { label: "Courses Manager", icon: BookOpen, path: "/admin/courses" },
   { label: "Classes Manager", icon: GraduationCap, path: "/admin/classes" },
   { label: "Student Manager", icon: UserPlus, path: "/admin/students" },
-  { label: "Sign Up", icon: UserCheck, path: "/admin/enrollments" },
+  // ONE nav item for the merged Sign Up + Customers page (req: fewer tabs).
+  { label: "Sign Up & Customers", icon: UserCheck, path: "/admin/enrollments" },
   { label: "Fee Collections", icon: Wallet, path: "/admin/fee-collections" },
   { label: "Payment Settings", icon: QrCode, path: "/admin/payment-settings" },
   { label: "Gallery Manager", icon: Image, path: "/admin/gallery" },
@@ -24,7 +25,6 @@ const allNavItems = [
   { label: "Coupons", icon: TicketPercent, path: "/admin/coupons" },
   { label: "Delivery Settings", icon: Truck, path: "/admin/delivery-settings" },
   { label: "Orders Manager", icon: PackageCheck, path: "/admin/orders" },
-  { label: "Customers", icon: Users, path: "/admin/customers" },
   { label: "Finance", icon: PiggyBank, path: "/admin/finance" },
   { label: "Partners Manager", icon: Handshake, path: "/admin/partners" },
   { label: "Managers", icon: UserCog, path: "/admin/managers" },
@@ -45,14 +45,23 @@ const AdminLayout = () => {
   const navItems = useMemo(() => {
     if (!isManagerRole) return allNavItems;
     const allowed = userProfile?.managerPages || [];
-    return allNavItems.filter((item) => {
-      const key = pageKeyForPath(item.path);
-      return key ? allowed.includes(key) : false;
-    });
+    return allNavItems
+      .filter((item) => {
+        // The merged Sign Up & Customers item opens with either page key.
+        if (item.path === "/admin/enrollments") return allowed.includes("enrollments") || allowed.includes("customers");
+        const key = pageKeyForPath(item.path);
+        return key ? allowed.includes(key) : false;
+      })
+      // A customers-only manager lands on the tab they're allowed to see.
+      .map((item) => (item.path === "/admin/enrollments" && !allowed.includes("enrollments")
+        ? { ...item, path: "/admin/customers" }
+        : item));
   }, [isManagerRole, userProfile?.managerPages]);
 
   const roleBadge = isManagerRole ? "Manager" : "Admin";
-  const currentPage = navItems.find((n) => location.pathname.startsWith(n.path))?.label || (isManagerRole ? "" : "Dashboard");
+  const currentPage = navItems.find((n) => location.pathname.startsWith(n.path))?.label
+    || (location.pathname.startsWith("/admin/customers") ? "Sign Up & Customers" : "")
+    || (isManagerRole ? "" : "Dashboard");
 
   const handleLogout = async () => {
     await logout();
@@ -72,7 +81,7 @@ const AdminLayout = () => {
             `flex items-center gap-3 px-3 py-2.5 rounded-md font-body text-[0.875rem] transition-all duration-200 ${
               collapsed ? "justify-center" : ""
             } ${
-              isActive
+              (isActive || (item.path === "/admin/enrollments" && location.pathname.startsWith("/admin/customers")))
                 ? "text-gold bg-gold/[0.12] border-l-[3px] border-gold"
                 : "text-white/60 hover:text-gold hover:bg-gold/[0.08] border-l-[3px] border-transparent"
             }`
@@ -167,7 +176,7 @@ const AdminLayout = () => {
                   onClick={() => setMobileSidebarOpen(false)}
                   className={({ isActive }) =>
                     `flex items-center gap-3 px-4 py-2.5 rounded-md font-body text-[0.875rem] transition-all duration-200 ${
-                      isActive
+                      (isActive || (item.path === "/admin/enrollments" && location.pathname.startsWith("/admin/customers")))
                         ? "text-gold bg-gold/[0.12] border-l-[3px] border-gold"
                         : "text-white/60 hover:text-gold hover:bg-gold/[0.08] border-l-[3px] border-transparent"
                     }`

@@ -22,7 +22,9 @@ interface AccountLayoutProps {
 }
 
 const AccountLayout = ({ title, description, children }: AccountLayoutProps) => (
-  <div className="min-h-screen overflow-x-hidden bg-background">
+  // overflow-x-CLIP (not hidden): hidden creates a scroll container that
+  // silently kills position:sticky on the desktop sidebar; clip doesn't.
+  <div className="min-h-screen overflow-x-clip bg-background">
     <SEO title={`${title} | Javani Spiritual Hub`} description={description} />
     <PageHero
       backgroundImages={[heroTemple]}
@@ -33,7 +35,7 @@ const AccountLayout = ({ title, description, children }: AccountLayoutProps) => 
       size="compact"
     />
 
-    <main className="mx-auto max-w-7xl overflow-x-hidden px-4 py-6 sm:px-6 sm:py-10 lg:py-12">
+    <main className="mx-auto max-w-7xl overflow-x-clip px-4 py-6 sm:px-6 sm:py-10 lg:py-12">
       <Link to="/products" className="mb-6 inline-flex items-center gap-2 rounded-sm border border-gold/40 bg-card px-4 py-2 font-body text-sm font-semibold text-gold transition-colors hover:bg-gold hover:text-white">
         <ArrowLeft className="h-4 w-4" /> Back to products
       </Link>

@@ -4,6 +4,7 @@ import { BadgeIndianRupee, Gift, Percent, Plus, TicketPercent, Trash2 } from "lu
 import { useCoupons } from "@/hooks/useCoupons";
 import { useProductCategories, useCourseCategories } from "@/hooks/useManagedCategories";
 import { useToast } from "@/hooks/use-toast";
+import { confirmDialog } from "@/components/ConfirmDialogHost";
 import { db } from "@/lib/firebase";
 import { subscribeToClasses, type ClassDoc } from "@/lib/classes";
 import {
@@ -206,7 +207,7 @@ const AdminCoupons = () => {
   };
 
   const deleteCoupon = async (coupon: Coupon) => {
-    if (!window.confirm(`Delete coupon ${coupon.code}?`)) return;
+    if (!(await confirmDialog({ title: `Delete coupon ${coupon.code}?`, description: "Customers can no longer apply this code.", confirmText: "Delete coupon", destructive: true }))) return;
     try {
       await deleteDoc(doc(db, "coupons", coupon.code));
       toast({ title: "Coupon deleted", description: `${coupon.code} has been removed.` });

@@ -5,6 +5,7 @@ import { Plus, Pencil, Trash2, X, Image, BarChart3, MessageSquare, Layers, Phone
 import { normalizeEmiSettings, type EmiSettings } from "@/lib/ecommerce/types";
 import { contactInfoDefaults, type ContactInfo } from "@/hooks/useContactInfo";
 import { useToast } from "@/hooks/use-toast";
+import { confirmDialog } from "@/components/ConfirmDialogHost";
 import { defaultGradingSettings, normalizeGradingSettings, type FeeRow, type GradingSettings } from "@/lib/gradingSettings";
 
 // ── Types ──
@@ -191,7 +192,7 @@ const AdminSiteSettings = () => {
     } catch { toast({ title: "Error saving", variant: "destructive" }); }
   };
   const deleteTestimonial = async (id: string) => {
-    if (!confirm("Delete this testimonial?")) return;
+    if (!(await confirmDialog({ title: "Delete this testimonial?", confirmText: "Delete testimonial", destructive: true }))) return;
     await deleteDoc(doc(db, "testimonials", id));
     toast({ title: "Testimonial deleted" });
   };

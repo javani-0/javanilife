@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
+import { confirmDialog } from "@/components/ConfirmDialogHost";
 import { MANAGER_PAGES } from "@/lib/adminPages";
 import {
   buildManagerLoginWhatsAppUrl,
@@ -91,7 +92,7 @@ const AdminManagers = () => {
   };
 
   const handleRevoke = async (manager: ManagerDoc) => {
-    if (!confirm(`Remove ${manager.name || manager.email}'s manager access? Their account stays, but they can no longer open the admin.`)) return;
+    if (!(await confirmDialog({ title: `Remove ${manager.name || manager.email}'s manager access?`, description: "Their account stays, but they can no longer open the admin.", confirmText: "Remove access", destructive: true }))) return;
     setBusyUid(manager.uid);
     try {
       await revokeManager(manager.uid);

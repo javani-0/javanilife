@@ -6,6 +6,7 @@ import UpiPaymentDialog from "@/components/classes/UpiPaymentDialog";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { useScrollHighlight } from "@/hooks/useScrollHighlight";
+import { confirmDialog } from "@/components/ConfirmDialogHost";
 import { formatPaiseAsRupees } from "@/lib/ecommerce";
 import {
   addMonths,
@@ -131,7 +132,13 @@ const Classes = () => {
 
   const handleCancelAutopay = async (enrollment: EnrollmentDoc) => {
     if (!user) return;
-    if (!confirm(`Cancel autopay for ${enrollment.student.name}'s ${enrollment.className}? You can still pay manually each month.`)) return;
+    if (!(await confirmDialog({
+      title: `Cancel autopay for ${enrollment.student.name}'s ${enrollment.className}?`,
+      description: "You can still pay manually each month with Pay Now.",
+      confirmText: "Cancel autopay",
+      cancelText: "Keep autopay",
+      destructive: true,
+    }))) return;
     setBusyId(enrollment.id);
     try {
       const idToken = await user.getIdToken();

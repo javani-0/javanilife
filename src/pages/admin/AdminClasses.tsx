@@ -6,6 +6,7 @@ import { CLOUDINARY_CLOUD_NAME, CLOUDINARY_UPLOAD_PRESET } from "@/lib/cloudinar
 import { openSquareCropper } from "@/components/SquareImageCropper";
 import { Plus, Pencil, Trash2, X, Upload, BadgeIndianRupee, AlertTriangle, GraduationCap, CalendarRange, Repeat, Clock, Wallet, Video, FileText, MonitorPlay } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { confirmDialog } from "@/components/ConfirmDialogHost";
 import { formatPaiseAsRupees, parsePriceToPaise } from "@/lib/ecommerce";
 import {
   AUTOPAY_AFA_CAP_IN_PAISE,
@@ -439,7 +440,12 @@ const AdminClasses = () => {
   };
 
   const deleteClass = async (id: string, name: string) => {
-    if (!confirm(`Delete "${name}"? Existing enrollments and fee history are not removed.`)) return;
+    if (!(await confirmDialog({
+      title: `Delete "${name}"?`,
+      description: "Existing enrollments and fee history are not removed.",
+      confirmText: "Delete class",
+      destructive: true,
+    }))) return;
     await deleteDoc(doc(db, CLASSES_COLLECTION, id));
     toast({ title: "Class deleted" });
   };

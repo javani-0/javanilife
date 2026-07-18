@@ -16,6 +16,7 @@ import ProtectedRoute from "./components/admin/ProtectedRoute";
 import PartnerRoute from "./components/PartnerRoute";
 import AdminLayout from "./components/admin/AdminLayout";
 import PageLoader from "./components/PageLoader";
+import ConfirmDialogHost from "./components/ConfirmDialogHost";
 import NotificationPermissionPrompt from "./components/NotificationPermissionPrompt";
 import WhatsAppPromptModal from "./components/WhatsAppPromptModal";
 import { trackPageView } from "@/lib/analytics/metaPixel";
@@ -89,7 +90,7 @@ const AdminDashboard = lazyWithRetry(() => import("./pages/admin/AdminDashboard"
 const AdminEnquiries = lazyWithRetry(() => import("./pages/admin/AdminEnquiries"));
 const AdminCourses = lazyWithRetry(() => import("./pages/admin/AdminCourses"));
 const AdminClasses = lazyWithRetry(() => import("./pages/admin/AdminClasses"));
-const AdminEnrollments = lazyWithRetry(() => import("./pages/admin/AdminEnrollments"));
+const AdminPeople = lazyWithRetry(() => import("./pages/admin/AdminPeople"));
 const AdminStudents = lazyWithRetry(() => import("./pages/admin/AdminStudents"));
 const AdminFeeCollections = lazyWithRetry(() => import("./pages/admin/AdminFeeCollections"));
 const AdminGallery = lazyWithRetry(() => import("./pages/admin/AdminGallery"));
@@ -97,7 +98,6 @@ const AdminProducts = lazyWithRetry(() => import("./pages/admin/AdminProducts"))
 const AdminCoupons = lazyWithRetry(() => import("./pages/admin/AdminCoupons"));
 const AdminOrders = lazyWithRetry(() => import("./pages/admin/AdminOrders"));
 const AdminOrderDetail = lazyWithRetry(() => import("./pages/admin/AdminOrderDetail"));
-const AdminCustomers = lazyWithRetry(() => import("./pages/admin/AdminCustomers"));
 const AdminPartners = lazyWithRetry(() => import("./pages/admin/AdminPartners"));
 const AdminManagers = lazyWithRetry(() => import("./pages/admin/AdminManagers"));
 const AdminFaculty = lazyWithRetry(() => import("./pages/admin/AdminFaculty"));
@@ -184,6 +184,7 @@ const App = () => {
           <TooltipProvider>
             <Toaster />
             <Sonner />
+            <ConfirmDialogHost />
             {showLoader && <PageLoader />}
             <BrowserRouter>
               <ScrollToTop />
@@ -233,7 +234,8 @@ const App = () => {
                       <Route path="enquiries" element={<AdminEnquiries />} />
                       <Route path="courses" element={<AdminCourses />} />
                       <Route path="classes" element={<AdminClasses />} />
-                      <Route path="enrollments" element={<AdminEnrollments />} />
+                      {/* Sign Up + Customers share one merged page (tabbed). */}
+                      <Route path="enrollments" element={<AdminPeople />} />
                       <Route path="students" element={<AdminStudents />} />
                       <Route path="fee-collections" element={<AdminFeeCollections />} />
                       <Route path="payment-settings" element={<AdminPaymentSettings />} />
@@ -243,7 +245,7 @@ const App = () => {
                       <Route path="delivery-settings" element={<AdminDeliverySettings />} />
                       <Route path="orders" element={<AdminOrders />} />
                       <Route path="orders/:orderId" element={<AdminOrderDetail />} />
-                      <Route path="customers" element={<AdminCustomers />} />
+                      <Route path="customers" element={<AdminPeople />} />
                       <Route path="partners" element={<AdminPartners />} />
                       <Route path="managers" element={<AdminManagers />} />
                       <Route path="faculty" element={<AdminFaculty />} />

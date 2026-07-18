@@ -7,9 +7,11 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
+import { confirmDialog } from "@/components/ConfirmDialogHost";
 import { CLOUDINARY_CLOUD_NAME, CLOUDINARY_UPLOAD_PRESET } from "@/lib/cloudinary";
 import { openSquareCropper } from "@/components/SquareImageCropper";
 import StudentFeePanel from "@/components/admin/StudentFeePanel";
+import StudentFeeCollections from "@/components/admin/StudentFeeCollections";
 import { formatPaiseAsRupees, parsePriceToPaise } from "@/lib/ecommerce";
 import {
   classOffersMonthly,
@@ -131,6 +133,7 @@ const AdminStudents = () => {
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState("");
   const [feesOpenId, setFeesOpenId] = useState<string | null>(null);
+  const [view, setView] = useState<"students" | "collections">("students");
   const [showGallery, setShowGallery] = useState(false);
   const [photoUploading, setPhotoUploading] = useState(false);
   const photoRef = useRef<HTMLInputElement>(null);
@@ -299,7 +302,11 @@ const AdminStudents = () => {
   };
 
   const handleRegenerate = async (student: StudentDoc) => {
-    if (!confirm("Create a new payment link? The old link will stop working.")) return;
+    if (!(await confirmDialog({
+      title: "Create a new payment link?",
+      description: "The old link will stop working. Share the fresh link with the parent afterwards.",
+      confirmText: "Create new link",
+    }))) return;
     setBusyId(student.id);
     try {
       await regenerateLinkToken(student);
@@ -312,7 +319,12 @@ const AdminStudents = () => {
   };
 
   const handleDelete = async (student: StudentDoc) => {
-    if (!confirm(`Delete ${student.name}'s draft? This can't be undone.`)) return;
+    if (!(await confirmDialog({
+      title: `Delete ${student.name}'s draft?`,
+      description: "The profile and its payment link are removed. This can't be undone.",
+      confirmText: "Delete draft",
+      destructive: true,
+    }))) return;
     setBusyId(student.id);
     try {
       await deleteDraftStudent(student);
@@ -328,9 +340,13 @@ const AdminStudents = () => {
   // link, credentials, login. Meant for test students; double confirmation.
   const handleDeleteCompletely = async (student: StudentDoc) => {
     if (!user || !isAdminRole) return;
-    if (!confirm(`PERMANENTLY delete ${student.name}${student.studentId ? ` (${student.studentId})` : ""}?\n\nThis removes the student, their login, enrollment and ALL fee history. There is no undo.`)) return;
-    const typed = prompt(`Type DELETE to permanently remove ${student.name}:`);
-    if ((typed || "").trim().toUpperCase() !== "DELETE") { toast({ title: "Deletion cancelled" }); return; }
+    if (!(await confirmDialog({
+      title: `Permanently delete ${student.name}${student.studentId ? ` (${student.studentId})` : ""}?`,
+      description: "This removes the student, their login, enrollment and ALL fee history. There is no undo.",
+      confirmText: "Delete forever",
+      destructive: true,
+      requireText: "DELETE",
+    }))) return;
     setBusyId(student.id);
     try {
       const idToken = await user.getIdToken();
@@ -390,6 +406,26 @@ const AdminStudents = () => {
         </button>
       </div>
 
+      {/* Toggle: Student details vs Fee collections (req) */}
+      <div className="inline-flex rounded-lg border border-border bg-card p-1 shadow-card">
+        <button
+          onClick={() => setView("students")}
+          className={`flex items-center gap-1.5 rounded-md px-4 py-2 font-body text-[0.82rem] font-semibold transition-colors ${view === "students" ? "bg-gradient-primary text-primary-foreground" : "text-muted-foreground hover:text-gold"}`}
+        >
+          <GraduationCap className="h-4 w-4" /> Student Details
+        </button>
+        <button
+          onClick={() => setView("collections")}
+          className={`flex items-center gap-1.5 rounded-md px-4 py-2 font-body text-[0.82rem] font-semibold transition-colors ${view === "collections" ? "bg-gradient-primary text-primary-foreground" : "text-muted-foreground hover:text-gold"}`}
+        >
+          <Wallet className="h-4 w-4" /> Fee Collections
+        </button>
+      </div>
+
+      {view === "collections" && user ? (
+        <StudentFeeCollections students={students} adminUid={user.uid} />
+      ) : (
+      <>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <div className="rounded-xl border border-border/60 bg-card p-4 shadow-card">
           <p className="font-body text-xs text-muted-foreground">Total students</p>
@@ -594,6 +630,8 @@ const AdminStudents = () => {
             );
           })}
         </div>
+      )}
+      </>
       )}
 
       {showModal && createPortal(

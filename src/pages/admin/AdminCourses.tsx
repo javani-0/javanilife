@@ -7,6 +7,7 @@ import { openSquareCropper } from "@/components/SquareImageCropper";
 import CategoryManager from "@/components/admin/CategoryManager";
 import { Plus, Pencil, Trash2, X, Star, LayoutGrid, List, Upload, BadgeIndianRupee } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { confirmDialog } from "@/components/ConfirmDialogHost";
 import { useCourseCategories } from "@/hooks/useManagedCategories";
 import {
   COURSE_CATEGORIES_SETTINGS_ID,
@@ -186,7 +187,7 @@ const AdminCourses = () => {
   };
 
   const deleteCourse = async (id: string) => {
-    if (!confirm("Delete this course?")) return;
+    if (!(await confirmDialog({ title: "Delete this course?", description: "The course is removed from the site. This can't be undone.", confirmText: "Delete course", destructive: true }))) return;
     await deleteDoc(doc(db, "courses", id));
     toast({ title: "Course deleted" });
   };

@@ -4,6 +4,7 @@ import { collection, onSnapshot, query, orderBy, deleteDoc, doc, updateDoc } fro
 import { db } from "@/lib/firebase";
 import { Search, Download, X, MessageCircle, Eye, Trash2, ChevronLeft, ChevronRight, LayoutGrid, List } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { confirmDialog } from "@/components/ConfirmDialogHost";
 
 interface Enquiry {
   id: string;
@@ -90,7 +91,7 @@ const AdminEnquiries = () => {
   };
 
   const deleteEnquiry = async (id: string) => {
-    if (!confirm("Delete this enquiry permanently?")) return;
+    if (!(await confirmDialog({ title: "Delete this enquiry permanently?", description: "This can't be undone.", confirmText: "Delete enquiry", destructive: true }))) return;
     await deleteDoc(doc(db, "enquiries", id));
     if (selectedEnquiry?.id === id) setSelectedEnquiry(null);
     toast({ title: "Enquiry deleted" });

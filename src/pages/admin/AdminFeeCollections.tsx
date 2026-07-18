@@ -3,6 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import { BellRing, Banknote, Download, IndianRupee, Search, XCircle, Trash2, LayoutGrid, List, X, Check, ExternalLink, Loader2, History, Undo2, Upload, Pencil } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
+import { confirmDialog, promptDialog } from "@/components/ConfirmDialogHost";
 import { useScrollHighlight } from "@/hooks/useScrollHighlight";
 import { createPortal } from "react-dom";
 import { formatPaiseAsRupees } from "@/lib/ecommerce";
@@ -63,6 +64,15 @@ const formatTimestamp = (value: unknown): string => {
   }
   return "";
 };
+
+// The most recent activity on a fee (paid / submitted / updated / created) —
+// drives the latest-first card ordering (req).
+const toMillis = (value: unknown): number => {
+  const ts = value as { toMillis?: () => number } | undefined;
+  return typeof ts?.toMillis === "function" ? ts.toMillis() : 0;
+};
+const feeActivityMillis = (fee: FeePaymentDoc): number =>
+  Math.max(toMillis(fee.paidAt), toMillis(fee.upiSubmittedAt), toMillis(fee.updatedAt), toMillis(fee.createdAt));
 
 const Tile = ({ label, value, sub, accent, onClick, active }: { label: string; value: string; sub: string; accent: string; onClick?: () => void; active?: boolean }) => (
   <button
@@ -133,11 +143,21 @@ const AdminFeeCollections = () => {
 
   const handleApproval = async (fee: FeePaymentDoc, approve: boolean) => {
     if (!user) return;
-    if (!approve && !confirm(`Reject ${fee.studentName}'s payment for ${fee.periodLabel}? They'll be asked to pay again.`)) return;
+    let note: string | undefined;
+    if (!approve) {
+      const reason = await promptDialog({
+        title: `Reject ${fee.studentName}'s payment?`,
+        description: `${fee.periodLabel} — they'll see the reason and be asked to pay again.`,
+        placeholder: "Reason for rejection (optional)",
+        confirmText: "Reject payment",
+        destructive: true,
+      });
+      if (reason === null) return; // cancelled
+      note = reason || undefined;
+    }
     setBusyApprovalId(fee.id);
     try {
       const idToken = await user.getIdToken();
-      const note = approve ? undefined : (prompt("Reason for rejection (optional):") || undefined);
       await approveUpiPayment(idToken, fee.id, approve, note);
       toast({ title: approve ? "Payment approved" : "Payment rejected", description: `${fee.studentName} · ${fee.periodLabel}` });
     } catch (error) {
@@ -236,7 +256,9 @@ const AdminFeeCollections = () => {
       .filter((fee) => !normalizedSearch || [fee.studentName, fee.parentName, fee.parentPhone, fee.className]
         .filter(Boolean)
         .some((value) => value.toLowerCase().includes(normalizedSearch)))
-      .sort((a, b) => a.studentName.localeCompare(b.studentName));
+      // Latest activity first (req) — paid/submitted/updated most recently on
+      // top; ties fall back to the student name.
+      .sort((a, b) => (feeActivityMillis(b) - feeActivityMillis(a)) || a.studentName.localeCompare(b.studentName));
   }, [fees, classFilter, statusFilter, methodFilter, search]);
 
   const runAction = async (label: string, feeId: string, action: () => Promise<void>) => {
@@ -373,7 +395,12 @@ const AdminFeeCollections = () => {
 
   const handleUndoCollection = async (fee: FeePaymentDoc) => {
     if (!user) return;
-    if (!confirm(`Undo the ${formatPaiseAsRupees(fee.amountInPaise)} cash collection for ${fee.studentName} (${fee.periodLabel})? The fee goes back to pending and both actions stay in the history.`)) return;
+    if (!(await confirmDialog({
+      title: `Undo the ${formatPaiseAsRupees(fee.amountInPaise)} cash collection?`,
+      description: `${fee.studentName} · ${fee.periodLabel} goes back to pending. Both actions stay in the history.`,
+      confirmText: "Undo collection",
+      destructive: true,
+    }))) return;
     setBusyId(fee.id);
     try {
       await undoFeeCollection(fee.id, { adminUid: user.uid, amountInPaise: fee.amountInPaise });
@@ -594,7 +621,7 @@ const AdminFeeCollections = () => {
                             <Pencil className="h-3.5 w-3.5" /> Edit
                           </button>
                           {!settled && (
-                            <button onClick={() => { if (confirm(`Waive ${fee.periodLabel} for ${fee.studentName}?`)) runAction("Month waived", fee.id, () => waiveFee(fee.id)); }} disabled={busyId === fee.id} className="flex items-center gap-1 rounded border border-border px-2 py-1 font-body text-[0.7rem] text-muted-foreground hover:bg-muted disabled:opacity-50" title="Waive month">
+                            <button onClick={async () => { if (await confirmDialog({ title: `Waive ${fee.periodLabel} for ${fee.studentName}?`, description: "They won't be asked to pay this month.", confirmText: "Waive month" })) runAction("Month waived", fee.id, () => waiveFee(fee.id)); }} disabled={busyId === fee.id} className="flex items-center gap-1 rounded border border-border px-2 py-1 font-body text-[0.7rem] text-muted-foreground hover:bg-muted disabled:opacity-50" title="Waive month">
                               <XCircle className="h-3.5 w-3.5" /> Waive
                             </button>
                           )}
@@ -603,7 +630,7 @@ const AdminFeeCollections = () => {
                               <BellRing className="h-3.5 w-3.5" /> Remind
                             </button>
                           )}
-                          <button onClick={() => { if (confirm(`Are you sure you want to completely delete the fee record for ${fee.studentName}? This cannot be undone.`)) runAction("Fee record deleted", fee.id, () => deleteFee(fee.id)); }} disabled={busyId === fee.id} className="flex items-center gap-1 rounded border border-border px-2 py-1 font-body text-[0.7rem] text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50" title="Delete">
+                          <button onClick={async () => { if (await confirmDialog({ title: `Delete ${fee.studentName}'s fee record?`, description: "This cannot be undone. Prefer Waive — deleted monthly dues can regenerate.", confirmText: "Delete record", destructive: true })) runAction("Fee record deleted", fee.id, () => deleteFee(fee.id)); }} disabled={busyId === fee.id} className="flex items-center gap-1 rounded border border-border px-2 py-1 font-body text-[0.7rem] text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50" title="Delete">
                             <Trash2 className="h-3.5 w-3.5" /> Delete
                           </button>
                         </div>
@@ -675,7 +702,7 @@ const AdminFeeCollections = () => {
                     <Pencil className="h-3.5 w-3.5" /> Edit
                   </button>
                   {!settled && (
-                    <button onClick={() => { if (confirm(`Waive ${fee.periodLabel} for ${fee.studentName}?`)) runAction("Month waived", fee.id, () => waiveFee(fee.id)); }} disabled={busyId === fee.id} className="flex flex-1 items-center justify-center gap-1 rounded border border-border px-2 py-1.5 font-body text-[0.75rem] font-semibold text-muted-foreground hover:bg-muted disabled:opacity-50">
+                    <button onClick={async () => { if (await confirmDialog({ title: `Waive ${fee.periodLabel} for ${fee.studentName}?`, description: "They won't be asked to pay this month.", confirmText: "Waive month" })) runAction("Month waived", fee.id, () => waiveFee(fee.id)); }} disabled={busyId === fee.id} className="flex flex-1 items-center justify-center gap-1 rounded border border-border px-2 py-1.5 font-body text-[0.75rem] font-semibold text-muted-foreground hover:bg-muted disabled:opacity-50">
                       <XCircle className="h-3.5 w-3.5" /> Waive
                     </button>
                   )}
@@ -684,7 +711,7 @@ const AdminFeeCollections = () => {
                       <BellRing className="h-3.5 w-3.5" /> Remind
                     </button>
                   )}
-                  <button onClick={() => { if (confirm(`Are you sure you want to completely delete the fee record for ${fee.studentName}? This cannot be undone.`)) runAction("Fee record deleted", fee.id, () => deleteFee(fee.id)); }} disabled={busyId === fee.id} className="flex flex-1 items-center justify-center gap-1 rounded border border-border px-2 py-1.5 font-body text-[0.75rem] font-semibold text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50">
+                  <button onClick={async () => { if (await confirmDialog({ title: `Delete ${fee.studentName}'s fee record?`, description: "This cannot be undone. Prefer Waive — deleted monthly dues can regenerate.", confirmText: "Delete record", destructive: true })) runAction("Fee record deleted", fee.id, () => deleteFee(fee.id)); }} disabled={busyId === fee.id} className="flex flex-1 items-center justify-center gap-1 rounded border border-border px-2 py-1.5 font-body text-[0.75rem] font-semibold text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50">
                     <Trash2 className="h-3.5 w-3.5" /> Delete
                   </button>
                 </div>
