@@ -172,13 +172,13 @@ export default async function handler(request: ApiRequest, response: ApiResponse
         sendError(response, 400, "Roll number must be 6–20 letters/numbers (it becomes the login password).");
         return;
       }
+      // Any other (non-deleted) student already carrying this student id blocks
+      // reuse — active or inactive. Freeing it requires deleting that student
+      // (req); deleted docs are gone, so they never conflict.
       const holders = await db.collection(STUDENTS).where("studentId", "==", desiredId).get();
-      const activeHolder = holders.docs.find((docSnap) =>
-        docSnap.id !== studentDocId
-        && docSnap.data()?.active !== false
-        && getString(docSnap.data()?.onboardingStatus) === "approved");
-      if (activeHolder) {
-        sendError(response, 409, `Roll number ${desiredId} already belongs to an active student (${getString(activeHolder.data()?.name) || "unnamed"}). Mark them inactive first or pick another number.`);
+      const holder = holders.docs.find((docSnap) => docSnap.id !== studentDocId);
+      if (holder) {
+        sendError(response, 409, `Roll number ${desiredId} already belongs to ${getString(holder.data()?.name) || "another student"}. Delete that student to free the number, or pick another.`);
         return;
       }
       studentId = desiredId;

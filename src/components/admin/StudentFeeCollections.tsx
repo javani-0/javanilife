@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, BadgeIndianRupee, CalendarPlus, Loader2, Users, Wallet, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { AlertTriangle, BadgeIndianRupee, CalendarPlus, LayoutGrid, List, Loader2, RefreshCw, Users, Wallet, X } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAdminLog } from "@/hooks/useAdminLog";
 import { formatPaiseAsRupees, parsePriceToPaise } from "@/lib/ecommerce";
@@ -14,7 +14,6 @@ import {
   periodLabel,
   recordFeeForMonth,
   sortFeesByMonthDesc,
-  subscribeToFeesAdmin,
   type EnrollmentDoc,
   type FeePaymentDoc,
   type FeePaymentMethod,
@@ -23,10 +22,12 @@ import {
 import type { StudentDoc } from "@/lib/students";
 
 // ---------------------------------------------------------------------------
-// The "Fee Collections" view of the Student Manager (req): month summary cards
-// (Total Students / Paid This Month / Pending / Overdue), status + method
-// filters, and a per-student "Record fee" dialog — entry form on top, that
-// student's full history below, and a guard against double-collecting a month.
+// The "Fee Collections" view of the Student Manager (req): month summary cards,
+// search + class + sort filters, grid/list views, and a per-student Record-fee
+// dialog. Each row shows the student's LATEST fee entry (across all months) and
+// the list can be sorted by that entry. Loads every student's fees once so the
+// caption/sort stay correct regardless of the month picker (which only drives
+// the summary cards).
 // ---------------------------------------------------------------------------
 
 const inputClass = "w-full px-3 py-2 rounded-md border border-border font-body text-[0.85rem] outline-none focus:border-gold focus:ring-2 focus:ring-gold/20 bg-background";
@@ -46,8 +47,13 @@ const toMillis = (value: unknown): number => {
   const ts = value as { toMillis?: () => number } | undefined;
   return typeof ts?.toMillis === "function" ? ts.toMillis() : 0;
 };
+// "Most recent activity" on a fee: paid date wins, else created/updated.
 const feeActivityMillis = (fee: FeePaymentDoc): number =>
   Math.max(toMillis(fee.paidAt), toMillis(fee.upiSubmittedAt), toMillis(fee.updatedAt), toMillis(fee.createdAt));
+const latestOf = (fees: FeePaymentDoc[]): FeePaymentDoc | undefined =>
+  fees.length === 0 ? undefined : fees.reduce((a, b) => (feeActivityMillis(b) >= feeActivityMillis(a) ? b : a));
+
+type SortMode = "latest" | "new" | "old" | "az";
 
 interface EntryState {
   student: StudentDoc;
@@ -56,7 +62,7 @@ interface EntryState {
   date: string;
   method: FeePaymentMethod;
   enrollment: EnrollmentDoc | null;
-  history: FeePaymentDoc[] | null; // null = still loading
+  loadingEnrollment: boolean;
 }
 
 interface StudentFeeCollectionsProps {
@@ -64,48 +70,74 @@ interface StudentFeeCollectionsProps {
   adminUid: string;
 }
 
+const defaultView = (): "list" | "grid" => (typeof window !== "undefined" && window.innerWidth < 768 ? "grid" : "list");
+
 const StudentFeeCollections = ({ students, adminUid }: StudentFeeCollectionsProps) => {
   const { toast } = useToast();
   const logAction = useAdminLog();
   const [monthKey, setMonthKey] = useState(monthKeyFor(new Date()));
-  const [fees, setFees] = useState<FeePaymentDoc[]>([]);
+  const [feesByEnrollment, setFeesByEnrollment] = useState<Map<string, FeePaymentDoc[]>>(new Map());
   const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+  const [classFilter, setClassFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState<"all" | FeeStatus | "none">("all");
   const [methodFilter, setMethodFilter] = useState<"all" | FeePaymentMethod>("all");
+  const [sortMode, setSortMode] = useState<SortMode>("latest");
+  const [view, setView] = useState<"list" | "grid">(defaultView);
   const [entry, setEntry] = useState<EntryState | null>(null);
   const [savingEntry, setSavingEntry] = useState(false);
-
-  useEffect(() => {
-    setLoading(true);
-    return subscribeToFeesAdmin(monthKey, (items) => { setFees(items); setLoading(false); }, () => setLoading(false));
-  }, [monthKey]);
 
   const approvedStudents = useMemo(
     () => students.filter((student) => student.onboardingStatus === "approved" && student.enrollmentId),
     [students],
   );
+  // Stable key so the loader only refires when the actual set of students changes.
+  const enrollmentKey = useMemo(
+    () => approvedStudents.map((s) => s.enrollmentId).sort().join(","),
+    [approvedStudents],
+  );
 
-  // ALL of this month's fee docs per enrollment (an enrolment can have several
-  // in one month, e.g. the admission payment + a monthly due).
-  const feesByEnrollment = useMemo(() => {
-    const ids = new Set(approvedStudents.map((student) => student.enrollmentId));
+  const loadFees = useCallback(async () => {
+    setLoading(true);
     const map = new Map<string, FeePaymentDoc[]>();
-    for (const fee of fees) {
-      if (!ids.has(fee.enrollmentId)) continue;
-      const list = map.get(fee.enrollmentId) || [];
-      list.push(fee);
-      map.set(fee.enrollmentId, list);
-    }
-    for (const list of map.values()) list.sort((a, b) => feeActivityMillis(b) - feeActivityMillis(a));
-    return map;
-  }, [fees, approvedStudents]);
+    await Promise.all(approvedStudents.map(async (student) => {
+      if (!student.enrollmentId) return;
+      try {
+        const fees = await listFeesForEnrollment(student.enrollmentId);
+        map.set(student.enrollmentId, fees);
+      } catch {
+        map.set(student.enrollmentId, []);
+      }
+    }));
+    setFeesByEnrollment(map);
+    setLoading(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enrollmentKey]);
 
+  useEffect(() => { loadFees(); }, [loadFees]);
+
+  const classOptions = useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const student of approvedStudents) {
+      if (student.classId && !seen.has(student.classId)) seen.set(student.classId, student.className || student.classId);
+    }
+    return Array.from(seen.entries());
+  }, [approvedStudents]);
+
+  const latestByEnrollment = useMemo(() => {
+    const map = new Map<string, FeePaymentDoc | undefined>();
+    for (const [id, fees] of feesByEnrollment) map.set(id, latestOf(fees));
+    return map;
+  }, [feesByEnrollment]);
+
+  // Summary cards are month-scoped: a student counts in a bucket if any of
+  // their fee docs for the picked month is in that state.
   const summary = useMemo(() => {
     let paid = 0; let paidInPaise = 0; let pending = 0; let pendingInPaise = 0; let overdue = 0; let overdueInPaise = 0;
     for (const student of approvedStudents) {
-      const docs = (student.enrollmentId && feesByEnrollment.get(student.enrollmentId)) || [];
+      const monthDocs = ((student.enrollmentId && feesByEnrollment.get(student.enrollmentId)) || []).filter((fee) => fee.monthKey === monthKey);
       let hasPaid = false; let hasPending = false; let hasOverdue = false;
-      for (const fee of docs) {
+      for (const fee of monthDocs) {
         const status = deriveDisplayFeeStatus(fee);
         if (status === "paid") { hasPaid = true; paidInPaise += fee.amountInPaise; }
         else if (status === "overdue") { hasOverdue = true; overdueInPaise += fee.amountInPaise; }
@@ -116,72 +148,81 @@ const StudentFeeCollections = ({ students, adminUid }: StudentFeeCollectionsProp
       if (hasOverdue) overdue += 1;
     }
     return { paid, paidInPaise, pending, pendingInPaise, overdue, overdueInPaise };
-  }, [approvedStudents, feesByEnrollment]);
+  }, [approvedStudents, feesByEnrollment, monthKey]);
 
-  const rows = useMemo(() => approvedStudents.filter((student) => {
-    const docs = (student.enrollmentId && feesByEnrollment.get(student.enrollmentId)) || [];
-    if (statusFilter !== "all") {
-      if (statusFilter === "none") { if (docs.length > 0) return false; }
-      else if (!docs.some((fee) => deriveDisplayFeeStatus(fee) === statusFilter)) return false;
-    }
-    if (methodFilter !== "all" && !docs.some((fee) => fee.paymentMethod === methodFilter)) return false;
-    return true;
-  }), [approvedStudents, feesByEnrollment, statusFilter, methodFilter]);
+  const rows = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const filtered = approvedStudents.filter((student) => {
+      if (classFilter !== "all" && student.classId !== classFilter) return false;
+      if (q && ![student.name, student.studentId, student.className, student.parentName, student.email].some((v) => (v || "").toLowerCase().includes(q))) return false;
+      const latest = student.enrollmentId ? latestByEnrollment.get(student.enrollmentId) : undefined;
+      if (statusFilter !== "all") {
+        if (statusFilter === "none") { if (latest) return false; }
+        else if (!latest || deriveDisplayFeeStatus(latest) !== statusFilter) return false;
+      }
+      if (methodFilter !== "all" && (!latest || latest.paymentMethod !== methodFilter)) return false;
+      return true;
+    });
+    const nameOf = (s: StudentDoc) => (s.name || "").toLowerCase();
+    const latestMillis = (s: StudentDoc) => {
+      const latest = s.enrollmentId ? latestByEnrollment.get(s.enrollmentId) : undefined;
+      return latest ? feeActivityMillis(latest) : 0;
+    };
+    const createdMillis = (s: StudentDoc) => toMillis(s.createdAt);
+    return [...filtered].sort((a, b) => {
+      if (sortMode === "az") return nameOf(a).localeCompare(nameOf(b));
+      if (sortMode === "new") return createdMillis(b) - createdMillis(a) || nameOf(a).localeCompare(nameOf(b));
+      if (sortMode === "old") return createdMillis(a) - createdMillis(b) || nameOf(a).localeCompare(nameOf(b));
+      return latestMillis(b) - latestMillis(a) || nameOf(a).localeCompare(nameOf(b)); // latest (default)
+    });
+  }, [approvedStudents, latestByEnrollment, search, classFilter, statusFilter, methodFilter, sortMode]);
 
   const openEntry = async (student: StudentDoc) => {
-    const base: EntryState = {
+    setEntry({
       student,
       month: monthKey,
       amount: student.fees.monthlyFeeInPaise > 0 ? String(student.fees.monthlyFeeInPaise / 100) : "",
       date: todayIso(),
       method: "cash",
       enrollment: null,
-      history: null,
-    };
-    setEntry(base);
-    if (!student.enrollmentId) return;
+      loadingEnrollment: true,
+    });
+    if (!student.enrollmentId) { setEntry((c) => (c ? { ...c, loadingEnrollment: false } : c)); return; }
     try {
-      const [enrollment, history] = await Promise.all([
-        getEnrollment(student.enrollmentId),
-        listFeesForEnrollment(student.enrollmentId),
-      ]);
-      setEntry((current) => (current && current.student.id === student.id
-        ? { ...current, enrollment, history: sortFeesByMonthDesc(history) }
-        : current));
+      const enrollment = await getEnrollment(student.enrollmentId);
+      setEntry((c) => (c && c.student.id === student.id ? { ...c, enrollment, loadingEnrollment: false } : c));
     } catch {
-      setEntry((current) => (current && current.student.id === student.id ? { ...current, history: [] } : current));
+      setEntry((c) => (c && c.student.id === student.id ? { ...c, loadingEnrollment: false } : c));
     }
   };
 
-  // The already-settled record for the picked month (drives the live guard).
+  const entryHistory = entry?.student.enrollmentId ? sortFeesByMonthDesc(feesByEnrollment.get(entry.student.enrollmentId) || []) : [];
+
+  // Already-settled record for the picked month → drives the live guard.
   const monthConflict = useMemo(() => {
-    if (!entry?.enrollment || !entry.history || !/^\d{4}-\d{2}$/.test(entry.month)) return null;
+    if (!entry?.enrollment || !/^\d{4}-\d{2}$/.test(entry.month)) return null;
     const docMonth = feeDocMonthKeyFor(entry.enrollment, entry.month);
-    const existing = entry.history.find((fee) => fee.id === `${entry.enrollment!.id}_${docMonth}`);
+    const existing = entryHistory.find((fee) => fee.id === `${entry.enrollment!.id}_${docMonth}`);
     if (!existing) return null;
     if (existing.status === "paid") return { fee: existing, kind: "paid" as const };
     if (existing.status === "waived") return { fee: existing, kind: "waived" as const };
     return null;
-  }, [entry]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entry, feesByEnrollment]);
 
   const saveEntry = async () => {
     if (!entry?.enrollment) return;
     const amountInPaise = parsePriceToPaise(entry.amount) || 0;
     if (amountInPaise < 100) { toast({ title: "Enter a valid fee amount", variant: "destructive" }); return; }
     if (!/^\d{4}-\d{2}$/.test(entry.month)) { toast({ title: "Pick a fee month", variant: "destructive" }); return; }
-    if (monthConflict?.kind === "paid") { toast({ title: `${periodLabel(entry.month)} fee is already paid`, description: "Use the Fees panel's Edit to change that entry instead.", variant: "destructive" }); return; }
+    if (monthConflict?.kind === "paid") { toast({ title: `${periodLabel(entry.month)} fee is already paid`, description: "Edit that entry from the Fees panel instead.", variant: "destructive" }); return; }
     setSavingEntry(true);
     try {
-      await recordFeeForMonth(entry.enrollment, {
-        feeMonthKey: entry.month,
-        amountInPaise,
-        paidOn: entry.date || todayIso(),
-        method: entry.method,
-        adminUid,
-      });
+      await recordFeeForMonth(entry.enrollment, { feeMonthKey: entry.month, amountInPaise, paidOn: entry.date || todayIso(), method: entry.method, adminUid });
       toast({ title: "Fee recorded", description: `${entry.student.name} · ${periodLabel(entry.month)} · ${formatPaiseAsRupees(amountInPaise)}` });
       logAction("Recorded fee", `${entry.student.name}${entry.student.studentId ? ` (${entry.student.studentId})` : ""} · ${periodLabel(entry.month)} · ${formatPaiseAsRupees(amountInPaise)} · ${entry.method}`);
       setEntry(null);
+      await loadFees();
     } catch (error) {
       toast({ title: "Could not record the fee", description: error instanceof Error ? error.message : undefined, variant: "destructive" });
     } finally {
@@ -189,27 +230,53 @@ const StudentFeeCollections = ({ students, adminUid }: StudentFeeCollectionsProp
     }
   };
 
+  const captionFor = (student: StudentDoc) => {
+    const latest = student.enrollmentId ? latestByEnrollment.get(student.enrollmentId) : undefined;
+    if (!latest) return null;
+    return { latest, status: deriveDisplayFeeStatus(latest), paidLine: feePaidStatement(latest), count: (student.enrollmentId && feesByEnrollment.get(student.enrollmentId)?.length) || 0 };
+  };
+
   return (
     <div className="space-y-4">
-      {/* Month + filters */}
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-        <input type="month" value={monthKey} onChange={(e) => setMonthKey(e.target.value || monthKeyFor(new Date()))} className={`${inputClass} sm:max-w-[180px]`} />
-        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)} className={`${inputClass} sm:max-w-[190px]`}>
-          <option value="all">Payment status: all</option>
-          <option value="paid">Paid</option>
-          <option value="pending">Pending</option>
-          <option value="processing">Processing</option>
-          <option value="overdue">Overdue</option>
-          <option value="waived">Waived</option>
-          <option value="none">No record this month</option>
-        </select>
-        <select value={methodFilter} onChange={(e) => setMethodFilter(e.target.value as typeof methodFilter)} className={`${inputClass} sm:max-w-[190px]`}>
-          <option value="all">Payment method: all</option>
-          <option value="cash">Cash</option>
-          <option value="upi">UPI</option>
-          <option value="manual">Manual / online</option>
-          <option value="autopay">Autopay</option>
-        </select>
+      {/* Filters: month · search · class · status · method · sort · view */}
+      <div className="flex flex-col gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <input type="month" value={monthKey} onChange={(e) => setMonthKey(e.target.value || monthKeyFor(new Date()))} className={`${inputClass} w-auto`} title="Month for the summary cards" />
+          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search name, STU id, parent…" className={`${inputClass} min-w-0 flex-1 sm:max-w-xs`} />
+          <button onClick={loadFees} disabled={loading} className="flex shrink-0 items-center gap-1 rounded-md border border-border px-2.5 py-2 font-body text-[0.72rem] font-semibold text-muted-foreground hover:bg-muted disabled:opacity-50" title="Refresh"><RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /></button>
+          <div className="flex shrink-0 overflow-hidden rounded-md border border-border">
+            <button onClick={() => setView("list")} className={`flex items-center gap-1 px-2.5 py-2 font-body text-[0.72rem] font-semibold ${view === "list" ? "bg-gold/10 text-gold" : "text-muted-foreground hover:bg-muted"}`} title="List view"><List className="h-4 w-4" /></button>
+            <button onClick={() => setView("grid")} className={`flex items-center gap-1 px-2.5 py-2 font-body text-[0.72rem] font-semibold ${view === "grid" ? "bg-gold/10 text-gold" : "text-muted-foreground hover:bg-muted"}`} title="Grid view"><LayoutGrid className="h-4 w-4" /></button>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <select value={classFilter} onChange={(e) => setClassFilter(e.target.value)} className={`${inputClass} w-auto max-w-[46%] sm:max-w-[220px]`}>
+            <option value="all">All classes</option>
+            {classOptions.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+          </select>
+          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)} className={`${inputClass} w-auto max-w-[46%] sm:max-w-[180px]`}>
+            <option value="all">Payment status: all</option>
+            <option value="paid">Paid</option>
+            <option value="pending">Pending</option>
+            <option value="processing">Processing</option>
+            <option value="overdue">Overdue</option>
+            <option value="waived">Waived</option>
+            <option value="none">No fee record</option>
+          </select>
+          <select value={methodFilter} onChange={(e) => setMethodFilter(e.target.value as typeof methodFilter)} className={`${inputClass} w-auto max-w-[46%] sm:max-w-[180px]`}>
+            <option value="all">Payment method: all</option>
+            <option value="cash">Cash</option>
+            <option value="upi">UPI</option>
+            <option value="manual">Manual / online</option>
+            <option value="autopay">Autopay</option>
+          </select>
+          <select value={sortMode} onChange={(e) => setSortMode(e.target.value as SortMode)} className={`${inputClass} w-auto max-w-[46%] sm:max-w-[170px]`}>
+            <option value="latest">Sort: Latest entry</option>
+            <option value="new">New to old</option>
+            <option value="old">Old to new</option>
+            <option value="az">Name A–Z</option>
+          </select>
+        </div>
       </div>
 
       {/* Summary cards (req) */}
@@ -220,7 +287,7 @@ const StudentFeeCollections = ({ students, adminUid }: StudentFeeCollectionsProp
           <p className="font-body text-[0.7rem] text-muted-foreground">{approvedStudents.filter((s) => s.active).length} active</p>
         </div>
         <div className="rounded-xl border border-border/60 bg-card p-4 shadow-card">
-          <p className="font-body text-xs text-muted-foreground">Paid this month</p>
+          <p className="font-body text-xs text-muted-foreground">Paid ({periodLabel(monthKey)})</p>
           <p className="mt-1 font-display text-2xl font-bold text-green-700">{summary.paid}</p>
           <p className="font-body text-[0.7rem] text-muted-foreground">{formatPaiseAsRupees(summary.paidInPaise)}</p>
         </div>
@@ -236,18 +303,54 @@ const StudentFeeCollections = ({ students, adminUid }: StudentFeeCollectionsProp
         </div>
       </div>
 
-      {/* Student rows — caption shows the LATEST entry of the month (req) */}
       {loading ? (
         <div className="flex items-center justify-center rounded-2xl border border-border/60 bg-card p-10"><Loader2 className="h-6 w-6 animate-spin text-gold" /></div>
       ) : rows.length === 0 ? (
         <p className="rounded-xl border border-dashed border-border/60 bg-card p-8 text-center font-body text-sm text-muted-foreground">No students match these filters.</p>
+      ) : view === "grid" ? (
+        /* GRID VIEW — cards */
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          {rows.map((student) => {
+            const cap = captionFor(student);
+            return (
+              <div key={student.id} className="flex flex-col rounded-xl border border-border/60 bg-card p-4 shadow-card">
+                <div className="flex items-center gap-3">
+                  {student.photoUrl ? (
+                    <img src={student.photoUrl} alt={student.name} className="h-12 w-12 shrink-0 rounded-full border border-border object-cover" loading="lazy" />
+                  ) : (
+                    <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-gold/15 font-display text-lg text-gold">{(student.name || "?").charAt(0).toUpperCase()}</div>
+                  )}
+                  <div className="min-w-0">
+                    <p className="truncate font-body text-sm font-semibold text-foreground">{student.name}</p>
+                    {student.studentId && <p className="font-body text-[0.72rem] text-gold">{student.studentId}</p>}
+                  </div>
+                </div>
+                <p className="mt-2 truncate font-body text-xs text-muted-foreground">{student.className}</p>
+                <div className="mt-2 min-h-[2.5rem] flex-1">
+                  {cap ? (
+                    <>
+                      <div className="flex items-center gap-1.5">
+                        <span className={`rounded-full px-2 py-0.5 font-body text-[0.65rem] font-semibold ${statusStyles[cap.status]}`}>{FEE_STATUS_LABELS[cap.status]}</span>
+                        <span className="truncate font-body text-[0.7rem] text-muted-foreground">{cap.latest.periodLabel} · {formatPaiseAsRupees(cap.latest.amountInPaise)}</span>
+                      </div>
+                      {cap.paidLine && <p className="mt-0.5 truncate font-body text-[0.68rem] text-green-700">{cap.paidLine}</p>}
+                    </>
+                  ) : (
+                    <p className="font-body text-[0.7rem] text-muted-foreground">No fee records yet.</p>
+                  )}
+                </div>
+                <button onClick={() => openEntry(student)} className="mt-3 flex items-center justify-center gap-1.5 rounded-md bg-gradient-primary px-3 py-2 font-body text-[0.72rem] font-semibold text-primary-foreground hover:brightness-110">
+                  <CalendarPlus className="h-3.5 w-3.5" /> Record fee
+                </button>
+              </div>
+            );
+          })}
+        </div>
       ) : (
+        /* LIST VIEW — rows */
         <div className="space-y-2">
           {rows.map((student) => {
-            const docs = (student.enrollmentId && feesByEnrollment.get(student.enrollmentId)) || [];
-            const latest = docs[0];
-            const status = latest ? deriveDisplayFeeStatus(latest) : null;
-            const paidLine = latest ? feePaidStatement(latest) : "";
+            const cap = captionFor(student);
             return (
               <div key={student.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/60 bg-card px-4 py-3 shadow-card">
                 <div className="flex min-w-0 items-center gap-3">
@@ -261,19 +364,19 @@ const StudentFeeCollections = ({ students, adminUid }: StudentFeeCollectionsProp
                       {student.name}{student.studentId ? <span className="ml-1.5 font-normal text-gold">{student.studentId}</span> : null}
                     </p>
                     <p className="truncate font-body text-xs text-muted-foreground">{student.className}</p>
-                    {latest ? (
-                      <p className="font-body text-[0.7rem] text-muted-foreground">
-                        Latest: {latest.periodLabel} · {formatPaiseAsRupees(latest.amountInPaise)}{latest.paymentMethod ? ` · ${latest.paymentMethod}` : ""}
-                        {paidLine ? <span className="text-green-700"> — {paidLine}</span> : ""}
-                        {docs.length > 1 ? <span className="text-gold"> · +{docs.length - 1} more this month</span> : ""}
+                    {cap ? (
+                      <p className="truncate font-body text-[0.7rem] text-muted-foreground">
+                        Latest: {cap.latest.periodLabel} · {formatPaiseAsRupees(cap.latest.amountInPaise)}{cap.latest.paymentMethod ? ` · ${cap.latest.paymentMethod}` : ""}
+                        {cap.paidLine ? <span className="text-green-700"> — {cap.paidLine}</span> : ""}
+                        {cap.count > 1 ? <span className="text-gold"> · {cap.count} entries</span> : ""}
                       </p>
                     ) : (
-                      <p className="font-body text-[0.7rem] text-muted-foreground">No fee record for {periodLabel(monthKey)} yet.</p>
+                      <p className="font-body text-[0.7rem] text-muted-foreground">No fee records yet.</p>
                     )}
                   </div>
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
-                  {status && <span className={`rounded-full px-2.5 py-1 font-body text-[0.7rem] font-semibold ${statusStyles[status]}`}>{FEE_STATUS_LABELS[status]}</span>}
+                  {cap && <span className={`rounded-full px-2.5 py-1 font-body text-[0.7rem] font-semibold ${statusStyles[cap.status]}`}>{FEE_STATUS_LABELS[cap.status]}</span>}
                   <button onClick={() => openEntry(student)} className="flex items-center gap-1.5 rounded-md bg-gradient-primary px-3 py-1.5 font-body text-[0.72rem] font-semibold text-primary-foreground hover:brightness-110">
                     <CalendarPlus className="h-3.5 w-3.5" /> Record fee
                   </button>
@@ -284,21 +387,21 @@ const StudentFeeCollections = ({ students, adminUid }: StudentFeeCollectionsProp
         </div>
       )}
 
-      {/* Record-fee dialog: entry ON TOP, the student's history BELOW (req) */}
+      {/* Record-fee dialog — full-height-safe: fixed header + scrollable body */}
       {entry && (
         <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4">
           <div className="fixed inset-0 bg-black/50" onClick={() => setEntry(null)} />
-          <div className="relative flex max-h-[90vh] w-full max-w-md flex-col rounded-2xl bg-card shadow-hero">
-            <div className="flex items-start justify-between gap-2 border-b border-border/60 p-5 pb-4">
-              <div>
+          <div className="relative flex max-h-[calc(100dvh-2rem)] w-full max-w-md flex-col overflow-hidden rounded-2xl bg-card shadow-hero">
+            <div className="flex shrink-0 items-start justify-between gap-2 border-b border-border/60 p-5 pb-4">
+              <div className="min-w-0">
                 <p className="flex items-center gap-1.5 font-body text-xs font-semibold uppercase tracking-wider text-gold"><Wallet className="h-3.5 w-3.5" /> Record fee</p>
-                <h3 className="mt-1 font-display text-lg text-foreground">{entry.student.name}{entry.student.studentId ? <span className="ml-2 font-body text-sm text-gold">{entry.student.studentId}</span> : null}</h3>
-                <p className="font-body text-xs text-muted-foreground">{entry.student.className}</p>
+                <h3 className="mt-1 truncate font-display text-lg text-foreground">{entry.student.name}{entry.student.studentId ? <span className="ml-2 font-body text-sm text-gold">{entry.student.studentId}</span> : null}</h3>
+                <p className="truncate font-body text-xs text-muted-foreground">{entry.student.className}</p>
               </div>
-              <button onClick={() => setEntry(null)} aria-label="Close"><X className="h-5 w-5" /></button>
+              <button onClick={() => setEntry(null)} className="shrink-0" aria-label="Close"><X className="h-5 w-5" /></button>
             </div>
 
-            <div className="overflow-y-auto p-5 pt-4">
+            <div className="min-h-0 flex-1 overflow-y-auto p-5 pt-4">
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div>
                   <label className="mb-1 block font-body text-xs text-muted-foreground">Fee month</label>
@@ -324,7 +427,6 @@ const StudentFeeCollections = ({ students, adminUid }: StudentFeeCollectionsProp
                 </div>
               </div>
 
-              {/* Duplicate-month guard (req): warn before the admin even saves. */}
               {monthConflict && (
                 <p className={`mt-3 flex items-start gap-2 rounded-md border p-2.5 font-body text-[0.78rem] ${monthConflict.kind === "paid" ? "border-red-300 bg-red-50 text-red-700" : "border-amber-300 bg-amber-50 text-amber-800"}`}>
                   <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" />
@@ -338,21 +440,18 @@ const StudentFeeCollections = ({ students, adminUid }: StudentFeeCollectionsProp
 
               <button
                 onClick={saveEntry}
-                disabled={savingEntry || !entry.enrollment || monthConflict?.kind === "paid"}
+                disabled={savingEntry || entry.loadingEnrollment || !entry.enrollment || monthConflict?.kind === "paid"}
                 className="mt-4 flex min-h-11 w-full items-center justify-center gap-2 rounded-md bg-gradient-primary px-4 font-body text-sm font-semibold text-primary-foreground hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {savingEntry ? <Loader2 className="h-4 w-4 animate-spin" /> : <CalendarPlus className="h-4 w-4" />} Save paid entry
+                {savingEntry || entry.loadingEnrollment ? <Loader2 className="h-4 w-4 animate-spin" /> : <CalendarPlus className="h-4 w-4" />} Save paid entry
               </button>
 
-              {/* History below the entry (req) */}
               <p className="mt-5 mb-2 font-body text-xs font-semibold uppercase tracking-wider text-muted-foreground">Payment history</p>
-              {entry.history === null ? (
-                <div className="flex items-center justify-center py-4"><Loader2 className="h-4 w-4 animate-spin text-gold" /></div>
-              ) : entry.history.length === 0 ? (
+              {entryHistory.length === 0 ? (
                 <p className="font-body text-xs text-muted-foreground">No fee records yet.</p>
               ) : (
                 <div className="space-y-1.5">
-                  {entry.history.map((fee) => {
+                  {entryHistory.map((fee) => {
                     const displayStatus = deriveDisplayFeeStatus(fee);
                     const paidLine = feePaidStatement(fee);
                     return (

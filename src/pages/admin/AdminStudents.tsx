@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   AlertTriangle, BadgeIndianRupee, Check, CheckCircle2, Copy, Eye, EyeOff, GraduationCap,
-  Images, KeyRound, Loader2, MessageCircle, Pencil, Power, RefreshCw, Trash2, Upload,
+  Images, KeyRound, LayoutGrid, List, Loader2, MessageCircle, Pencil, Power, RefreshCw, Trash2, Upload,
   UserPlus, Wallet, X, XCircle,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
@@ -139,6 +139,11 @@ const AdminStudents = () => {
   const [rejectReason, setRejectReason] = useState("");
   const [feesOpenId, setFeesOpenId] = useState<string | null>(null);
   const [view, setView] = useState<"students" | "collections">("students");
+  // Grid/List for the Student Details list — desktop defaults to list, mobile
+  // to grid (req); the toggle overrides. Everything stays responsive.
+  const [detailView, setDetailView] = useState<"list" | "grid">(
+    () => (typeof window !== "undefined" && window.innerWidth < 768 ? "grid" : "list"),
+  );
   const [showGallery, setShowGallery] = useState(false);
   const [photoUploading, setPhotoUploading] = useState(false);
   const photoRef = useRef<HTMLInputElement>(null);
@@ -224,8 +229,11 @@ const AdminStudents = () => {
       return null;
     }
     if (rollNumber) {
-      const activeHolder = students.find((s) => s.id !== editing?.id && s.onboardingStatus === "approved" && s.active && s.studentId === rollNumber);
-      if (activeHolder) { toast({ title: `Roll number ${rollNumber} is taken`, description: `It belongs to ${activeHolder.name}. Mark them inactive first or pick another number.`, variant: "destructive" }); return null; }
+      // Block if ANY existing (non-deleted) student holds this number — active
+      // or inactive. Reuse only becomes possible once that student is deleted
+      // (req). Deleted students aren't in the list, so they never conflict.
+      const holder = students.find((s) => s.id !== editing?.id && (s.studentId || s.desiredStudentId) === rollNumber);
+      if (holder) { toast({ title: `Roll number ${rollNumber} is already taken`, description: `It belongs to ${holder.name}. Delete that student to free the number, or pick another.`, variant: "destructive" }); return null; }
     }
     if (!cls) { toast({ title: "Pick a class", variant: "destructive" }); return null; }
     const slot = (cls.timeSlots || []).find((item) => item.id === form.slotId);
@@ -475,10 +483,16 @@ const AdminStudents = () => {
       </div>
 
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search by name, email, parent, class or STU id…" className={`${inputClass} sm:max-w-md`} />
-        <button onClick={() => setShowGallery((v) => !v)} className={`flex shrink-0 items-center gap-1.5 rounded-md border px-3 py-2 font-body text-[0.8rem] font-semibold transition-colors ${showGallery ? "border-gold bg-gold/10 text-gold" : "border-border text-muted-foreground hover:border-gold/40"}`}>
-          <Images className="h-4 w-4" /> {showGallery ? "Hide gallery" : "Student gallery"}
-        </button>
+        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search by name, email, parent, class or STU id…" className={`${inputClass} min-w-0 flex-1 sm:max-w-md`} />
+        <div className="flex items-center gap-2">
+          <button onClick={() => setShowGallery((v) => !v)} className={`flex shrink-0 items-center gap-1.5 rounded-md border px-3 py-2 font-body text-[0.8rem] font-semibold transition-colors ${showGallery ? "border-gold bg-gold/10 text-gold" : "border-border text-muted-foreground hover:border-gold/40"}`}>
+            <Images className="h-4 w-4" /> <span className="hidden sm:inline">{showGallery ? "Hide gallery" : "Gallery"}</span>
+          </button>
+          <div className="flex shrink-0 overflow-hidden rounded-md border border-border">
+            <button onClick={() => setDetailView("list")} className={`px-2.5 py-2 ${detailView === "list" ? "bg-gold/10 text-gold" : "text-muted-foreground hover:bg-muted"}`} title="List view"><List className="h-4 w-4" /></button>
+            <button onClick={() => setDetailView("grid")} className={`px-2.5 py-2 ${detailView === "grid" ? "bg-gold/10 text-gold" : "text-muted-foreground hover:bg-muted"}`} title="Grid view"><LayoutGrid className="h-4 w-4" /></button>
+          </div>
+        </div>
       </div>
 
       {/* Student gallery — the admin-uploaded profile photos at a glance */}
@@ -516,15 +530,18 @@ const AdminStudents = () => {
           <p className="mt-1 font-body text-sm text-muted-foreground">Add your first student to send a payment link and issue a login.</p>
         </div>
       ) : (
-        <div className="space-y-3">
+        <div className={detailView === "grid" ? "grid grid-cols-1 items-start gap-3 sm:grid-cols-2 xl:grid-cols-3" : "space-y-3"}>
           {filtered.map((student) => {
             const credential = credentials[student.id];
             const payUrl = student.linkToken ? buildPayLinkUrl(student.linkToken) : "";
             const { totalInPaise } = buildFeeBreakdown(student.fees);
             const canApprove = ["payment-submitted", "counter-chosen", "paid-online"].includes(student.onboardingStatus);
             const approveMethod: "upi" | "cash" | "manual" = student.paidVia === "counter" ? "cash" : student.paidVia === "razorpay" ? "manual" : "upi";
+            // An open fees panel / danger zone needs the full width — span all
+            // grid columns so its table isn't cramped in one narrow cell.
+            const spanFull = detailView === "grid" && feesOpenId === student.id;
             return (
-              <div key={student.id} className="rounded-xl border border-border/60 bg-card p-4 shadow-card sm:p-5">
+              <div key={student.id} className={`rounded-xl border border-border/60 bg-card p-4 shadow-card sm:p-5 ${spanFull ? "sm:col-span-2 xl:col-span-3" : ""}`}>
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div className="flex min-w-0 items-start gap-3">
                     {student.photoUrl ? (
