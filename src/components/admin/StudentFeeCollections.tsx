@@ -5,6 +5,8 @@ import { useAdminLog } from "@/hooks/useAdminLog";
 import { useAuth } from "@/contexts/AuthContext";
 import { formatPaiseAsRupees, parsePriceToPaise } from "@/lib/ecommerce";
 import {
+  collectDueReminders,
+  DEFAULT_REMINDER_DAYS,
   deriveDisplayFeeStatus,
   FEE_STATUS_LABELS,
   feeDocMonthKeyFor,
@@ -100,6 +102,7 @@ const StudentFeeCollections = ({ students, adminUid }: StudentFeeCollectionsProp
   const logAction = useAdminLog();
   const { user } = useAuth();
   const [reminding, setReminding] = useState(false);
+  const [bulkReminding, setBulkReminding] = useState(false);
   const [monthKey, setMonthKey] = useState(monthKeyFor(new Date()));
   const [feesByEnrollment, setFeesByEnrollment] = useState<Map<string, FeePaymentDoc[]>>(new Map());
   const [loading, setLoading] = useState(true);
@@ -290,6 +293,44 @@ const StudentFeeCollections = ({ students, adminUid }: StudentFeeCollectionsProp
     }
   };
 
+  // Fees due within the reminder window (5 days before the due date → 5 after),
+  // across every loaded student, not yet reminded today. Same selection the
+  // cron uses — this button is a reliable manual trigger (req: reminders for
+  // every student based on the admin's due date, from 5 days before).
+  const dueForReminder = useMemo(() => {
+    const all: FeePaymentDoc[] = [];
+    for (const fees of feesByEnrollment.values()) all.push(...fees);
+    return collectDueReminders(all, new Date(), DEFAULT_REMINDER_DAYS);
+  }, [feesByEnrollment]);
+
+  const sendDueReminders = async () => {
+    if (!user) return;
+    if (dueForReminder.length === 0) { toast({ title: "No reminders due right now", description: "No student has a fee due within the next 5 days that hasn't already been reminded today." }); return; }
+    setBulkReminding(true);
+    let sent = 0; let failed = 0; let firstError = "";
+    try {
+      const idToken = await user.getIdToken();
+      for (const fee of dueForReminder) {
+        try {
+          const res = await notifyClassFee(idToken, fee.id, "fee-reminder");
+          const wa = interpretWhatsApp(res.result);
+          if (wa.status === "sent") sent += 1;
+          else { failed += 1; if (!firstError) firstError = wa.message; }
+        } catch (error) {
+          failed += 1; if (!firstError) firstError = error instanceof Error ? error.message : "send failed";
+        }
+      }
+      if (failed === 0) {
+        toast({ title: `Sent ${sent} reminder${sent === 1 ? "" : "s"} on WhatsApp` });
+      } else {
+        toast({ title: `${sent} sent · ${failed} failed`, description: firstError || "Some reminders could not be sent.", variant: "destructive" });
+      }
+      logAction("Sent due reminders (batch)", `${sent} sent, ${failed} failed`);
+    } finally {
+      setBulkReminding(false);
+    }
+  };
+
   const captionFor = (student: StudentDoc) => {
     const latest = student.enrollmentId ? latestByEnrollment.get(student.enrollmentId) : undefined;
     if (!latest) return null;
@@ -303,6 +344,10 @@ const StudentFeeCollections = ({ students, adminUid }: StudentFeeCollectionsProp
         <div className="flex flex-wrap items-center gap-2">
           <input type="month" value={monthKey} onChange={(e) => setMonthKey(e.target.value || monthKeyFor(new Date()))} className={`${inputClass} w-auto`} title="Month for the summary cards" />
           <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search name, STU id, parent…" className={`${inputClass} min-w-0 flex-1 sm:max-w-xs`} />
+          <button onClick={sendDueReminders} disabled={bulkReminding || loading} className="flex shrink-0 items-center gap-1.5 rounded-md bg-[#25D366] px-3 py-2 font-body text-[0.72rem] font-semibold text-white hover:brightness-110 disabled:opacity-60" title="Send WhatsApp reminders to everyone due within 5 days">
+            {bulkReminding ? <Loader2 className="h-4 w-4 animate-spin" /> : <MessageCircle className="h-4 w-4" />}
+            <span className="hidden sm:inline">Send due reminders</span>{dueForReminder.length > 0 && <span className="rounded-full bg-white/25 px-1.5 py-0.5 text-[0.62rem] font-bold">{dueForReminder.length}</span>}
+          </button>
           <button onClick={loadFees} disabled={loading} className="flex shrink-0 items-center gap-1 rounded-md border border-border px-2.5 py-2 font-body text-[0.72rem] font-semibold text-muted-foreground hover:bg-muted disabled:opacity-50" title="Refresh"><RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /></button>
           <div className="flex shrink-0 overflow-hidden rounded-md border border-border">
             <button onClick={() => setView("list")} className={`flex items-center gap-1 px-2.5 py-2 font-body text-[0.72rem] font-semibold ${view === "list" ? "bg-gold/10 text-gold" : "text-muted-foreground hover:bg-muted"}`} title="List view"><List className="h-4 w-4" /></button>
