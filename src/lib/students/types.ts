@@ -27,6 +27,7 @@ export interface StudentPaymentMethods {
   razorpay: boolean; // pay online via Razorpay (autopay mandate completes post-login)
   qr: boolean;       // UPI QR / payment number + screenshot upload
   counter: boolean;  // cash / POS at the centre
+  emi: boolean;      // term courses only — pay in installments (EMI plan)
 }
 
 export interface StudentInventory {
@@ -67,6 +68,12 @@ export interface StudentDoc {
   className: string;
   slotId?: string;
   slotLabel?: string;
+  trainerName?: string;    // copied from the class (shown to the parent, req)
+  // When the student joined (YYYY-MM-DD) — defaults to today, admin-editable.
+  joiningDate?: string;
+  // The date the NEXT fee is due (YYYY-MM-DD). The admin sets this; it drives
+  // the pending due + the WhatsApp reminder, and the parent sees a Pay button.
+  nextChargeDate?: string;
   inventory: StudentInventory;
   // C. Fees & payment setup
   fees: StudentFeeSetup;
@@ -110,6 +117,7 @@ export interface OnboardingLinkDoc {
   parentName: string;
   className: string;
   slotLabel?: string;
+  trainerName?: string;
   rows: FeeBreakdownRow[];
   totalInPaise: number;
   methods: StudentPaymentMethods;

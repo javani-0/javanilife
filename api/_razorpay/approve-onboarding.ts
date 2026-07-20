@@ -244,11 +244,18 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     }, { merge: true });
 
     // 3. The real enrollment — the whole existing fee engine hangs off this.
-    const joinMonthKey = monthKeyFor(new Date());
+    const methods = (student.methods || {}) as Record<string, unknown>;
     const isTerm = track === "term";
+    // Admin-set joining date (YYYY-MM-DD) drives startMonthKey; default today.
+    const joiningDate = /^\d{4}-\d{2}-\d{2}$/.test(getString(student.joiningDate)) ? getString(student.joiningDate) : new Date().toISOString().slice(0, 10);
+    const joinMonthKey = joiningDate.slice(0, 7);
+    // Admin-set next charge date (YYYY-MM-DD) — drives the reminder + the
+    // parent's Pay button. Blank falls back to the computed default below.
+    const adminNextChargeDate = /^\d{4}-\d{2}-\d{2}$/.test(getString(student.nextChargeDate)) ? getString(student.nextChargeDate) : "";
     const monthlyFeeInPaise = clampPaise(fees.monthlyFeeInPaise);
     const termFeeInPaise = clampPaise(fees.termFeeInPaise);
-    const paymentPlan = isTerm ? "full" : "manual";
+    // Term with EMI selected → the installment plan; else full. Monthly → manual.
+    const paymentPlan = isTerm ? (methods.emi === true ? "emi" : "full") : "manual";
     const enrollmentDoc: Record<string, unknown> = {
       student: {
         name: studentName,
@@ -267,6 +274,8 @@ export default async function handler(request: ApiRequest, response: ApiResponse
       monthlyFeeInPaise: isTerm ? 0 : monthlyFeeInPaise,
       billingDayOfMonth: billingDay,
       startMonthKey: joinMonthKey,
+      joiningDate,
+      trainerName: getString(classData.facultyName),
       status: "active",
       autopay: { enabled: false },
       paymentPlan,
@@ -274,7 +283,7 @@ export default async function handler(request: ApiRequest, response: ApiResponse
       studentStatus: studentType,
       // The admin enabled the Razorpay option → invite the parent to complete
       // the autopay mandate from their portal (mandates need the payer).
-      ...(((student.methods || {}) as Record<string, unknown>).razorpay === true && !isTerm ? { autopayInvited: true } : {}),
+      ...(methods.razorpay === true && !isTerm ? { autopayInvited: true } : {}),
       ...(getString(student.slotId) ? { slotId: getString(student.slotId), slotLabel: getString(student.slotLabel) } : {}),
       createdAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
@@ -284,10 +293,11 @@ export default async function handler(request: ApiRequest, response: ApiResponse
       if (getString(classData.startDate)) enrollmentDoc.termStartDate = getString(classData.startDate);
       if (getString(classData.endDate)) enrollmentDoc.termEndDate = getString(classData.endDate);
     } else {
-      // First collectible due: new students (pre-payment structure) bill in
-      // arrears from next month; existing students from the current month.
+      // First collectible due: the admin's next-charge date wins; else new
+      // students (pre-payment structure) bill in arrears from next month,
+      // existing students from the current month.
       const firstDueMonth = studentType === "new" ? addMonths(joinMonthKey, 1) : joinMonthKey;
-      enrollmentDoc.nextChargeDate = dueDateFor(firstDueMonth, billingDay);
+      enrollmentDoc.nextChargeDate = adminNextChargeDate || dueDateFor(firstDueMonth, billingDay);
     }
 
     const enrollmentRef = await db.collection(ENROLLMENTS_COLLECTION).add(enrollmentDoc);
@@ -343,6 +353,29 @@ export default async function handler(request: ApiRequest, response: ApiResponse
       } catch (waiveError) {
         console.error("Onboarding: free-month waiver failed", waiveError);
         warnings.push("Could not pre-waive the free month — waive it manually in Fee Collections.");
+      }
+    }
+
+    // 5b. Next charge (monthly): the admin set an explicit next-charge date, so
+    //     pre-create that month's pending due with dueDate = that date. This is
+    //     what the parent sees as a Pay button AND what the reminder cron nudges
+    //     (req 7/8). Skipped if the month is already settled/waived.
+    if (!isTerm && adminNextChargeDate) {
+      try {
+        const dueMonthKey = adminNextChargeDate.slice(0, 7);
+        const dueRef = db.collection(FEE_PAYMENTS_COLLECTION).doc(buildFeePaymentId(enrollmentId, dueMonthKey));
+        if (!(await dueRef.get()).exists) {
+          await dueRef.set({
+            ...buildFeePaymentSeed(enrollmentRecord, dueMonthKey),
+            dueDate: adminNextChargeDate,
+            status: "pending",
+            createdAt: FieldValue.serverTimestamp(),
+            updatedAt: FieldValue.serverTimestamp(),
+          }, { merge: true });
+        }
+      } catch (dueError) {
+        console.error("Onboarding: next-charge due creation failed", dueError);
+        warnings.push("Could not create the next-charge due — add it from Fee Collections.");
       }
     }
 

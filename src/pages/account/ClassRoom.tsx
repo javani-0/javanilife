@@ -101,6 +101,11 @@ const ClassRoom = () => {
               <Clock className="h-4 w-4 text-gold" /> {enrollment.slotLabel || classDoc?.schedule}
             </p>
           )}
+          {(enrollment.trainerName || classDoc?.facultyName) && (
+            <p className="mt-1 flex items-center gap-1.5 font-body text-sm text-muted-foreground">
+              <GraduationCap className="h-4 w-4 text-gold" /> Trainer: <span className="font-semibold text-foreground">{enrollment.trainerName || classDoc?.facultyName}</span>
+            </p>
+          )}
         </div>
 
         {/* Live class */}

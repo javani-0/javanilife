@@ -353,7 +353,7 @@ export const feeDocMonthKeyFor = (
 
 export const recordFeeForMonth = async (
   enrollment: FeeEntryEnrollment,
-  params: { feeMonthKey: string; amountInPaise: number; paidOn: string; method?: FeePaymentMethod; adminUid: string },
+  params: { feeMonthKey: string; amountInPaise: number; paidOn: string; method?: FeePaymentMethod; adminUid: string; proofUrl?: string },
 ): Promise<string> => {
   const billingMethod = isPrepaymentEnrollment(enrollment) ? "arrears" : (enrollment.paymentPlan === "manual" ? "manual" : "arrears");
   const docMonthKey = feeDocMonthKeyFor(enrollment, params.feeMonthKey);
@@ -362,12 +362,14 @@ export const recordFeeForMonth = async (
   const amountInPaise = Math.max(100, Math.round(params.amountInPaise));
   const method: FeePaymentMethod = params.method || "cash";
   const paidAt = paidOnTimestamp(params.paidOn);
+  const proofUrl = (params.proofUrl || "").trim();
   const audit: FeeCollectionEvent = {
     action: "cash-collected",
     at: new Date().toISOString(),
     by: params.adminUid,
     amountInPaise,
     note: `Fee entry added by admin for ${periodLabelFor(params.feeMonthKey)}`,
+    ...(proofUrl ? { proofUrl } : {}),
   };
 
   const existing = await getDoc(ref);
@@ -384,6 +386,7 @@ export const recordFeeForMonth = async (
       paymentMethod: method,
       amountInPaise,
       paidAt,
+      ...(proofUrl ? { cashProofUrl: proofUrl } : {}),
       collectionHistory: arrayUnion(audit),
       updatedAt: serverTimestamp(),
     });
@@ -414,6 +417,7 @@ export const recordFeeForMonth = async (
     status: "paid",
     paymentMethod: method,
     paidAt,
+    ...(proofUrl ? { cashProofUrl: proofUrl } : {}),
     collectedBy: params.adminUid,
     collectionHistory: [audit],
     createdAt: serverTimestamp(),
@@ -428,14 +432,16 @@ export const recordFeeForMonth = async (
  */
 export const markFeePaidWithDate = async (
   feeId: string,
-  params: { amountInPaise: number; paidOn: string; method?: FeePaymentMethod; adminUid: string },
+  params: { amountInPaise: number; paidOn: string; method?: FeePaymentMethod; adminUid: string; proofUrl?: string },
 ): Promise<void> => {
   const amountInPaise = Math.max(100, Math.round(params.amountInPaise));
+  const proofUrl = (params.proofUrl || "").trim();
   await updateDoc(doc(db, FEE_PAYMENTS_COLLECTION, feeId), {
     status: "paid",
     paymentMethod: params.method || "cash",
     amountInPaise,
     paidAt: paidOnTimestamp(params.paidOn),
+    ...(proofUrl ? { cashProofUrl: proofUrl } : {}),
     collectedBy: params.adminUid,
     collectionHistory: arrayUnion({
       action: "cash-collected",
@@ -443,6 +449,7 @@ export const markFeePaidWithDate = async (
       by: params.adminUid,
       amountInPaise,
       note: "Marked paid by admin",
+      ...(proofUrl ? { proofUrl } : {}),
     } satisfies FeeCollectionEvent),
     updatedAt: serverTimestamp(),
   });
@@ -470,6 +477,53 @@ export const undoFeeCollection = async (
     } satisfies FeeCollectionEvent),
     updatedAt: serverTimestamp(),
   });
+};
+
+/**
+ * Admin (Student Manager, req 7/8): set/refresh a student's NEXT charge date.
+ * Writes it onto the enrollment (so the profile + fee detail show it) and
+ * upserts a PENDING due for that month with dueDate = the chosen date — this is
+ * the row the parent pays and the row the reminder cron nudges. Never touches a
+ * month that's already paid or waived.
+ */
+export const applyNextChargeDue = async (
+  enrollment: Pick<EnrollmentDoc, "id" | "classId" | "className" | "parentUserId" | "student" | "parent" | "monthlyFeeInPaise" | "billingDayOfMonth" | "paymentPlan" | "slotId" | "slotLabel" | "studentStatus" | "feeType" | "startMonthKey">,
+  nextChargeDate: string,
+): Promise<void> => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(nextChargeDate)) return;
+  await updateDoc(doc(db, "enrollments", enrollment.id), { nextChargeDate, updatedAt: serverTimestamp() });
+  const monthKey = nextChargeDate.slice(0, 7);
+  const id = buildFeePaymentId(enrollment.id, monthKey);
+  const ref = doc(db, FEE_PAYMENTS_COLLECTION, id);
+  const existing = await getDoc(ref);
+  const status = existing.exists() ? existing.data()?.status : "";
+  if (status === "paid" || status === "waived") return; // don't disturb a settled month
+  const billingDay = clampBillingDay(enrollment.billingDayOfMonth);
+  const billingMethod = isPrepaymentEnrollment(enrollment) ? "arrears" : enrollment.paymentPlan;
+  const billing = computeBillingPeriodFromMonthKey(monthKey, billingMethod, 1);
+  await setDoc(ref, {
+    enrollmentId: enrollment.id,
+    classId: enrollment.classId || "",
+    className: enrollment.className || "",
+    parentUserId: enrollment.parentUserId || "",
+    studentName: enrollment.student?.name || "",
+    parentName: enrollment.parent?.name || "",
+    parentPhone: enrollment.parent?.whatsappNumber || enrollment.parent?.phone || "",
+    paymentPlan: enrollment.paymentPlan || "",
+    slotId: enrollment.slotId || "",
+    slotLabel: enrollment.slotLabel || "",
+    monthKey,
+    periodLabel: billing.periodLabel,
+    billingPeriodLabel: billing.periodLabel,
+    billingStartMonth: billing.startMonthKey,
+    billingEndMonth: billing.endMonthKey,
+    nextChargeDate: dueDateFor(billing.nextChargeMonthKey, billingDay),
+    amountInPaise: Math.max(0, Math.round(enrollment.monthlyFeeInPaise || 0)),
+    dueDate: nextChargeDate,
+    status: "pending",
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  }, { merge: true });
 };
 
 /** Admin: waive a month so it stops showing as due/overdue. */

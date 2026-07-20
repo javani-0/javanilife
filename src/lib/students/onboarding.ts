@@ -27,6 +27,7 @@ export const normalizeOnboardingLink = (token: string, data: DocumentData = {}):
     parentName: getString(data.parentName),
     className: getString(data.className),
     slotLabel: getString(data.slotLabel) || undefined,
+    trainerName: getString(data.trainerName) || undefined,
     rows: Array.isArray(data.rows)
       ? data.rows
           .map((row: DocumentData): FeeBreakdownRow => ({ label: getString(row?.label), amountInPaise: Math.round(toNumber(row?.amountInPaise)) }))
@@ -37,6 +38,7 @@ export const normalizeOnboardingLink = (token: string, data: DocumentData = {}):
       razorpay: methods.razorpay === true,
       qr: methods.qr === true,
       counter: methods.counter === true,
+      emi: methods.emi === true,
     },
     status: (getString(data.status) || "awaiting-payment") as OnboardingStatus,
     rejectReason: getString(data.rejectReason) || undefined,

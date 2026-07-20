@@ -86,6 +86,8 @@ export const normalizeEnrollment = (id: string, data: DocumentData = {}): Enroll
     advancePaid: data.advancePaid === true ? true : undefined,
     studentStatus: data.studentStatus === "existing" ? "existing" : (data.studentStatus === "new" ? "new" : undefined),
     autopayInvited: data.autopayInvited === true ? true : undefined,
+    joiningDate: typeof data.joiningDate === "string" ? data.joiningDate : undefined,
+    trainerName: typeof data.trainerName === "string" ? data.trainerName : undefined,
     emi: data.emi && typeof data.emi === "object" ? (data.emi as ClassEmiConfig) : undefined,
     installmentPlan: data.installmentPlan && typeof data.installmentPlan === "object"
       ? (data.installmentPlan as CourseInstallmentPlan)

@@ -9,7 +9,7 @@ import {
   type DocumentData,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { setEnrollmentStatus } from "@/lib/classes";
+import { applyNextChargeDue, getEnrollment, setEnrollmentStatus } from "@/lib/classes";
 import type { Gender } from "@/lib/classes";
 import {
   buildFeeBreakdown,
@@ -67,6 +67,9 @@ export const normalizeStudent = (id: string, data: DocumentData = {}): StudentDo
     className: getString(data.className),
     slotId: getString(data.slotId) || undefined,
     slotLabel: getString(data.slotLabel) || undefined,
+    trainerName: getString(data.trainerName) || undefined,
+    joiningDate: getString(data.joiningDate) || undefined,
+    nextChargeDate: getString(data.nextChargeDate) || undefined,
     inventory: {
       uniform: inventory.uniform === true,
       kit: inventory.kit === true,
@@ -87,6 +90,7 @@ export const normalizeStudent = (id: string, data: DocumentData = {}): StudentDo
       razorpay: methods.razorpay === true,
       qr: methods.qr !== false,
       counter: methods.counter !== false,
+      emi: methods.emi === true,
     },
     desiredStudentId: getString(data.desiredStudentId) || undefined,
     linkToken: getString(data.linkToken),
@@ -158,6 +162,9 @@ export interface StudentWriteInput {
   className: string;
   slotId?: string;
   slotLabel?: string;
+  trainerName?: string;
+  joiningDate?: string;
+  nextChargeDate?: string;
   desiredStudentId?: string;
   inventory: StudentInventory;
   fees: {
@@ -189,6 +196,9 @@ const buildStudentPayload = (input: StudentWriteInput) => ({
   className: input.className.trim(),
   slotId: input.slotId || "",
   slotLabel: input.slotLabel || "",
+  trainerName: (input.trainerName || "").trim(),
+  joiningDate: (input.joiningDate || "").trim(),
+  nextChargeDate: (input.nextChargeDate || "").trim(),
   desiredStudentId: (input.desiredStudentId || "").trim().toUpperCase(),
   inventory: {
     uniform: input.inventory.uniform === true,
@@ -210,6 +220,7 @@ const buildStudentPayload = (input: StudentWriteInput) => ({
     razorpay: input.methods.razorpay === true,
     qr: input.methods.qr === true,
     counter: input.methods.counter === true,
+    emi: input.methods.emi === true && input.fees.track === "term",
   },
   updatedAt: serverTimestamp(),
 });
@@ -234,6 +245,7 @@ const syncOnboardingLink = async (student: StudentDoc): Promise<void> => {
       parentName: student.parentName,
       className: student.className,
       slotLabel: student.slotLabel || "",
+      trainerName: student.trainerName || "",
       rows,
       totalInPaise,
       methods: student.methods,
@@ -287,6 +299,24 @@ export const updateStudent = async (existing: StudentDoc, input: StudentWriteInp
       });
     } catch (error) {
       console.error("Could not sync the autopay option to the enrollment", error);
+    }
+  }
+  // Next charge date changed on an approved MONTHLY student → refresh the
+  // enrollment's next-charge date + the pending due the parent pays and the
+  // reminder targets (req 7/8).
+  const nextChargeDate = (input.nextChargeDate || "").trim();
+  if (
+    existing.enrollmentId
+    && existing.onboardingStatus === "approved"
+    && existing.fees.track === "monthly"
+    && nextChargeDate
+    && nextChargeDate !== (existing.nextChargeDate || "")
+  ) {
+    try {
+      const enrollment = await getEnrollment(existing.enrollmentId);
+      if (enrollment) await applyNextChargeDue(enrollment, nextChargeDate);
+    } catch (error) {
+      console.error("Could not apply the next charge date", error);
     }
   }
 };

@@ -208,6 +208,9 @@ const OnboardingPay = () => {
         <p className="mt-1 font-body text-sm text-muted-foreground">
           {link.studentName} — {link.className}{link.slotLabel ? ` · ${link.slotLabel}` : ""}
         </p>
+        {link.trainerName && (
+          <p className="mt-0.5 font-body text-xs text-muted-foreground">Trainer: <span className="font-semibold text-foreground">{link.trainerName}</span></p>
+        )}
         {link.rejectReason && (
           <p className="mt-3 rounded-md border border-amber-300 bg-amber-50 p-3 font-body text-[0.8rem] text-amber-800">{link.rejectReason}</p>
         )}

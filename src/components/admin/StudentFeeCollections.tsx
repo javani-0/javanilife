@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, BadgeIndianRupee, CalendarPlus, LayoutGrid, List, Loader2, RefreshCw, Users, Wallet, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AlertTriangle, BadgeIndianRupee, CalendarPlus, ImageIcon, LayoutGrid, List, Loader2, MessageCircle, RefreshCw, Upload, Users, Wallet, X } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAdminLog } from "@/hooks/useAdminLog";
+import { useAuth } from "@/contexts/AuthContext";
 import { formatPaiseAsRupees, parsePriceToPaise } from "@/lib/ecommerce";
 import {
   deriveDisplayFeeStatus,
@@ -9,16 +10,31 @@ import {
   feeDocMonthKeyFor,
   feePaidStatement,
   getEnrollment,
+  isFeePayable,
   listFeesForEnrollment,
   monthKeyFor,
+  notifyClassFee,
   periodLabel,
   recordFeeForMonth,
   sortFeesByMonthDesc,
+  uploadPaymentProof,
   type EnrollmentDoc,
   type FeePaymentDoc,
   type FeePaymentMethod,
   type FeeStatus,
 } from "@/lib/classes";
+
+// Read the true WhatsApp outcome out of the /api/classes/notify response so the
+// admin sees WHY a reminder didn't go (env missing / template error) instead of
+// a blanket "sent" (req 8 — WhatsApp not going).
+const interpretWhatsApp = (result: unknown): { status: string; message: string } => {
+  const parent = (result as { parentWhatsApp?: { value?: { status?: string; errorMessage?: string }; reason?: string } })?.parentWhatsApp;
+  const value = parent?.value;
+  if (value?.status === "sent") return { status: "sent", message: "" };
+  if (value?.status === "manual-ready") return { status: "manual-ready", message: value.errorMessage || "WhatsApp API isn't configured." };
+  if (value?.status === "failed") return { status: "failed", message: value.errorMessage || "WhatsApp send failed." };
+  return { status: "unknown", message: parent?.reason || "Could not read the WhatsApp result." };
+};
 import type { StudentDoc } from "@/lib/students";
 
 // ---------------------------------------------------------------------------
@@ -42,6 +58,13 @@ const statusStyles: Record<FeeStatus, string> = {
 };
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
+
+const niceDate = (iso?: string): string => {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || "");
+  if (!match) return iso || "—";
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  return `${Number(match[3])} ${months[Number(match[2]) - 1]} ${match[1]}`;
+};
 
 const toMillis = (value: unknown): number => {
   const ts = value as { toMillis?: () => number } | undefined;
@@ -75,6 +98,8 @@ const defaultView = (): "list" | "grid" => (typeof window !== "undefined" && win
 const StudentFeeCollections = ({ students, adminUid }: StudentFeeCollectionsProps) => {
   const { toast } = useToast();
   const logAction = useAdminLog();
+  const { user } = useAuth();
+  const [reminding, setReminding] = useState(false);
   const [monthKey, setMonthKey] = useState(monthKeyFor(new Date()));
   const [feesByEnrollment, setFeesByEnrollment] = useState<Map<string, FeePaymentDoc[]>>(new Map());
   const [loading, setLoading] = useState(true);
@@ -86,6 +111,10 @@ const StudentFeeCollections = ({ students, adminUid }: StudentFeeCollectionsProp
   const [view, setView] = useState<"list" | "grid">(defaultView);
   const [entry, setEntry] = useState<EntryState | null>(null);
   const [savingEntry, setSavingEntry] = useState(false);
+  const [proofFile, setProofFile] = useState<File | null>(null);
+  const [proofPreview, setProofPreview] = useState("");
+  const proofRef = useRef<HTMLInputElement>(null);
+  useEffect(() => () => { if (proofPreview) URL.revokeObjectURL(proofPreview); }, [proofPreview]);
 
   const approvedStudents = useMemo(
     () => students.filter((student) => student.onboardingStatus === "approved" && student.enrollmentId),
@@ -178,6 +207,8 @@ const StudentFeeCollections = ({ students, adminUid }: StudentFeeCollectionsProp
   }, [approvedStudents, latestByEnrollment, search, classFilter, statusFilter, methodFilter, sortMode]);
 
   const openEntry = async (student: StudentDoc) => {
+    setProofFile(null);
+    setProofPreview("");
     setEntry({
       student,
       month: monthKey,
@@ -218,7 +249,8 @@ const StudentFeeCollections = ({ students, adminUid }: StudentFeeCollectionsProp
     if (monthConflict?.kind === "paid") { toast({ title: `${periodLabel(entry.month)} fee is already paid`, description: "Edit that entry from the Fees panel instead.", variant: "destructive" }); return; }
     setSavingEntry(true);
     try {
-      await recordFeeForMonth(entry.enrollment, { feeMonthKey: entry.month, amountInPaise, paidOn: entry.date || todayIso(), method: entry.method, adminUid });
+      const proofUrl = proofFile ? await uploadPaymentProof(proofFile) : undefined;
+      await recordFeeForMonth(entry.enrollment, { feeMonthKey: entry.month, amountInPaise, paidOn: entry.date || todayIso(), method: entry.method, adminUid, proofUrl });
       toast({ title: "Fee recorded", description: `${entry.student.name} · ${periodLabel(entry.month)} · ${formatPaiseAsRupees(amountInPaise)}` });
       logAction("Recorded fee", `${entry.student.name}${entry.student.studentId ? ` (${entry.student.studentId})` : ""} · ${periodLabel(entry.month)} · ${formatPaiseAsRupees(amountInPaise)} · ${entry.method}`);
       setEntry(null);
@@ -227,6 +259,34 @@ const StudentFeeCollections = ({ students, adminUid }: StudentFeeCollectionsProp
       toast({ title: "Could not record the fee", description: error instanceof Error ? error.message : undefined, variant: "destructive" });
     } finally {
       setSavingEntry(false);
+    }
+  };
+
+  // Manual WhatsApp reminder (req 8): remind the parent about the soonest
+  // payable fee and REPORT the real outcome so the admin can see if WhatsApp
+  // needs configuring.
+  const sendReminder = async () => {
+    if (!user) return;
+    const payables = entryHistory.filter((fee) => isFeePayable({ status: deriveDisplayFeeStatus(fee) }));
+    const target = payables.sort((a, b) => (a.dueDate || "").localeCompare(b.dueDate || ""))[0];
+    if (!target) { toast({ title: "Nothing due to remind about", description: "This student has no pending fee." }); return; }
+    setReminding(true);
+    try {
+      const idToken = await user.getIdToken();
+      const res = await notifyClassFee(idToken, target.id, "fee-reminder");
+      const wa = interpretWhatsApp(res.result);
+      if (wa.status === "sent") {
+        toast({ title: "Reminder sent on WhatsApp", description: `${entry?.student.name} · ${target.periodLabel}` });
+      } else if (wa.status === "manual-ready") {
+        toast({ title: "WhatsApp isn't set up", description: `${wa.message} The web push (if enabled) was still sent.`, variant: "destructive" });
+      } else {
+        toast({ title: "WhatsApp reminder failed", description: wa.message, variant: "destructive" });
+      }
+      logAction("Sent fee reminder", `${entry?.student.name}${entry?.student.studentId ? ` (${entry.student.studentId})` : ""} · ${target.periodLabel} · WhatsApp ${wa.status}`);
+    } catch (error) {
+      toast({ title: "Could not send the reminder", description: error instanceof Error ? error.message : undefined, variant: "destructive" });
+    } finally {
+      setReminding(false);
     }
   };
 
@@ -314,7 +374,7 @@ const StudentFeeCollections = ({ students, adminUid }: StudentFeeCollectionsProp
             const cap = captionFor(student);
             return (
               <div key={student.id} className="flex flex-col rounded-xl border border-border/60 bg-card p-4 shadow-card">
-                <div className="flex items-center gap-3">
+                <button type="button" onClick={() => openEntry(student)} className="flex items-center gap-3 text-left" title="View details & record fee">
                   {student.photoUrl ? (
                     <img src={student.photoUrl} alt={student.name} className="h-12 w-12 shrink-0 rounded-full border border-border object-cover" loading="lazy" />
                   ) : (
@@ -324,7 +384,7 @@ const StudentFeeCollections = ({ students, adminUid }: StudentFeeCollectionsProp
                     <p className="truncate font-body text-sm font-semibold text-foreground">{student.name}</p>
                     {student.studentId && <p className="font-body text-[0.72rem] text-gold">{student.studentId}</p>}
                   </div>
-                </div>
+                </button>
                 <p className="mt-2 truncate font-body text-xs text-muted-foreground">{student.className}</p>
                 <div className="mt-2 min-h-[2.5rem] flex-1">
                   {cap ? (
@@ -353,7 +413,7 @@ const StudentFeeCollections = ({ students, adminUid }: StudentFeeCollectionsProp
             const cap = captionFor(student);
             return (
               <div key={student.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/60 bg-card px-4 py-3 shadow-card">
-                <div className="flex min-w-0 items-center gap-3">
+                <button type="button" onClick={() => openEntry(student)} className="flex min-w-0 items-center gap-3 text-left" title="View details & record fee">
                   {student.photoUrl ? (
                     <img src={student.photoUrl} alt={student.name} className="h-10 w-10 shrink-0 rounded-full border border-border object-cover" loading="lazy" />
                   ) : (
@@ -374,7 +434,7 @@ const StudentFeeCollections = ({ students, adminUid }: StudentFeeCollectionsProp
                       <p className="font-body text-[0.7rem] text-muted-foreground">No fee records yet.</p>
                     )}
                   </div>
-                </div>
+                </button>
                 <div className="flex shrink-0 items-center gap-2">
                   {cap && <span className={`rounded-full px-2.5 py-1 font-body text-[0.7rem] font-semibold ${statusStyles[cap.status]}`}>{FEE_STATUS_LABELS[cap.status]}</span>}
                   <button onClick={() => openEntry(student)} className="flex items-center gap-1.5 rounded-md bg-gradient-primary px-3 py-1.5 font-body text-[0.72rem] font-semibold text-primary-foreground hover:brightness-110">
@@ -402,6 +462,21 @@ const StudentFeeCollections = ({ students, adminUid }: StudentFeeCollectionsProp
             </div>
 
             <div className="min-h-0 flex-1 overflow-y-auto p-5 pt-4">
+              {/* Student detail (req 7): Class · Timing · Joining · Parent · Next charge */}
+              <div className="mb-4 grid grid-cols-2 gap-x-4 gap-y-1.5 rounded-lg border border-border/60 bg-background/60 p-3 font-body text-xs">
+                <div><span className="text-muted-foreground">Class</span><p className="font-semibold text-foreground">{entry.student.className || "—"}</p></div>
+                <div><span className="text-muted-foreground">Class timing</span><p className="font-semibold text-foreground">{entry.student.slotLabel || "—"}</p></div>
+                <div><span className="text-muted-foreground">Date of joining</span><p className="font-semibold text-foreground">{niceDate(entry.student.joiningDate)}</p></div>
+                <div><span className="text-muted-foreground">Next charge date</span><p className="font-semibold text-foreground">{niceDate(entry.student.nextChargeDate)}</p></div>
+                <div className="col-span-2"><span className="text-muted-foreground">Parent / Guardian</span><p className="font-semibold text-foreground">{entry.student.parentName || "—"}{entry.student.phone ? ` · ${entry.student.phone}` : ""}</p></div>
+                <div className="col-span-2 mt-1">
+                  <button type="button" onClick={sendReminder} disabled={reminding} className="flex items-center gap-1.5 rounded-md bg-[#25D366] px-3 py-1.5 font-body text-[0.72rem] font-semibold text-white hover:brightness-110 disabled:opacity-60">
+                    {reminding ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <MessageCircle className="h-3.5 w-3.5" />} Send WhatsApp reminder
+                  </button>
+                </div>
+              </div>
+
+              <p className="mb-2 font-body text-xs font-semibold uppercase tracking-wider text-muted-foreground">Record a fee</p>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div>
                   <label className="mb-1 block font-body text-xs text-muted-foreground">Fee month</label>
@@ -425,6 +500,27 @@ const StudentFeeCollections = ({ students, adminUid }: StudentFeeCollectionsProp
                     <option value="upi">UPI</option>
                   </select>
                 </div>
+              </div>
+
+              {/* Optional payment screenshot (req 5) — stored + shown in history */}
+              <div className="mt-3">
+                <label className="mb-1 block font-body text-xs text-muted-foreground">Payment screenshot <span className="text-muted-foreground">(optional)</span></label>
+                <input ref={proofRef} type="file" accept="image/*" className="hidden" onChange={(e) => {
+                  const file = e.target.files?.[0]; e.target.value = "";
+                  if (!file) return;
+                  if (!file.type.startsWith("image/")) { toast({ title: "Please pick an image", variant: "destructive" }); return; }
+                  if (proofPreview) URL.revokeObjectURL(proofPreview);
+                  setProofFile(file); setProofPreview(URL.createObjectURL(file));
+                }} />
+                {proofPreview ? (
+                  <div className="flex items-center gap-3 rounded-md border border-border p-2">
+                    <img src={proofPreview} alt="Receipt" className="h-14 w-14 rounded object-cover" />
+                    <button type="button" onClick={() => proofRef.current?.click()} className="font-body text-xs font-semibold text-gold hover:underline">Change</button>
+                    <button type="button" onClick={() => { setProofFile(null); if (proofPreview) URL.revokeObjectURL(proofPreview); setProofPreview(""); }} className="font-body text-xs text-destructive hover:underline">Remove</button>
+                  </div>
+                ) : (
+                  <button type="button" onClick={() => proofRef.current?.click()} className="flex w-full items-center justify-center gap-2 rounded-md border border-dashed border-border py-2.5 font-body text-xs text-muted-foreground hover:border-gold/50 hover:text-gold"><Upload className="h-3.5 w-3.5" /> Attach screenshot</button>
+                )}
               </div>
 
               {monthConflict && (
@@ -460,7 +556,12 @@ const StudentFeeCollections = ({ students, adminUid }: StudentFeeCollectionsProp
                           <p className="truncate font-body text-xs font-medium text-foreground">{fee.periodLabel}</p>
                           <p className="font-body text-[0.68rem] text-muted-foreground">{formatPaiseAsRupees(fee.amountInPaise)}{fee.paymentMethod ? ` · ${fee.paymentMethod}` : ""}{paidLine ? ` — ${paidLine}` : ""}</p>
                         </div>
-                        <span className={`shrink-0 rounded-full px-2 py-0.5 font-body text-[0.65rem] font-semibold ${statusStyles[displayStatus]}`}>{FEE_STATUS_LABELS[displayStatus]}</span>
+                        <div className="flex shrink-0 items-center gap-1.5">
+                          {(fee.cashProofUrl || fee.upiProofUrl) && (
+                            <a href={fee.cashProofUrl || fee.upiProofUrl} target="_blank" rel="noreferrer" title="View payment screenshot" className="rounded-md border border-gold/40 p-1 text-gold hover:bg-gold/10"><ImageIcon className="h-3.5 w-3.5" /></a>
+                          )}
+                          <span className={`rounded-full px-2 py-0.5 font-body text-[0.65rem] font-semibold ${statusStyles[displayStatus]}`}>{FEE_STATUS_LABELS[displayStatus]}</span>
+                        </div>
                       </div>
                     );
                   })}

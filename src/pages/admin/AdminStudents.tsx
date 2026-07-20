@@ -71,6 +71,8 @@ interface StudentFormState {
   classId: string;
   slotId: string;
   track: StudentTrack;
+  joiningDate: string;
+  nextChargeDate: string;
   invUniform: boolean;
   invKit: boolean;
   invBooks: boolean;
@@ -85,17 +87,20 @@ interface StudentFormState {
   mRazorpay: boolean;
   mQr: boolean;
   mCounter: boolean;
+  mEmi: boolean;
 }
+
+const todayIso = () => new Date().toISOString().slice(0, 10);
 
 const defaultForm: StudentFormState = {
   name: "", age: "", gender: "male", email: "", phone: "",
   parentName: "", parentRelation: "father", address: "", mode: "offline", photoUrl: "", rollNumber: "",
-  classId: "", slotId: "", track: "monthly",
+  classId: "", slotId: "", track: "monthly", joiningDate: "", nextChargeDate: "",
   invUniform: false, invKit: false, invBooks: false,
   studentType: "new",
   kitFeeRupees: "", booksFeeRupees: "", uniformFeeRupees: "",
   monthlyFeeRupees: "", termFeeRupees: "", discountRupees: "", firstMonthFree: false,
-  mRazorpay: false, mQr: true, mCounter: true,
+  mRazorpay: false, mQr: true, mCounter: true, mEmi: false,
 };
 
 const statusChip: Record<OnboardingStatus, string> = {
@@ -165,10 +170,11 @@ const AdminStudents = () => {
   const previewFees = useMemo(() => buildFeeBreakdown(toFormFees(form)), [form]);
   const paymentFree = isPaymentFreeOnboarding(toFormFees(form));
 
-  const openAdd = () => {
-    // Suggest the next roll number — the admin can overwrite it (req).
-    setForm({ ...defaultForm, rollNumber: suggestNextStudentId(students) });
-    setEmailAuto(true); // auto-derive the email from the name until edited
+  const openAdd = (prefill?: Partial<StudentFormState>) => {
+    // Suggest the next roll number — the admin can overwrite it (req). Joining
+    // date defaults to today (editable).
+    setForm({ ...defaultForm, joiningDate: todayIso(), rollNumber: suggestNextStudentId(students), ...prefill });
+    setEmailAuto(!prefill?.email); // auto-derive the email unless one was prefilled
     setEditing(null);
     setShowModal(true);
   };
@@ -191,6 +197,8 @@ const AdminStudents = () => {
       classId: student.classId,
       slotId: student.slotId || "",
       track: student.fees.track,
+      joiningDate: student.joiningDate || "",
+      nextChargeDate: student.nextChargeDate || "",
       invUniform: student.inventory.uniform,
       invKit: student.inventory.kit,
       invBooks: student.inventory.books,
@@ -205,6 +213,7 @@ const AdminStudents = () => {
       mRazorpay: student.methods.razorpay,
       mQr: student.methods.qr,
       mCounter: student.methods.counter,
+      mEmi: student.methods.emi,
     });
     setShowModal(true);
   };
@@ -259,9 +268,12 @@ const AdminStudents = () => {
       className: cls.name,
       slotId: slot?.id,
       slotLabel: slot?.label,
+      trainerName: cls.facultyName || "",
+      joiningDate: form.joiningDate || todayIso(),
+      nextChargeDate: form.nextChargeDate || "",
       inventory: { uniform: form.invUniform, kit: form.invKit, books: form.invBooks },
       fees: toFormFees(form),
-      methods: { razorpay: form.mRazorpay, qr: form.mQr, counter: form.mCounter },
+      methods: { razorpay: form.mRazorpay, qr: form.mQr, counter: form.mCounter, emi: form.mEmi && form.track === "term" },
     };
   };
 
@@ -444,7 +456,7 @@ const AdminStudents = () => {
           <h1 className="mt-2 flex items-center gap-2 font-display text-3xl text-foreground"><GraduationCap className="h-7 w-7 text-gold" /> Student Manager</h1>
           <p className="mt-1 font-body text-sm text-muted-foreground">Create student profiles, send the payment link, approve, and issue the portal login.</p>
         </div>
-        <button onClick={openAdd} className="flex items-center gap-2 self-start rounded-md bg-gradient-primary px-4 py-2.5 font-body text-[0.85rem] font-medium text-primary-foreground hover:brightness-110">
+        <button onClick={() => openAdd()} className="flex items-center gap-2 self-start rounded-md bg-gradient-primary px-4 py-2.5 font-body text-[0.85rem] font-medium text-primary-foreground hover:brightness-110">
           <UserPlus className="h-4 w-4" /> Add Student
         </button>
       </div>
@@ -836,6 +848,21 @@ const AdminStudents = () => {
                   </div>
                 </div>
               )}
+              {selectedClass?.facultyName && (
+                <div className="sm:col-span-2 -mt-1 flex items-center gap-1.5 font-body text-[0.75rem] text-muted-foreground">
+                  <GraduationCap className="h-3.5 w-3.5 text-gold" /> Trainer: <span className="font-semibold text-foreground">{selectedClass.facultyName}</span> <span className="text-muted-foreground">(shown to the parent)</span>
+                </div>
+              )}
+              <div>
+                <label className={labelClass}>Joining date</label>
+                <input type="date" value={form.joiningDate} onChange={(e) => setForm({ ...form, joiningDate: e.target.value })} className={inputClass} />
+                <p className="mt-1 font-body text-[0.7rem] text-muted-foreground">Defaults to today — edit if they joined earlier.</p>
+              </div>
+              <div>
+                <label className={labelClass}>Next charge date</label>
+                <input type="date" value={form.nextChargeDate} onChange={(e) => setForm({ ...form, nextChargeDate: e.target.value })} className={inputClass} />
+                <p className="mt-1 font-body text-[0.7rem] text-muted-foreground">When the next fee is due — drives the reminder &amp; the parent's Pay button.</p>
+              </div>
               <div className="sm:col-span-2">
                 <label className={labelClass}>Inventory received</label>
                 <div className="flex flex-wrap gap-2">
@@ -911,7 +938,13 @@ const AdminStudents = () => {
             <div className="mt-3">
               <label className={labelClass}>Payment options the parent will see</label>
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-                {([["mRazorpay", "Autopay / Pay online", "Razorpay"], ["mQr", "Pay Now (QR)", "Scan & upload screenshot"], ["mCounter", "Pay at counter", "Cash / POS at centre"]] as const).map(([key, label, sub]) => (
+                {([
+                  ["mRazorpay", "Autopay / Pay online", "Razorpay"],
+                  ["mQr", "Pay Now (QR)", "Scan & upload screenshot"],
+                  ["mCounter", "Pay at counter", "Cash / POS at centre"],
+                  // EMI only makes sense for a term course (installment plan).
+                  ...(form.track === "term" ? [["mEmi", "EMI (installments)", "Pay the course in parts"] as const] : []),
+                ] as const).map(([key, label, sub]) => (
                   <button key={key} type="button" onClick={() => setForm({ ...form, [key]: !form[key] })} className={`rounded-md border p-3 text-left font-body text-[0.8rem] transition-colors ${form[key] ? "border-gold bg-gold/5" : "border-border"}`}>
                     <span className="flex items-center gap-2">
                       <input type="checkbox" readOnly checked={form[key]} className="pointer-events-none" />
