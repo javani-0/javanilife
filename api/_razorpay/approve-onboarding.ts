@@ -61,10 +61,11 @@ const buildOnboardingBreakdown = (fees: Record<string, unknown>): { rows: Array<
   if (clampPaise(fees.kitFeeInPaise) > 0) rows.push({ label: "Kit fee", amountInPaise: clampPaise(fees.kitFeeInPaise) });
   if (clampPaise(fees.booksFeeInPaise) > 0) rows.push({ label: "Books fee", amountInPaise: clampPaise(fees.booksFeeInPaise) });
   if (clampPaise(fees.uniformFeeInPaise) > 0) rows.push({ label: "Uniform fee", amountInPaise: clampPaise(fees.uniformFeeInPaise) });
-  if (studentType === "new") {
-    if (track === "term" && clampPaise(fees.termFeeInPaise) > 0) rows.push({ label: "Course fee (full term)", amountInPaise: clampPaise(fees.termFeeInPaise) });
-    if (track !== "term" && clampPaise(fees.monthlyFeeInPaise) > 0) rows.push({ label: "Pre-payment (first fee)", amountInPaise: clampPaise(fees.monthlyFeeInPaise) });
-  }
+  // Term course fee = one-time full payment, charged for new AND existing.
+  // Monthly pre-payment (first advance) = new students only. Mirror of
+  // src/lib/students/types.ts buildFeeBreakdown.
+  if (track === "term" && clampPaise(fees.termFeeInPaise) > 0) rows.push({ label: "Course fee (full term)", amountInPaise: clampPaise(fees.termFeeInPaise) });
+  if (studentType === "new" && track !== "term" && clampPaise(fees.monthlyFeeInPaise) > 0) rows.push({ label: "Pre-payment (first fee)", amountInPaise: clampPaise(fees.monthlyFeeInPaise) });
   const subtotal = rows.reduce((sum, row) => sum + row.amountInPaise, 0);
   const discount = Math.min(clampPaise(fees.discountInPaise), subtotal);
   if (discount > 0) rows.push({ label: "Discount", amountInPaise: -discount });

@@ -5,6 +5,7 @@ import {
   isPaymentFreeOnboarding,
   ROLL_NUMBER_PATTERN,
   suggestNextStudentId,
+  suggestStudentEmail,
   type StudentFeeSetup,
 } from "./types";
 
@@ -53,6 +54,14 @@ describe("buildFeeBreakdown", () => {
     expect(rows.some((row) => row.label === "Course fee (full term)")).toBe(true);
   });
 
+  it("EXISTING student on a term course still pays the full course fee", () => {
+    const { rows, totalInPaise } = buildFeeBreakdown({ ...baseFees, studentType: "existing", track: "term", termFeeInPaise: 1856500 });
+    expect(rows.some((row) => row.label === "Course fee (full term)")).toBe(true);
+    expect(totalInPaise).toBe(50000 + 30000 + 20000 + 1856500);
+    // …but never a monthly pre-payment row.
+    expect(rows.some((row) => row.label.includes("Pre-payment"))).toBe(false);
+  });
+
   it("discount is applied and clamped to the subtotal", () => {
     expect(buildFeeBreakdown({ ...baseFees, discountInPaise: 50000 }).totalInPaise).toBe(250000);
     // A discount larger than the subtotal never goes negative.
@@ -98,6 +107,23 @@ describe("ROLL_NUMBER_PATTERN", () => {
   it("rejects spaces and symbols", () => {
     expect(ROLL_NUMBER_PATTERN.test("STU 001")).toBe(false);
     expect(ROLL_NUMBER_PATTERN.test("STU@001")).toBe(false);
+  });
+});
+
+describe("suggestStudentEmail", () => {
+  it("builds an email from the name", () => {
+    expect(suggestStudentEmail("Krishna Sree")).toBe("krishnasree@javani.com");
+  });
+  it("strips symbols and case", () => {
+    expect(suggestStudentEmail("  Aarav  S. Kumar ")).toBe("aaravskumar@javani.com");
+  });
+  it("adds a numeric suffix when the address is taken", () => {
+    expect(suggestStudentEmail("Krishna Sree", ["krishnasree@javani.com"])).toBe("krishnasree1@javani.com");
+    expect(suggestStudentEmail("Krishna Sree", ["krishnasree@javani.com", "krishnasree1@javani.com"])).toBe("krishnasree2@javani.com");
+  });
+  it("returns empty for a name with no letters/numbers", () => {
+    expect(suggestStudentEmail("!!!")).toBe("");
+    expect(suggestStudentEmail("")).toBe("");
   });
 });
 

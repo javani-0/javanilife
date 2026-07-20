@@ -39,6 +39,7 @@ import {
   ROLL_NUMBER_PATTERN,
   setStudentActive,
   suggestNextStudentId,
+  suggestStudentEmail,
   subscribeToStudentCredentials,
   subscribeToStudents,
   updateStudent,
@@ -132,6 +133,9 @@ const AdminStudents = () => {
   const [editing, setEditing] = useState<StudentDoc | null>(null);
   const [form, setForm] = useState<StudentFormState>(defaultForm);
   const [saving, setSaving] = useState(false);
+  // Whether the login email is still auto-derived from the name (req). Flips to
+  // false the moment the admin edits it, so we stop overwriting their choice.
+  const [emailAuto, setEmailAuto] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [revealPw, setRevealPw] = useState<Record<string, boolean>>({});
   const [search, setSearch] = useState("");
@@ -164,12 +168,14 @@ const AdminStudents = () => {
   const openAdd = () => {
     // Suggest the next roll number — the admin can overwrite it (req).
     setForm({ ...defaultForm, rollNumber: suggestNextStudentId(students) });
+    setEmailAuto(true); // auto-derive the email from the name until edited
     setEditing(null);
     setShowModal(true);
   };
 
   const openEdit = (student: StudentDoc) => {
     setEditing(student);
+    setEmailAuto(false); // keep the student's existing email; don't auto-rewrite it
     setForm({
       name: student.name,
       age: student.age > 0 ? String(student.age) : "",
@@ -715,7 +721,22 @@ const AdminStudents = () => {
               </div>
               <div className="sm:col-span-2">
                 <label className={labelClass}>Student name *</label>
-                <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className={inputClass} placeholder="Full name" />
+                <input
+                  value={form.name}
+                  onChange={(e) => {
+                    const name = e.target.value;
+                    // Auto-derive the login email from the name until the admin
+                    // edits the email themselves (req).
+                    if (emailAuto) {
+                      const takenEmails = students.filter((s) => s.id !== editing?.id).map((s) => s.email);
+                      setForm((current) => ({ ...current, name, email: suggestStudentEmail(name, takenEmails) }));
+                    } else {
+                      setForm((current) => ({ ...current, name }));
+                    }
+                  }}
+                  className={inputClass}
+                  placeholder="Full name"
+                />
               </div>
               <div>
                 <label className={labelClass}>Age</label>
@@ -731,7 +752,16 @@ const AdminStudents = () => {
               </div>
               <div>
                 <label className={labelClass}>Email (login id) *</label>
-                <input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className={inputClass} placeholder="parent@email.com" />
+                <input
+                  type="email"
+                  value={form.email}
+                  onChange={(e) => { setForm({ ...form, email: e.target.value }); setEmailAuto(false); }}
+                  className={inputClass}
+                  placeholder="name@javani.com"
+                />
+                {emailAuto && !editing && (
+                  <p className="mt-1 font-body text-[0.7rem] text-muted-foreground">Auto-filled from the name — edit it if you'd like a different login.</p>
+                )}
               </div>
               <div>
                 <label className={labelClass}>Roll number (Student ID)</label>
@@ -830,7 +860,11 @@ const AdminStudents = () => {
                     </button>
                   ))}
                 </div>
-                <p className="mt-1 font-body text-[0.72rem] text-muted-foreground">{form.studentType === "new" ? "Includes the first pre-payment on the link." : "No pre-payment charged — only one-time items below."}</p>
+                <p className="mt-1 font-body text-[0.72rem] text-muted-foreground">
+                  {form.studentType === "new"
+                    ? (form.track === "term" ? "Includes the full course fee on the link." : "Includes the first month's pre-payment on the link.")
+                    : (form.track === "term" ? "No monthly pre-payment — the full course fee & one-time items are charged." : "No pre-payment charged — only the one-time items below.")}
+                </p>
               </div>
               {([["kitFeeRupees", "Kit fee"], ["booksFeeRupees", "Books fee"], ["uniformFeeRupees", "Uniform fee"]] as const).map(([key, label]) => (
                 <div key={key}>

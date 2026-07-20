@@ -188,13 +188,15 @@ export const buildFeeBreakdown = (fees: StudentFeeSetup): { rows: FeeBreakdownRo
   if (clampPaise(fees.booksFeeInPaise) > 0) rows.push({ label: "Books fee", amountInPaise: clampPaise(fees.booksFeeInPaise) });
   if (clampPaise(fees.uniformFeeInPaise) > 0) rows.push({ label: "Uniform fee", amountInPaise: clampPaise(fees.uniformFeeInPaise) });
 
-  if (fees.studentType === "new") {
-    if (fees.track === "term" && clampPaise(fees.termFeeInPaise) > 0) {
-      rows.push({ label: "Course fee (full term)", amountInPaise: clampPaise(fees.termFeeInPaise) });
-    }
-    if (fees.track === "monthly" && clampPaise(fees.monthlyFeeInPaise) > 0) {
-      rows.push({ label: "Pre-payment (first fee)", amountInPaise: clampPaise(fees.monthlyFeeInPaise) });
-    }
+  // A TERM course is a one-time full payment — charged for BOTH new and
+  // existing students (it isn't a recurring "pre-payment"). Only the MONTHLY
+  // pre-payment (the first advance) is skipped for existing students, who bill
+  // in arrears from their first collectable month.
+  if (fees.track === "term" && clampPaise(fees.termFeeInPaise) > 0) {
+    rows.push({ label: "Course fee (full term)", amountInPaise: clampPaise(fees.termFeeInPaise) });
+  }
+  if (fees.studentType === "new" && fees.track === "monthly" && clampPaise(fees.monthlyFeeInPaise) > 0) {
+    rows.push({ label: "Pre-payment (first fee)", amountInPaise: clampPaise(fees.monthlyFeeInPaise) });
   }
 
   const subtotal = rows.reduce((sum, row) => sum + row.amountInPaise, 0);
@@ -207,3 +209,25 @@ export const buildFeeBreakdown = (fees: StudentFeeSetup): { rows: FeeBreakdownRo
 /** A zero-total onboarding needs no payment link — create the login directly. */
 export const isPaymentFreeOnboarding = (fees: StudentFeeSetup): boolean =>
   buildFeeBreakdown(fees).totalInPaise <= 0;
+
+/** The synthetic login-email domain for admin-created students. */
+export const STUDENT_EMAIL_DOMAIN = "javani.com";
+
+/**
+ * Suggest a login email from the student's name (req): "Krishna Sree" →
+ * "krishnasree@javani.com". Falls back to a numeric suffix when that address is
+ * already taken by another student, so two same-named students never collide.
+ * Returns "" for an empty/symbol-only name. The admin can always override it.
+ */
+export const suggestStudentEmail = (name: string, takenEmails: string[] = []): string => {
+  const base = (name || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  if (!base) return "";
+  const taken = new Set(takenEmails.map((email) => email.trim().toLowerCase()).filter(Boolean));
+  let candidate = `${base}@${STUDENT_EMAIL_DOMAIN}`;
+  let suffix = 1;
+  while (taken.has(candidate)) {
+    candidate = `${base}${suffix}@${STUDENT_EMAIL_DOMAIN}`;
+    suffix += 1;
+  }
+  return candidate;
+};
