@@ -26,6 +26,7 @@ import {
   approveOnboarding,
   buildFeeBreakdown,
   buildPayLinkUrl,
+  DEFAULT_EMI_SPLIT,
   deleteStudentCompletely,
   buildPaymentLinkWhatsAppUrl,
   buildStudentCredentialsWhatsAppUrl,
@@ -92,6 +93,8 @@ interface StudentFormState {
   mQr: boolean;
   mCounter: boolean;
   mEmi: boolean;
+  emiUpfront: string;
+  emiParts: string[];  // e.g. ["25", "25"]
 }
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
@@ -105,6 +108,8 @@ const defaultForm: StudentFormState = {
   kitFeeRupees: "", booksFeeRupees: "", uniformFeeRupees: "",
   monthlyFeeRupees: "", termFeeRupees: "", discountRupees: "", firstMonthFree: false,
   mRazorpay: false, mQr: true, mCounter: true, mEmi: false,
+  emiUpfront: String(DEFAULT_EMI_SPLIT.upfrontPercentage),
+  emiParts: DEFAULT_EMI_SPLIT.installmentPercentages.map(String),
 };
 
 const statusChip: Record<OnboardingStatus, string> = {
@@ -125,6 +130,10 @@ const toFormFees = (form: StudentFormState) => ({
   termFeeInPaise: parsePriceToPaise(form.termFeeRupees) || 0,
   discountInPaise: parsePriceToPaise(form.discountRupees) || 0,
   firstMonthFree: form.firstMonthFree,
+  emiSplit: form.mEmi && form.track === "term" ? {
+    upfrontPercentage: Math.max(1, Math.round(Number(form.emiUpfront) || DEFAULT_EMI_SPLIT.upfrontPercentage)),
+    installmentPercentages: form.emiParts.map((v) => Math.max(1, Math.round(Number(v) || 0))).filter((v) => v > 0),
+  } : undefined,
 });
 
 const AdminStudents = () => {
@@ -254,6 +263,8 @@ const AdminStudents = () => {
       mQr: student.methods.qr,
       mCounter: student.methods.counter,
       mEmi: student.methods.emi,
+      emiUpfront: student.fees.emiSplit ? String(student.fees.emiSplit.upfrontPercentage) : String(DEFAULT_EMI_SPLIT.upfrontPercentage),
+      emiParts: student.fees.emiSplit ? student.fees.emiSplit.installmentPercentages.map(String) : DEFAULT_EMI_SPLIT.installmentPercentages.map(String),
     });
     setShowModal(true);
   };
@@ -323,6 +334,14 @@ const AdminStudents = () => {
     if (!input.methods.razorpay && !input.methods.qr && !input.methods.counter && !isPaymentFreeOnboarding(input.fees)) {
       toast({ title: "Enable at least one payment method", description: "Pick which options the parent can use to pay.", variant: "destructive" });
       return;
+    }
+    // Validate EMI split adds up to 100%
+    if (input.methods.emi && input.fees.emiSplit) {
+      const total = input.fees.emiSplit.upfrontPercentage + input.fees.emiSplit.installmentPercentages.reduce((s, v) => s + v, 0);
+      if (total !== 100) {
+        toast({ title: "EMI split must total 100%", description: `Currently ${total}%. Adjust the percentages.`, variant: "destructive" });
+        return;
+      }
     }
     setSaving(true);
     try {
@@ -1035,6 +1054,59 @@ const AdminStudents = () => {
               </div>
             </div>
 
+            {/* EMI split configuration — shown when EMI is toggled on */}
+            {form.mEmi && form.track === "term" && (
+              <div className="mt-3 rounded-lg border border-gold/25 bg-gold/5 p-3">
+                <p className="font-body text-xs font-semibold uppercase tracking-wide text-gold">EMI split method</p>
+                <p className="mt-1 font-body text-[0.72rem] text-muted-foreground">Configure how the total is split into installments. Percentages must add up to 100%.</p>
+                <div className="mt-2 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <label className={`${labelClass} mb-0 w-32 shrink-0`}>Pay now</label>
+                    <div className="relative flex-1">
+                      <input
+                        value={form.emiUpfront}
+                        onChange={(e) => setForm({ ...form, emiUpfront: e.target.value.replace(/[^0-9]/g, "") })}
+                        className={`${inputClass} pr-7`}
+                        inputMode="numeric"
+                        placeholder="50"
+                      />
+                      <span className="absolute right-3 top-1/2 -translate-y-1/2 font-body text-xs text-muted-foreground">%</span>
+                    </div>
+                  </div>
+                  {form.emiParts.map((part, idx) => (
+                    <div key={idx} className="flex items-center gap-2">
+                      <label className={`${labelClass} mb-0 w-32 shrink-0`}>{idx + 2}{idx === 0 ? "nd" : idx === 1 ? "rd" : "th"} installment</label>
+                      <div className="relative flex-1">
+                        <input
+                          value={part}
+                          onChange={(e) => {
+                            const next = [...form.emiParts];
+                            next[idx] = e.target.value.replace(/[^0-9]/g, "");
+                            setForm({ ...form, emiParts: next });
+                          }}
+                          className={`${inputClass} pr-7`}
+                          inputMode="numeric"
+                          placeholder="25"
+                        />
+                        <span className="absolute right-3 top-1/2 -translate-y-1/2 font-body text-xs text-muted-foreground">%</span>
+                      </div>
+                      {form.emiParts.length > 1 && (
+                        <button type="button" onClick={() => setForm({ ...form, emiParts: form.emiParts.filter((_, i) => i !== idx) })} className="rounded p-1 text-destructive hover:bg-destructive/10" title="Remove">
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                  <button type="button" onClick={() => setForm({ ...form, emiParts: [...form.emiParts, ""] })} className="mt-1 font-body text-[0.75rem] font-semibold text-gold hover:underline">+ Add installment</button>
+                  {(() => {
+                    const total = (Number(form.emiUpfront) || 0) + form.emiParts.reduce((s, v) => s + (Number(v) || 0), 0);
+                    if (total !== 100) return <p className="mt-1 font-body text-[0.72rem] font-semibold text-destructive">Total is {total}% — must be 100%</p>;
+                    return <p className="mt-1 font-body text-[0.72rem] text-green-700">✓ Percentages add up to 100%</p>;
+                  })()}
+                </div>
+              </div>
+            )}
+
             {/* Live total */}
             <div className="mt-4 rounded-lg border border-gold/25 bg-gold/5 p-3">
               <p className="font-body text-xs font-semibold uppercase tracking-wide text-muted-foreground">Payment link total</p>
@@ -1054,6 +1126,19 @@ const AdminStudents = () => {
                 </div>
               )}
               {form.firstMonthFree && form.track === "monthly" && <p className="mt-1 font-body text-[0.72rem] text-green-700">First month's class fee will be waived automatically.</p>}
+              {previewFees.emiInstallments && previewFees.emiInstallments.length > 0 && (
+                <div className="mt-2 border-t border-gold/20 pt-2">
+                  <p className="font-body text-[0.7rem] font-semibold uppercase tracking-wide text-gold">EMI Payment Schedule</p>
+                  <div className="mt-1 space-y-0.5">
+                    {previewFees.emiInstallments.map((row, i) => (
+                      <div key={i} className="flex justify-between font-body text-xs">
+                        <span className={i === 0 ? "font-semibold text-foreground" : "text-muted-foreground"}>{row.label}</span>
+                        <span className={i === 0 ? "font-semibold text-foreground" : "text-foreground"}>{formatPaiseAsRupees(row.amountInPaise)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:justify-end">

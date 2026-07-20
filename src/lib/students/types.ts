@@ -36,6 +36,18 @@ export interface StudentInventory {
   books: boolean;
 }
 
+// EMI split configuration stored on the student when EMI is enabled.
+// Default: 50% upfront, then two 25% installments.
+export interface EmiSplitConfig {
+  upfrontPercentage: number;        // e.g. 50
+  installmentPercentages: number[]; // e.g. [25, 25]
+}
+
+export const DEFAULT_EMI_SPLIT: EmiSplitConfig = {
+  upfrontPercentage: 50,
+  installmentPercentages: [25, 25],
+};
+
 export interface StudentFeeSetup {
   studentType: StudentType;
   track: StudentTrack;
@@ -46,6 +58,7 @@ export interface StudentFeeSetup {
   termFeeInPaise: number;    // one-shot term fee (track === "term")
   discountInPaise: number;   // manual flat discount off the onboarding total
   firstMonthFree: boolean;   // monthly only: waive the first billable month
+  emiSplit?: EmiSplitConfig; // EMI split when EMI is selected (term only)
 }
 
 export interface StudentDoc {
@@ -124,6 +137,8 @@ export interface OnboardingLinkDoc {
   status: OnboardingStatus;
   rejectReason?: string;
   freeMonthNote?: string;
+  emiSplit?: EmiSplitConfig;   // EMI installment breakdown (term + EMI)
+  emiInstallments?: FeeBreakdownRow[]; // computed installment rows for display
   credentials?: { email: string; password: string; studentId: string };
   updatedAt?: Timestamp;
 }
@@ -190,7 +205,7 @@ const clampPaise = (value: number): number => Math.max(0, Math.round(Number(valu
  * "First month free" (monthly) keeps today's total unchanged; the first
  * billable month is waived at approval instead.
  */
-export const buildFeeBreakdown = (fees: StudentFeeSetup): { rows: FeeBreakdownRow[]; totalInPaise: number } => {
+export const buildFeeBreakdown = (fees: StudentFeeSetup): { rows: FeeBreakdownRow[]; totalInPaise: number; emiInstallments?: FeeBreakdownRow[] } => {
   const rows: FeeBreakdownRow[] = [];
   if (clampPaise(fees.kitFeeInPaise) > 0) rows.push({ label: "Kit fee", amountInPaise: clampPaise(fees.kitFeeInPaise) });
   if (clampPaise(fees.booksFeeInPaise) > 0) rows.push({ label: "Books fee", amountInPaise: clampPaise(fees.booksFeeInPaise) });
@@ -211,7 +226,36 @@ export const buildFeeBreakdown = (fees: StudentFeeSetup): { rows: FeeBreakdownRo
   const discount = Math.min(clampPaise(fees.discountInPaise), subtotal);
   if (discount > 0) rows.push({ label: "Discount", amountInPaise: -discount });
 
-  return { rows, totalInPaise: Math.max(0, subtotal - discount) };
+  const totalInPaise = Math.max(0, subtotal - discount);
+
+  // Build EMI installment rows when EMI split is configured (term only)
+  let emiInstallments: FeeBreakdownRow[] | undefined;
+  if (fees.emiSplit && fees.track === "term" && totalInPaise > 0) {
+    const { upfrontPercentage, installmentPercentages } = fees.emiSplit;
+    const upfrontAmount = Math.round((totalInPaise * upfrontPercentage) / 100);
+    emiInstallments = [
+      { label: `Pay now (${upfrontPercentage}%)`, amountInPaise: upfrontAmount },
+    ];
+    let remaining = totalInPaise - upfrontAmount;
+    installmentPercentages.forEach((pct, i) => {
+      const isLast = i === installmentPercentages.length - 1;
+      const amount = isLast ? remaining : Math.round((totalInPaise * pct) / 100);
+      remaining -= amount;
+      emiInstallments!.push({
+        label: `${ordinal(i + 2)} installment (${pct}%)`,
+        amountInPaise: amount,
+      });
+    });
+  }
+
+  return { rows, totalInPaise, emiInstallments };
+};
+
+/** Convert 2 → "2nd", 3 → "3rd", etc. */
+const ordinal = (n: number): string => {
+  const s = ["th", "st", "nd", "rd"];
+  const v = n % 100;
+  return n + (s[(v - 20) % 10] || s[v] || s[0]);
 };
 
 /** A zero-total onboarding needs no payment link — create the login directly. */

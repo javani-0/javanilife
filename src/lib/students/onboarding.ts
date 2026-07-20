@@ -2,7 +2,7 @@ import { doc, onSnapshot, type DocumentData } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { formatPaiseAsRupees } from "@/lib/ecommerce";
 import { ONBOARDING_LINKS_COLLECTION } from "./students";
-import type { FeeBreakdownRow, OnboardingLinkDoc, OnboardingStatus, StudentCredential, StudentDoc } from "./types";
+import type { EmiSplitConfig, FeeBreakdownRow, OnboardingLinkDoc, OnboardingStatus, StudentCredential, StudentDoc } from "./types";
 
 // ---------------------------------------------------------------------------
 // The public onboarding payment link (req 2). Parents open /pay/:token from
@@ -20,6 +20,12 @@ const toNumber = (value: unknown, fallback = 0): number => {
 export const normalizeOnboardingLink = (token: string, data: DocumentData = {}): OnboardingLinkDoc => {
   const methods = (data.methods || {}) as DocumentData;
   const credentials = (data.credentials || null) as DocumentData | null;
+  const rawEmiSplit = data.emiSplit as DocumentData | null;
+  const emiSplit: EmiSplitConfig | undefined = rawEmiSplit && typeof rawEmiSplit === "object"
+    && typeof rawEmiSplit.upfrontPercentage === "number"
+    && Array.isArray(rawEmiSplit.installmentPercentages)
+    ? { upfrontPercentage: rawEmiSplit.upfrontPercentage, installmentPercentages: rawEmiSplit.installmentPercentages }
+    : undefined;
   return {
     token,
     studentDocId: getString(data.studentDocId),
@@ -43,6 +49,12 @@ export const normalizeOnboardingLink = (token: string, data: DocumentData = {}):
     status: (getString(data.status) || "awaiting-payment") as OnboardingStatus,
     rejectReason: getString(data.rejectReason) || undefined,
     freeMonthNote: getString(data.freeMonthNote) || undefined,
+    emiSplit,
+    emiInstallments: Array.isArray(data.emiInstallments)
+      ? data.emiInstallments
+          .map((row: DocumentData): FeeBreakdownRow => ({ label: getString(row?.label), amountInPaise: Math.round(toNumber(row?.amountInPaise)) }))
+          .filter((row) => row.label && row.amountInPaise > 0)
+      : undefined,
     credentials: credentials && getString(credentials.email)
       ? { email: getString(credentials.email), password: getString(credentials.password), studentId: getString(credentials.studentId) }
       : undefined,
@@ -147,7 +159,7 @@ const waUrl = (phone: string | undefined, lines: string[]): string => {
 
 /** The professional payment-link message for the parent (req 2). */
 export const buildPaymentLinkWhatsAppUrl = (
-  student: Pick<StudentDoc, "name" | "parentName" | "className" | "slotLabel" | "phone">,
+  student: Pick<StudentDoc, "name" | "parentName" | "className" | "slotLabel" | "trainerName" | "phone">,
   totalInPaise: number,
   payUrl: string,
 ): string =>
@@ -157,6 +169,7 @@ export const buildPaymentLinkWhatsAppUrl = (
     `Greetings from Javani Spiritual Hub! 🙏`,
     "",
     `We're delighted to welcome *${student.name}* to *${student.className}*${student.slotLabel ? ` (${student.slotLabel})` : ""}.`,
+    ...(student.trainerName ? [`Trainer: *${student.trainerName}*`] : []),
     "",
     `To confirm the admission, please complete the fee payment of *${formatPaiseAsRupees(totalInPaise)}* using the secure link below:`,
     payUrl,

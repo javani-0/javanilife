@@ -13,6 +13,7 @@ import { applyNextChargeDue, getEnrollment, setEnrollmentStatus } from "@/lib/cl
 import type { Gender } from "@/lib/classes";
 import {
   buildFeeBreakdown,
+  type EmiSplitConfig,
   type OnboardingStatus,
   type ParentRelation,
   type StudentCredential,
@@ -35,6 +36,20 @@ const toNumber = (value: unknown, fallback = 0): number => {
 };
 const getString = (value: unknown, fallback = ""): string => (typeof value === "string" ? value : fallback);
 const clampPaise = (value: unknown): number => Math.max(0, Math.round(toNumber(value)));
+
+const normalizeEmiSplit = (raw: unknown): EmiSplitConfig | undefined => {
+  if (!raw || typeof raw !== "object") return undefined;
+  const data = raw as Record<string, unknown>;
+  const upfront = Math.round(toNumber(data.upfrontPercentage, 50));
+  const pcts = Array.isArray(data.installmentPercentages)
+    ? data.installmentPercentages.map((v) => Math.round(toNumber(v))).filter((v) => v > 0)
+    : [];
+  if (upfront <= 0 || pcts.length === 0) return undefined;
+  return {
+    upfrontPercentage: Math.min(100, Math.max(1, upfront)),
+    installmentPercentages: pcts,
+  };
+};
 
 const allowedGenders: Gender[] = ["male", "female", "other"];
 const allowedRelations: ParentRelation[] = ["father", "mother", "guardian"];
@@ -85,6 +100,7 @@ export const normalizeStudent = (id: string, data: DocumentData = {}): StudentDo
       termFeeInPaise: clampPaise(fees.termFeeInPaise),
       discountInPaise: clampPaise(fees.discountInPaise),
       firstMonthFree: fees.firstMonthFree === true,
+      emiSplit: normalizeEmiSplit(fees.emiSplit),
     },
     methods: {
       razorpay: methods.razorpay === true,
@@ -177,6 +193,7 @@ export interface StudentWriteInput {
     termFeeInPaise: number;
     discountInPaise: number;
     firstMonthFree: boolean;
+    emiSplit?: EmiSplitConfig;
   };
   methods: StudentPaymentMethods;
 }
@@ -215,6 +232,7 @@ const buildStudentPayload = (input: StudentWriteInput) => ({
     termFeeInPaise: clampPaise(input.fees.termFeeInPaise),
     discountInPaise: clampPaise(input.fees.discountInPaise),
     firstMonthFree: input.fees.firstMonthFree === true && input.fees.track === "monthly",
+    emiSplit: input.fees.emiSplit || null,
   },
   methods: {
     razorpay: input.methods.razorpay === true,
@@ -232,7 +250,7 @@ const buildStudentPayload = (input: StudentWriteInput) => ({
  */
 const syncOnboardingLink = async (student: StudentDoc): Promise<void> => {
   if (!student.linkToken) return;
-  const { rows, totalInPaise } = buildFeeBreakdown(student.fees);
+  const { rows, totalInPaise, emiInstallments } = buildFeeBreakdown(student.fees);
   const freeMonthNote = student.fees.firstMonthFree && student.fees.track === "monthly"
     ? "Offer: the first month's class fee is FREE — nothing extra to pay for it later."
     : "";
@@ -251,6 +269,8 @@ const syncOnboardingLink = async (student: StudentDoc): Promise<void> => {
       methods: student.methods,
       status: student.onboardingStatus,
       freeMonthNote,
+      emiSplit: student.fees.emiSplit || null,
+      emiInstallments: emiInstallments || null,
       updatedAt: serverTimestamp(),
     },
     { merge: true },

@@ -229,6 +229,20 @@ const OnboardingPay = () => {
             <span>Total</span><span className="text-primary">{formatPaiseAsRupees(total)}</span>
           </div>
           {link.freeMonthNote && <p className="mt-2 font-body text-[0.72rem] text-green-700">🎁 {link.freeMonthNote}</p>}
+          {link.emiInstallments && link.emiInstallments.length > 0 && (
+            <div className="mt-3 border-t border-border/60 pt-3">
+              <p className="font-body text-[0.72rem] font-semibold uppercase tracking-wide text-gold">EMI Payment Schedule</p>
+              <div className="mt-1.5 space-y-1">
+                {link.emiInstallments.map((row, i) => (
+                  <div key={i} className={`flex justify-between rounded-md px-2.5 py-1.5 font-body text-sm ${i === 0 ? "border border-gold/30 bg-gold/5 font-semibold text-foreground" : "text-muted-foreground"}`}>
+                    <span>{row.label}</span>
+                    <span className={i === 0 ? "text-primary" : "text-foreground"}>{formatPaiseAsRupees(row.amountInPaise)}</span>
+                  </div>
+                ))}
+              </div>
+              <p className="mt-1.5 font-body text-[0.68rem] text-muted-foreground">Remaining installments will be due after the first payment is confirmed.</p>
+            </div>
+          )}
         </div>
 
         {mode === "qr" ? (
