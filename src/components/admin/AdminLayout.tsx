@@ -3,10 +3,10 @@ import { NavLink, useLocation, useNavigate, Outlet } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { pageKeyForPath } from "@/lib/adminPages";
 import {
-  LayoutDashboard, ClipboardList, BookOpen, Image, ShoppingBag, Users,
+  LayoutDashboard, ClipboardList, BookOpen, Image, ShoppingBag, Users, Users2,
   Handshake, SlidersHorizontal, LogOut, Menu, X, PackageCheck,
   ChevronLeft, ChevronRight, TicketPercent, Truck,
-  GraduationCap, UserCheck, Wallet, PiggyBank, QrCode, UserCog, UserPlus, ScrollText,
+  GraduationCap, PiggyBank, QrCode, UserCog, UserPlus, ScrollText,
 } from "lucide-react";
 import logoWhite from "@/assets/logo-white.png";
 
@@ -16,9 +16,10 @@ const allNavItems = [
   { label: "Courses Manager", icon: BookOpen, path: "/admin/courses" },
   { label: "Classes Manager", icon: GraduationCap, path: "/admin/classes" },
   { label: "Student Manager", icon: UserPlus, path: "/admin/students" },
-  // ONE nav item for the merged Sign Up + Customers page (req: fewer tabs).
-  { label: "Sign Up & Customers", icon: UserCheck, path: "/admin/enrollments" },
-  { label: "Fee Collections", icon: Wallet, path: "/admin/fee-collections" },
+  { label: "Users", icon: Users2, path: "/admin/users" },
+  // NOTE: "Sign Up & Customers" (/admin/enrollments) and "Fee Collections"
+  // (/admin/fee-collections) are temporarily HIDDEN from the nav (req) — the
+  // routes still work by direct URL. Restore them here to bring the tabs back.
   { label: "Payment Settings", icon: QrCode, path: "/admin/payment-settings" },
   { label: "Gallery Manager", icon: Image, path: "/admin/gallery" },
   { label: "Products Manager", icon: ShoppingBag, path: "/admin/products" },

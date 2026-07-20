@@ -31,6 +31,9 @@ import {
   buildStudentCredentialsWhatsAppUrl,
   createStudent,
   deleteDraftStudent,
+  deleteEnrollmentRequest,
+  markEnrollmentRequestAdded,
+  subscribeToEnrollmentRequests,
   isPaymentFreeOnboarding,
   markLinkShared,
   ONBOARDING_STATUS_LABELS,
@@ -51,6 +54,7 @@ import {
   type StudentTrack,
   type StudentType,
   type StudentWriteInput,
+  type EnrollmentRequestDoc,
 } from "@/lib/students";
 
 const inputClass = "w-full px-3 py-2 rounded-md border border-border font-body text-[0.875rem] outline-none focus:border-gold focus:ring-2 focus:ring-gold/20 bg-background";
@@ -147,7 +151,8 @@ const AdminStudents = () => {
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState("");
   const [feesOpenId, setFeesOpenId] = useState<string | null>(null);
-  const [view, setView] = useState<"students" | "collections">("students");
+  const [view, setView] = useState<"students" | "collections" | "enrolls">("students");
+  const [requests, setRequests] = useState<EnrollmentRequestDoc[]>([]);
   // Grid/List for the Student Details list — desktop defaults to list, mobile
   // to grid (req); the toggle overrides. Everything stays responsive.
   const [detailView, setDetailView] = useState<"list" | "grid">(
@@ -160,6 +165,7 @@ const AdminStudents = () => {
   useEffect(() => subscribeToStudents((items) => { setStudents(items); setLoading(false); }, () => setLoading(false)), []);
   useEffect(() => subscribeToClasses(setClasses, () => undefined), []);
   useEffect(() => subscribeToStudentCredentials(setCredentials, () => undefined), []);
+  useEffect(() => subscribeToEnrollmentRequests(setRequests, () => undefined), []);
 
   const selectedClass = useMemo(() => classes.find((cls) => cls.id === form.classId), [classes, form.classId]);
   const classTracks = useMemo(() => {
@@ -177,6 +183,40 @@ const AdminStudents = () => {
     setEmailAuto(!prefill?.email); // auto-derive the email unless one was prefilled
     setEditing(null);
     setShowModal(true);
+  };
+
+  // "Add to student" from an enrolment lead (req 1): open the Add Student form
+  // pre-filled with the lead's details + the class's fee/track defaults, and
+  // mark the lead handled.
+  const addFromRequest = (request: EnrollmentRequestDoc) => {
+    const cls = classes.find((item) => item.id === request.classId);
+    const track: StudentTrack = cls && classOffersMonthly(cls) ? "monthly" : cls && classOffersTerm(cls) ? "term" : "monthly";
+    openAdd({
+      name: request.studentName,
+      age: request.age > 0 ? String(request.age) : "",
+      gender: request.gender,
+      email: request.email || suggestStudentEmail(request.studentName, students.map((s) => s.email)),
+      phone: request.whatsapp || request.phone,
+      parentName: request.parentName,
+      address: request.address,
+      classId: request.classId,
+      slotId: request.slotId || "",
+      track,
+      monthlyFeeRupees: cls?.monthlyFeeInPaise ? String(cls.monthlyFeeInPaise / 100) : "",
+      termFeeRupees: cls?.termFeeInPaise ? String(getTermPayFullPriceInPaise(cls) / 100) : "",
+    });
+    markEnrollmentRequestAdded(request.id).catch(() => undefined);
+    logAction("Added student from enrolment lead", `${request.studentName} · ${request.className}`);
+  };
+
+  const dismissRequest = async (request: EnrollmentRequestDoc) => {
+    if (!(await confirmDialog({ title: `Delete ${request.studentName}'s enrolment request?`, description: "This removes the lead. It can't be undone.", confirmText: "Delete lead", destructive: true }))) return;
+    try {
+      await deleteEnrollmentRequest(request.id);
+      toast({ title: "Lead deleted" });
+    } catch (error) {
+      toast({ title: "Could not delete", description: error instanceof Error ? error.message : undefined, variant: "destructive" });
+    }
   };
 
   const openEdit = (student: StudentDoc) => {
@@ -447,6 +487,7 @@ const AdminStudents = () => {
 
   const activeCount = students.filter((s) => s.active && s.onboardingStatus === "approved").length;
   const pendingApprovals = students.filter((s) => ["payment-submitted", "counter-chosen", "paid-online"].includes(s.onboardingStatus)).length;
+  const newLeadCount = requests.filter((r) => r.status === "new").length;
 
   return (
     <div className="space-y-6">
@@ -461,8 +502,8 @@ const AdminStudents = () => {
         </button>
       </div>
 
-      {/* Toggle: Student details vs Fee collections (req) */}
-      <div className="inline-flex rounded-lg border border-border bg-card p-1 shadow-card">
+      {/* Toggle: Student details · Fee collections · Enrolls (leads) (req) */}
+      <div className="inline-flex flex-wrap rounded-lg border border-border bg-card p-1 shadow-card">
         <button
           onClick={() => setView("students")}
           className={`flex items-center gap-1.5 rounded-md px-4 py-2 font-body text-[0.82rem] font-semibold transition-colors ${view === "students" ? "bg-gradient-primary text-primary-foreground" : "text-muted-foreground hover:text-gold"}`}
@@ -475,10 +516,48 @@ const AdminStudents = () => {
         >
           <Wallet className="h-4 w-4" /> Fee Collections
         </button>
+        <button
+          onClick={() => setView("enrolls")}
+          className={`flex items-center gap-1.5 rounded-md px-4 py-2 font-body text-[0.82rem] font-semibold transition-colors ${view === "enrolls" ? "bg-gradient-primary text-primary-foreground" : "text-muted-foreground hover:text-gold"}`}
+        >
+          <UserPlus className="h-4 w-4" /> Enrolls
+          {newLeadCount > 0 && <span className={`rounded-full px-1.5 py-0.5 font-body text-[0.65rem] font-bold ${view === "enrolls" ? "bg-white/20 text-white" : "bg-red-500 text-white"}`}>{newLeadCount}</span>}
+        </button>
       </div>
 
       {view === "collections" && user ? (
         <StudentFeeCollections students={students} adminUid={user.uid} />
+      ) : view === "enrolls" ? (
+        <div className="space-y-3">
+          <p className="font-body text-sm text-muted-foreground">Enrolment requests from the public class pages. Click <span className="font-semibold text-foreground">Add to student</span> to open a pre-filled form and create the student.</p>
+          {requests.length === 0 ? (
+            <div className="rounded-2xl border border-gold/15 bg-card p-10 text-center shadow-card">
+              <UserPlus className="mx-auto mb-3 h-10 w-10 text-gold" />
+              <h3 className="font-display text-xl text-foreground">No enrolment requests</h3>
+              <p className="mt-1 font-body text-sm text-muted-foreground">When someone enrols from a class page, it shows up here.</p>
+            </div>
+          ) : (
+            requests.map((request) => (
+              <div key={request.id} className={`flex flex-col gap-3 rounded-xl border p-4 shadow-card sm:flex-row sm:items-center sm:justify-between ${request.status === "new" ? "border-gold/40 bg-gold/5" : "border-border/60 bg-card"}`}>
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="font-display text-lg text-foreground">{request.studentName}</h3>
+                    {request.status === "new" ? <span className="rounded-full bg-red-500 px-2 py-0.5 font-body text-[0.65rem] font-semibold text-white">New</span> : <span className="rounded-full bg-muted px-2 py-0.5 font-body text-[0.65rem] font-semibold text-muted-foreground">Added</span>}
+                  </div>
+                  <p className="mt-0.5 font-body text-sm text-muted-foreground">{request.className}{request.slotLabel ? ` · ${request.slotLabel}` : ""} · {request.age > 0 ? `${request.age} yrs · ` : ""}{request.gender}</p>
+                  <p className="font-body text-xs text-muted-foreground">Parent: {request.parentName || "—"} · {request.phone || request.whatsapp}{request.email ? ` · ${request.email}` : ""}</p>
+                  {request.address && <p className="font-body text-xs text-muted-foreground">{request.address}</p>}
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  <button onClick={() => addFromRequest(request)} className="flex items-center gap-1.5 rounded-md bg-gradient-primary px-4 py-2 font-body text-[0.72rem] font-semibold text-primary-foreground hover:brightness-110">
+                    <UserPlus className="h-3.5 w-3.5" /> Add to student
+                  </button>
+                  <button onClick={() => dismissRequest(request)} className="rounded-md border border-destructive/40 p-2 text-destructive hover:bg-destructive/10" title="Delete lead"><Trash2 className="h-4 w-4" /></button>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
       ) : (
       <>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">

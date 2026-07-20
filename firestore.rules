@@ -134,6 +134,14 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    // Public class-enrolment LEADS (req 1): anyone can submit one from the class
+    // page (no login); staff with the `students` page read/manage them. Not
+    // publicly listable.
+    match /enrollmentRequests/{id} {
+      allow create: if true;
+      allow read, update, delete: if staffAny(['students']);
+    }
+
     // Student Manager (req): admin-created student profiles + onboarding state.
     // Staff with the `students` page manage them; approval writes (STU id,
     // login, enrolment) happen server-side via the Admin SDK.

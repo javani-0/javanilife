@@ -33,6 +33,8 @@ import onboarding from "./_razorpay/onboarding.js";
 import approveOnboarding from "./_razorpay/approve-onboarding.js";
 // @ts-ignore
 import deleteStudent from "./_razorpay/delete-student.js";
+// @ts-ignore
+import manageUser from "./_razorpay/manage-user.js";
 // Folded into this router (not a separate function) to stay within the Hobby
 // plan's 12-serverless-function limit. Reached via /api/partner/summary (see
 // vercel.json rewrite). Not razorpay-related, but this is the project's shared
@@ -69,6 +71,9 @@ export default async function handler(request: ApiRequest, response: ApiResponse
   }
   if (action === "delete-student" || url.includes("/delete-student")) {
     return deleteStudent(request, response);
+  }
+  if (action === "manage-user" || url.includes("/manage-user")) {
+    return manageUser(request, response);
   }
   // The three public onboarding-link actions share one handler (passed the action).
   if (action === "onboarding-submit" || url.includes("/onboarding-submit")) {
