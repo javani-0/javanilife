@@ -1,12 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
   buildFeeBreakdown,
+  DEFAULT_EMI_SPLIT,
+  emiScheduleFor,
   formatStudentId,
   isPaymentFreeOnboarding,
+  onboardingDueNowInPaise,
   ROLL_NUMBER_PATTERN,
   suggestNextStudentId,
   suggestStudentEmail,
   type StudentFeeSetup,
+  type StudentPaymentMethods,
 } from "./types";
 
 const baseFees: StudentFeeSetup = {
@@ -133,5 +137,57 @@ describe("isPaymentFreeOnboarding", () => {
   });
   it("false whenever something is payable today", () => {
     expect(isPaymentFreeOnboarding(baseFees)).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// EMI onboarding (req): the parent is asked for the FIRST installment only —
+// the WhatsApp message, the link and the Razorpay order all price off this.
+// ---------------------------------------------------------------------------
+const methodsWith = (emi: boolean): StudentPaymentMethods => ({ razorpay: false, qr: true, counter: true, emi });
+
+const emiTermFees: StudentFeeSetup = {
+  ...baseFees,
+  track: "term",
+  monthlyFeeInPaise: 0,
+  termFeeInPaise: 1000000, // ₹10,000
+  emiSplit: DEFAULT_EMI_SPLIT, // 50% upfront + 25% + 25%
+};
+
+describe("emiScheduleFor", () => {
+  it("returns the installment rows when EMI is enabled on a term student", () => {
+    const schedule = emiScheduleFor(emiTermFees, methodsWith(true));
+    expect(schedule).toHaveLength(3);
+    // ₹10,000 term + ₹500 kit + ₹300 books + ₹200 uniform = ₹11,000 total.
+    expect(schedule?.map((row) => row.amountInPaise)).toEqual([550000, 275000, 275000]);
+  });
+  it("is undefined when the admin did not enable the EMI method", () => {
+    expect(emiScheduleFor(emiTermFees, methodsWith(false))).toBeUndefined();
+  });
+  it("is undefined for a monthly student even if a split is stored", () => {
+    expect(emiScheduleFor({ ...baseFees, emiSplit: DEFAULT_EMI_SPLIT }, methodsWith(true))).toBeUndefined();
+  });
+  it("installments always sum back to the full total", () => {
+    // 33/33/34 forces rounding: the last part must absorb the remainder.
+    const schedule = emiScheduleFor(
+      { ...emiTermFees, termFeeInPaise: 999999, emiSplit: { upfrontPercentage: 33, installmentPercentages: [33, 34] } },
+      methodsWith(true),
+    );
+    const { totalInPaise } = buildFeeBreakdown({ ...emiTermFees, termFeeInPaise: 999999 });
+    expect(schedule?.reduce((sum, row) => sum + row.amountInPaise, 0)).toBe(totalInPaise);
+  });
+});
+
+describe("onboardingDueNowInPaise", () => {
+  it("asks for the first installment only on an EMI link", () => {
+    expect(onboardingDueNowInPaise(emiTermFees, methodsWith(true))).toBe(550000);
+  });
+  it("asks for the whole total when EMI is off", () => {
+    const { totalInPaise } = buildFeeBreakdown(emiTermFees);
+    expect(onboardingDueNowInPaise(emiTermFees, methodsWith(false))).toBe(totalInPaise);
+    expect(totalInPaise).toBe(1100000);
+  });
+  it("falls back to the total for a monthly student", () => {
+    expect(onboardingDueNowInPaise(baseFees, methodsWith(true))).toBe(buildFeeBreakdown(baseFees).totalInPaise);
   });
 });

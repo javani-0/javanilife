@@ -99,6 +99,11 @@ export interface StudentDoc {
   rejectReason?: string;
   paidVia?: "qr" | "counter" | "razorpay";
   razorpayPaymentId?: string;
+  // EMI (term + emi): which installment the parent has declared paid on the
+  // link (1 = the first). Drives the admin's "1st installment paid — verify"
+  // card. `submittedAmountInPaise` is what the link asked them to pay.
+  emiInstallmentSubmitted?: number;
+  submittedAmountInPaise?: number;
   linkSharedAt?: Timestamp;
   // Admin-chosen roll number (req): suggested at creation, editable until
   // approval. Becomes the Student ID AND the login password at approval. A
@@ -133,6 +138,10 @@ export interface OnboardingLinkDoc {
   trainerName?: string;
   rows: FeeBreakdownRow[];
   totalInPaise: number;
+  // What the parent must pay RIGHT NOW to confirm the admission. Equals
+  // totalInPaise normally; on an EMI link it is only the FIRST installment
+  // (req: the parent is asked for the first installment, not the whole fee).
+  dueNowInPaise: number;
   methods: StudentPaymentMethods;
   status: OnboardingStatus;
   rejectReason?: string;
@@ -256,6 +265,31 @@ const ordinal = (n: number): string => {
   const s = ["th", "st", "nd", "rd"];
   const v = n % 100;
   return n + (s[(v - 20) % 10] || s[v] || s[0]);
+};
+
+/**
+ * The EMI schedule actually in force: only when the admin enabled the EMI
+ * method AND the split produced installment rows (term courses only).
+ */
+export const emiScheduleFor = (
+  fees: StudentFeeSetup,
+  methods: Pick<StudentPaymentMethods, "emi">,
+): FeeBreakdownRow[] | undefined => {
+  if (methods.emi !== true) return undefined;
+  const { emiInstallments } = buildFeeBreakdown(fees);
+  return emiInstallments && emiInstallments.length > 1 ? emiInstallments : undefined;
+};
+
+/**
+ * What the parent must pay NOW to confirm the admission (req): on an EMI
+ * onboarding that is the FIRST installment only — never the whole course fee.
+ */
+export const onboardingDueNowInPaise = (
+  fees: StudentFeeSetup,
+  methods: Pick<StudentPaymentMethods, "emi">,
+): number => {
+  const schedule = emiScheduleFor(fees, methods);
+  return schedule ? schedule[0].amountInPaise : buildFeeBreakdown(fees).totalInPaise;
 };
 
 /** A zero-total onboarding needs no payment link — create the login directly. */

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { AlertTriangle, BadgeIndianRupee, CalendarPlus, ImageIcon, LayoutGrid, List, Loader2, MessageCircle, RefreshCw, Upload, Users, Wallet, X } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAdminLog } from "@/hooks/useAdminLog";
@@ -88,7 +89,16 @@ interface EntryState {
   method: FeePaymentMethod;
   enrollment: EnrollmentDoc | null;
   loadingEnrollment: boolean;
+  // Why the enrollment couldn't be loaded. Recording a fee needs it, so this
+  // is surfaced in the dialog instead of silently disabling the Save button.
+  enrollmentError: string;
 }
+
+/** The fee this student is normally charged — monthly rate, else the term fee. */
+const defaultFeeRupees = (student: StudentDoc): string => {
+  const paise = student.fees.monthlyFeeInPaise > 0 ? student.fees.monthlyFeeInPaise : student.fees.termFeeInPaise;
+  return paise > 0 ? String(paise / 100) : "";
+};
 
 interface StudentFeeCollectionsProps {
   students: StudentDoc[];
@@ -209,25 +219,46 @@ const StudentFeeCollections = ({ students, adminUid }: StudentFeeCollectionsProp
     });
   }, [approvedStudents, latestByEnrollment, search, classFilter, statusFilter, methodFilter, sortMode]);
 
+  // Load (or reload) the enrollment the fee entry hangs off. Any failure is
+  // recorded as a message so the dialog can explain a disabled Save button.
+  const loadEntryEnrollment = useCallback(async (student: StudentDoc) => {
+    const sameStudent = (current: EntryState | null) => (current && current.student.id === student.id ? current : null);
+    if (!student.enrollmentId) {
+      setEntry((c) => (sameStudent(c) ? { ...c!, loadingEnrollment: false, enrollmentError: "This student has no enrollment yet — approve the onboarding first." } : c));
+      return;
+    }
+    setEntry((c) => (sameStudent(c) ? { ...c!, loadingEnrollment: true, enrollmentError: "" } : c));
+    try {
+      const enrollment = await getEnrollment(student.enrollmentId);
+      setEntry((c) => (sameStudent(c)
+        ? {
+            ...c!,
+            enrollment,
+            loadingEnrollment: false,
+            enrollmentError: enrollment ? "" : `The enrollment record (${student.enrollmentId}) no longer exists, so a fee can't be attached to it. Re-create the enrolment from the Enrolls tab.`,
+          }
+        : c));
+    } catch (error) {
+      setEntry((c) => (sameStudent(c)
+        ? { ...c!, loadingEnrollment: false, enrollmentError: `Could not load the enrollment: ${error instanceof Error ? error.message : "unknown error"}` }
+        : c));
+    }
+  }, []);
+
   const openEntry = async (student: StudentDoc) => {
     setProofFile(null);
     setProofPreview("");
     setEntry({
       student,
       month: monthKey,
-      amount: student.fees.monthlyFeeInPaise > 0 ? String(student.fees.monthlyFeeInPaise / 100) : "",
+      amount: defaultFeeRupees(student),
       date: todayIso(),
       method: "cash",
       enrollment: null,
       loadingEnrollment: true,
+      enrollmentError: "",
     });
-    if (!student.enrollmentId) { setEntry((c) => (c ? { ...c, loadingEnrollment: false } : c)); return; }
-    try {
-      const enrollment = await getEnrollment(student.enrollmentId);
-      setEntry((c) => (c && c.student.id === student.id ? { ...c, enrollment, loadingEnrollment: false } : c));
-    } catch {
-      setEntry((c) => (c && c.student.id === student.id ? { ...c, loadingEnrollment: false } : c));
-    }
+    await loadEntryEnrollment(student);
   };
 
   const entryHistory = entry?.student.enrollmentId ? sortFeesByMonthDesc(feesByEnrollment.get(entry.student.enrollmentId) || []) : [];
@@ -492,8 +523,10 @@ const StudentFeeCollections = ({ students, adminUid }: StudentFeeCollectionsProp
         </div>
       )}
 
-      {/* Record-fee dialog — full-height-safe: fixed header + scrollable body */}
-      {entry && (
+      {/* Record-fee dialog — rendered into <body> so no transformed ancestor can
+          capture its `position: fixed` and make it scroll with the page.
+          Full-height-safe: fixed header + scrollable body. */}
+      {entry && createPortal(
         <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4">
           <div className="fixed inset-0 bg-black/50" onClick={() => setEntry(null)} />
           <div className="relative flex max-h-[calc(100dvh-2rem)] w-full max-w-md flex-col overflow-hidden rounded-2xl bg-card shadow-hero">
@@ -579,10 +612,25 @@ const StudentFeeCollections = ({ students, adminUid }: StudentFeeCollectionsProp
                 </p>
               )}
 
+              {/* A fee entry needs the enrollment doc. When it can't be loaded,
+                  SAY SO — a silently greyed-out button is undebuggable. */}
+              {entry.enrollmentError && (
+                <div className="mt-3 flex items-start gap-2 rounded-md border border-red-300 bg-red-50 p-2.5 font-body text-[0.78rem] text-red-700">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+                  <div className="min-w-0">
+                    <p>{entry.enrollmentError}</p>
+                    {entry.student.enrollmentId && (
+                      <button type="button" onClick={() => loadEntryEnrollment(entry.student)} className="mt-1 font-semibold underline hover:no-underline">Try again</button>
+                    )}
+                  </div>
+                </div>
+              )}
+
               <button
                 onClick={saveEntry}
                 disabled={savingEntry || entry.loadingEnrollment || !entry.enrollment || monthConflict?.kind === "paid"}
                 className="mt-4 flex min-h-11 w-full items-center justify-center gap-2 rounded-md bg-gradient-primary px-4 font-body text-sm font-semibold text-primary-foreground hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
+                title={entry.enrollmentError || (monthConflict?.kind === "paid" ? "This month is already paid" : "")}
               >
                 {savingEntry || entry.loadingEnrollment ? <Loader2 className="h-4 w-4 animate-spin" /> : <CalendarPlus className="h-4 w-4" />} Save paid entry
               </button>
@@ -614,7 +662,8 @@ const StudentFeeCollections = ({ students, adminUid }: StudentFeeCollectionsProp
               )}
             </div>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );

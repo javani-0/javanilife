@@ -72,6 +72,67 @@ const buildOnboardingBreakdown = (fees: Record<string, unknown>): { rows: Array<
   return { rows, totalInPaise: Math.max(0, subtotal - discount) };
 };
 
+const ordinal = (n: number): string => {
+  const suffixes = ["th", "st", "nd", "rd"];
+  const v = n % 100;
+  return `${n}${suffixes[(v - 20) % 10] || suffixes[v] || suffixes[0]}`;
+};
+
+interface OnboardingInstallment {
+  installmentNumber: number;
+  label: string;
+  percentage: number;
+  amountInPaise: number;
+  dueDate: string;
+}
+
+/**
+ * The EMI schedule for a term onboarding — mirror of buildFeeBreakdown's
+ * emiInstallments in src/lib/students/types.ts, plus a due date per
+ * installment (one month apart from the joining month). The last installment
+ * absorbs the rounding remainder so the parts always sum to the total.
+ *
+ * Returns [] unless EMI is actually in force (term + emi method + a valid
+ * split producing more than one part).
+ */
+const buildEmiSchedule = (
+  fees: Record<string, unknown>,
+  totalInPaise: number,
+  joinMonthKey: string,
+  billingDay: number,
+): OnboardingInstallment[] => {
+  const split = (fees.emiSplit || null) as Record<string, unknown> | null;
+  if (!split || totalInPaise <= 0) return [];
+  const upfrontPercentage = Math.round(toNumber(split.upfrontPercentage));
+  const parts = Array.isArray(split.installmentPercentages)
+    ? split.installmentPercentages.map((value) => Math.round(toNumber(value))).filter((value) => value > 0)
+    : [];
+  if (upfrontPercentage <= 0 || parts.length === 0) return [];
+
+  const upfrontAmount = Math.round((totalInPaise * upfrontPercentage) / 100);
+  const schedule: OnboardingInstallment[] = [{
+    installmentNumber: 1,
+    label: `Admission · 1st installment (${upfrontPercentage}%)`,
+    percentage: upfrontPercentage,
+    amountInPaise: upfrontAmount,
+    dueDate: dueDateFor(joinMonthKey, billingDay),
+  }];
+  let remaining = totalInPaise - upfrontAmount;
+  parts.forEach((percentage, index) => {
+    const isLast = index === parts.length - 1;
+    const amountInPaise = isLast ? remaining : Math.round((totalInPaise * percentage) / 100);
+    remaining -= amountInPaise;
+    schedule.push({
+      installmentNumber: index + 2,
+      label: `${ordinal(index + 2)} installment (${percentage}%)`,
+      percentage,
+      amountInPaise,
+      dueDate: dueDateFor(addMonths(joinMonthKey, index + 1), billingDay),
+    });
+  });
+  return schedule;
+};
+
 export default async function handler(request: ApiRequest, response: ApiResponse) {
   if (!requirePost(request, response)) return;
 
@@ -256,6 +317,16 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     const termFeeInPaise = clampPaise(fees.termFeeInPaise);
     // Term with EMI selected → the installment plan; else full. Monthly → manual.
     const paymentPlan = isTerm ? (methods.emi === true ? "emi" : "full") : "manual";
+    // The onboarding money — needed here because an EMI enrollment carries its
+    // installment plan on the enrollment doc itself.
+    const { rows: breakdownRows, totalInPaise } = buildOnboardingBreakdown(fees);
+    // EMI is only real when the admin enabled it on a TERM student AND the
+    // split yields more than one part. Then the parent paid installment 1 only
+    // (req) and installments 2..n become pending dues.
+    const emiSchedule = isTerm && methods.emi === true
+      ? buildEmiSchedule(fees, totalInPaise, joinMonthKey, billingDay)
+      : [];
+    const isEmi = emiSchedule.length > 1;
     const enrollmentDoc: Record<string, unknown> = {
       student: {
         name: studentName,
@@ -292,6 +363,26 @@ export default async function handler(request: ApiRequest, response: ApiResponse
       enrollmentDoc.termFeeInPaise = termFeeInPaise;
       if (getString(classData.startDate)) enrollmentDoc.termStartDate = getString(classData.startDate);
       if (getString(classData.endDate)) enrollmentDoc.termEndDate = getString(classData.endDate);
+      if (isEmi) {
+        // Installment 1 is what the parent just paid; the rest are pending and
+        // drive the portal Pay button + the fee reminders.
+        enrollmentDoc.installmentPlan = {
+          status: "active",
+          totalInPaise,
+          initialPaymentInPaise: emiSchedule[0].amountInPaise,
+          remainingInPaise: totalInPaise - emiSchedule[0].amountInPaise,
+          reminderDayOfMonth: billingDay,
+          installments: emiSchedule.map((installment) => ({
+            installmentNumber: installment.installmentNumber,
+            label: installment.label,
+            percentage: installment.percentage,
+            amountInPaise: installment.amountInPaise,
+            dueDate: installment.dueDate,
+            status: installment.installmentNumber === 1 ? "paid" : "pending",
+          })),
+        };
+        enrollmentDoc.nextChargeDate = adminNextChargeDate || emiSchedule[1].dueDate;
+      }
     } else {
       // First collectible due: the admin's next-charge date wins; else new
       // students (pre-payment structure) bill in arrears from next month,
@@ -308,11 +399,44 @@ export default async function handler(request: ApiRequest, response: ApiResponse
 
     // 4. Record the onboarding payment as a PAID fee (history + finance + admin).
     const warnings: string[] = [];
-    const { rows: breakdownRows, totalInPaise } = buildOnboardingBreakdown(fees);
     const paidVia = getString(student.paidVia);
     const paymentMethod = body.paymentMethod
       || (paidVia === "qr" ? "upi" : paidVia === "counter" ? "cash" : paidVia === "razorpay" ? "manual" : "cash");
-    if (totalInPaise > 0) {
+    const paymentProofFields = {
+      ...(getString(student.proofUrl) ? { upiProofUrl: getString(student.proofUrl) } : {}),
+      ...(getString(student.upiRef) ? { upiRef: getString(student.upiRef) } : {}),
+      ...(getString(student.razorpayPaymentId) ? { razorpayPaymentId: getString(student.razorpayPaymentId) } : {}),
+    };
+
+    if (isEmi) {
+      // EMI (req): ONLY the first installment was collected. Mark it paid and
+      // leave installments 2..n as pending dues — never bill the whole course
+      // fee as received.
+      for (const installment of emiSchedule) {
+        const isFirst = installment.installmentNumber === 1;
+        const { id: feeId } = await ensureCustomFeePayment(db, enrollmentRecord, {
+          suffix: `emi-${installment.installmentNumber}`,
+          amountInPaise: installment.amountInPaise,
+          periodLabel: installment.label,
+          dueDate: installment.dueDate,
+        });
+        await db.collection(FEE_PAYMENTS_COLLECTION).doc(feeId).set({
+          emiInstallmentNumber: installment.installmentNumber,
+          ...(isFirst
+            ? {
+                status: "paid",
+                paymentMethod,
+                breakdown: breakdownRows,
+                ...paymentProofFields,
+                approvedBy: decoded.uid,
+                approvedAt: FieldValue.serverTimestamp(),
+                paidAt: FieldValue.serverTimestamp(),
+              }
+            : { status: "pending" }),
+          updatedAt: FieldValue.serverTimestamp(),
+        }, { merge: true });
+      }
+    } else if (totalInPaise > 0) {
       const isPrepaymentStyle = !isTerm && studentType === "new";
       const { id: feeId } = await ensureCustomFeePayment(db, enrollmentRecord, {
         suffix: "onboarding",
@@ -325,9 +449,7 @@ export default async function handler(request: ApiRequest, response: ApiResponse
         paymentMethod,
         breakdown: breakdownRows,
         ...(isPrepaymentStyle ? { prepayment: true } : {}),
-        ...(getString(student.proofUrl) ? { upiProofUrl: getString(student.proofUrl) } : {}),
-        ...(getString(student.upiRef) ? { upiRef: getString(student.upiRef) } : {}),
-        ...(getString(student.razorpayPaymentId) ? { razorpayPaymentId: getString(student.razorpayPaymentId) } : {}),
+        ...paymentProofFields,
         approvedBy: decoded.uid,
         approvedAt: FieldValue.serverTimestamp(),
         paidAt: FieldValue.serverTimestamp(),

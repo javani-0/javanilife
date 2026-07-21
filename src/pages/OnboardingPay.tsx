@@ -24,7 +24,10 @@ import {
 } from "@/lib/students";
 import logo from "@/assets/logo-white.png";
 
-type Mode = "choose" | "qr";
+// "pay" is the declare-a-payment panel: the UPI QR (when enabled + configured),
+// an OPTIONAL screenshot, an optional UTR, and the submit button. It doubles as
+// the EMI "I've paid the 1st installment" flow.
+type Mode = "choose" | "pay";
 
 const OnboardingPay = () => {
   const { token = "" } = useParams();
@@ -50,9 +53,13 @@ const OnboardingPay = () => {
 
   const loginUrl = typeof window !== "undefined" ? `${window.location.origin}/login` : "/login";
   const total = link?.totalInPaise || 0;
+  // On an EMI link the parent is asked for the FIRST INSTALLMENT only (req);
+  // everywhere else "due now" is simply the whole onboarding total.
+  const dueNow = link?.dueNowInPaise ?? total;
+  const isEmi = Boolean(link?.methods.emi && dueNow > 0 && dueNow < total);
   const upiIntentUrl = useMemo(
-    () => (settings.upiId ? buildUpiIntentUrl({ upiId: settings.upiId, name: settings.upiName, amountInPaise: total, note: link ? `${link.studentName} admission` : "" }) : ""),
-    [settings.upiId, settings.upiName, total, link],
+    () => (settings.upiId ? buildUpiIntentUrl({ upiId: settings.upiId, name: settings.upiName, amountInPaise: dueNow, note: link ? `${link.studentName} admission` : "" }) : ""),
+    [settings.upiId, settings.upiName, dueNow, link],
   );
 
   const copy = async (value: string, which: "id" | "number") => {
@@ -97,13 +104,17 @@ const OnboardingPay = () => {
     }
   };
 
+  // The screenshot is OPTIONAL (req) — the parent can simply declare that they
+  // paid and we verify it against the UPI statement.
   const handleQrSubmit = async () => {
-    if (!file) { toast({ title: "Please upload your payment screenshot", variant: "destructive" }); return; }
     setBusy("qr");
     try {
-      const proofUrl = await uploadPaymentProof(file);
+      const proofUrl = file ? await uploadPaymentProof(file) : undefined;
       await submitOnboardingPayment(token, "qr", { proofUrl, upiRef: upiRef.trim() || undefined });
-      toast({ title: "Submitted for verification", description: "We'll confirm shortly and your login will appear here." });
+      toast({
+        title: isEmi ? "1st installment submitted" : "Submitted for verification",
+        description: "We'll confirm shortly and your login will appear here.",
+      });
     } catch (error) {
       toast({ title: "Could not submit", description: error instanceof Error ? error.message : "Please try again.", variant: "destructive" });
     } finally {
@@ -187,7 +198,9 @@ const OnboardingPay = () => {
   if (status === "payment-submitted" || status === "counter-chosen" || status === "paid-online") {
     const message = status === "counter-chosen"
       ? "Please pay at the centre. We'll confirm your admission and share your login here once collected."
-      : "Thank you! We've received your payment details and are verifying them. Your login will appear here shortly.";
+      : isEmi
+        ? "Thank you! We've received your 1st installment and are verifying it. Your login will appear here shortly, and the remaining installments will show up in your portal."
+        : "Thank you! We've received your payment details and are verifying them. Your login will appear here shortly.";
     return (
       <Shell>
         <div className="w-full rounded-2xl bg-card p-6 text-center shadow-xl">
@@ -225,11 +238,11 @@ const OnboardingPay = () => {
               </div>
             ))}
           </div>
-          <div className="mt-2 flex justify-between border-t border-border/60 pt-2 font-display text-lg font-bold text-foreground">
-            <span>Total</span><span className="text-primary">{formatPaiseAsRupees(total)}</span>
+          <div className={`mt-2 flex justify-between border-t border-border/60 pt-2 font-display ${isEmi ? "text-base font-semibold text-muted-foreground" : "text-lg font-bold text-foreground"}`}>
+            <span>{isEmi ? "Course fee (total)" : "Total"}</span><span className={isEmi ? "text-foreground" : "text-primary"}>{formatPaiseAsRupees(total)}</span>
           </div>
           {link.freeMonthNote && <p className="mt-2 font-body text-[0.72rem] text-green-700">🎁 {link.freeMonthNote}</p>}
-          {link.emiInstallments && link.emiInstallments.length > 0 && (
+          {isEmi && link.emiInstallments && link.emiInstallments.length > 0 && (
             <div className="mt-3 border-t border-border/60 pt-3">
               <p className="font-body text-[0.72rem] font-semibold uppercase tracking-wide text-gold">EMI Payment Schedule</p>
               <div className="mt-1.5 space-y-1">
@@ -240,18 +253,32 @@ const OnboardingPay = () => {
                   </div>
                 ))}
               </div>
-              <p className="mt-1.5 font-body text-[0.68rem] text-muted-foreground">Remaining installments will be due after the first payment is confirmed.</p>
+              <p className="mt-1.5 font-body text-[0.68rem] text-muted-foreground">Only the 1st installment is payable today. The rest appear in your student portal after we confirm this payment.</p>
             </div>
           )}
         </div>
 
-        {mode === "qr" ? (
+        {/* On EMI the headline amount is the 1st installment, NOT the total —
+            the Total row above is demoted so this can't be misread (req). */}
+        {isEmi && (
+          <div className="mt-3 flex items-center justify-between gap-3 rounded-xl border border-gold/40 bg-gold/5 px-4 py-3">
+            <div className="min-w-0">
+              <p className="font-body text-[0.7rem] font-semibold uppercase tracking-wide text-gold">Pay now · 1st installment</p>
+              <p className="font-body text-[0.7rem] text-muted-foreground">of {formatPaiseAsRupees(total)} total</p>
+            </div>
+            <span className="shrink-0 font-display text-2xl font-bold text-primary">{formatPaiseAsRupees(dueNow)}</span>
+          </div>
+        )}
+
+        {mode === "pay" ? (
           <div className="mt-5">
             <button onClick={() => setMode("choose")} className="mb-3 font-body text-xs font-semibold text-gold hover:underline">← Back to options</button>
-            {!upiConfigured ? (
+            {!upiConfigured && !link.methods.emi ? (
               <p className="rounded-md border border-amber-300 bg-amber-50 p-3 font-body text-[0.8rem] text-amber-800">Online UPI isn't set up yet. Please use another option.</p>
             ) : (
               <>
+                {upiConfigured && (
+                <>
                 <div className="flex flex-col items-center">
                   {settings.qrImageUrl ? (
                     <img src={settings.qrImageUrl} alt="Scan to pay" className="h-52 w-52 rounded-lg border border-border object-contain" />
@@ -273,24 +300,34 @@ const OnboardingPay = () => {
                   </div>
                 )}
                 {settings.instructions && <p className="mt-3 rounded-md bg-muted/60 p-2.5 font-body text-[0.76rem] text-muted-foreground">{settings.instructions}</p>}
+                </>
+                )}
 
-                <p className="mt-4 font-body text-sm font-semibold text-foreground">Upload the payment screenshot</p>
+                {/* The screenshot is OPTIONAL (req) — attaching it just speeds
+                    up our verification. */}
+                <p className="mt-4 font-body text-sm font-semibold text-foreground">
+                  Payment screenshot <span className="font-normal text-muted-foreground">(optional)</span>
+                </p>
                 <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={pickFile} />
                 {previewUrl ? (
                   <div className="mt-2 flex items-center gap-3 rounded-md border border-border p-2">
                     <img src={previewUrl} alt="Receipt" className="h-16 w-16 rounded object-cover" />
                     <button onClick={() => fileRef.current?.click()} className="font-body text-xs font-semibold text-gold hover:underline">Change</button>
+                    <button onClick={() => { if (previewUrl) URL.revokeObjectURL(previewUrl); setFile(null); setPreviewUrl(""); }} className="font-body text-xs text-destructive hover:underline">Remove</button>
                   </div>
                 ) : (
-                  <button onClick={() => fileRef.current?.click()} className="mt-2 flex w-full items-center justify-center gap-2 rounded-md border border-dashed border-border py-3 font-body text-sm text-muted-foreground hover:border-gold/50 hover:text-gold"><Upload className="h-4 w-4" /> Upload screenshot</button>
+                  <button onClick={() => fileRef.current?.click()} className="mt-2 flex w-full items-center justify-center gap-2 rounded-md border border-dashed border-border py-3 font-body text-sm text-muted-foreground hover:border-gold/50 hover:text-gold"><Upload className="h-4 w-4" /> Attach screenshot</button>
                 )}
                 <div className="mt-3">
                   <label className="mb-1 block font-body text-xs font-medium text-foreground">UPI reference / UTR (optional)</label>
                   <input value={upiRef} onChange={(e) => setUpiRef(e.target.value)} placeholder="e.g. 4172xxxxxx" className="h-10 w-full rounded-md border border-border bg-background px-3 font-body text-sm outline-none focus:border-gold focus:ring-2 focus:ring-gold/20" />
                 </div>
                 <button onClick={handleQrSubmit} disabled={busy === "qr"} className="mt-4 flex min-h-12 w-full items-center justify-center gap-2 rounded-md bg-gradient-primary px-4 font-body text-sm font-semibold text-primary-foreground hover:brightness-110 disabled:opacity-60">
-                  {busy === "qr" ? <><Loader2 className="h-4 w-4 animate-spin" /> Submitting…</> : "Submit for verification"}
+                  {busy === "qr"
+                    ? <><Loader2 className="h-4 w-4 animate-spin" /> Submitting…</>
+                    : isEmi ? `I've paid the 1st installment (${formatPaiseAsRupees(dueNow)})` : "Submit for verification"}
                 </button>
+                <p className="mt-2 text-center font-body text-[0.7rem] text-muted-foreground">We'll verify it and confirm the admission on this page.</p>
               </>
             )}
           </div>
@@ -300,14 +337,22 @@ const OnboardingPay = () => {
             {link.methods.razorpay && (
               <button onClick={handleRazorpay} disabled={busy !== ""} className="flex w-full items-center gap-3 rounded-xl border border-border p-4 text-left transition-colors hover:border-gold hover:bg-gold/5 disabled:opacity-60">
                 <CreditCard className="h-6 w-6 shrink-0 text-gold" />
-                <span className="flex-1"><span className="block font-body text-sm font-semibold text-foreground">Pay online</span><span className="block font-body text-xs text-muted-foreground">Card, UPI, netbanking via Razorpay</span></span>
+                <span className="flex-1"><span className="block font-body text-sm font-semibold text-foreground">Pay {formatPaiseAsRupees(dueNow)} online</span><span className="block font-body text-xs text-muted-foreground">Card, UPI, netbanking via Razorpay</span></span>
                 {busy === "razorpay" ? <Loader2 className="h-5 w-5 animate-spin text-gold" /> : <Wallet className="h-5 w-5 text-muted-foreground" />}
               </button>
             )}
             {link.methods.qr && (
-              <button onClick={() => setMode("qr")} disabled={busy !== ""} className="flex w-full items-center gap-3 rounded-xl border border-border p-4 text-left transition-colors hover:border-gold hover:bg-gold/5 disabled:opacity-60">
+              <button onClick={() => setMode("pay")} disabled={busy !== ""} className="flex w-full items-center gap-3 rounded-xl border border-border p-4 text-left transition-colors hover:border-gold hover:bg-gold/5 disabled:opacity-60">
                 <QrCode className="h-6 w-6 shrink-0 text-gold" />
-                <span className="flex-1"><span className="block font-body text-sm font-semibold text-foreground">Pay Now (UPI QR)</span><span className="block font-body text-xs text-muted-foreground">Scan the QR and upload the screenshot</span></span>
+                <span className="flex-1"><span className="block font-body text-sm font-semibold text-foreground">{isEmi ? `Pay the 1st installment (${formatPaiseAsRupees(dueNow)})` : "Pay Now (UPI QR)"}</span><span className="block font-body text-xs text-muted-foreground">Scan the QR — the screenshot is optional</span></span>
+              </button>
+            )}
+            {/* EMI without the QR rail: the parent still needs a way to tell us
+                the 1st installment is paid (req). */}
+            {isEmi && !link.methods.qr && (
+              <button onClick={() => setMode("pay")} disabled={busy !== ""} className="flex w-full items-center gap-3 rounded-xl border border-border p-4 text-left transition-colors hover:border-gold hover:bg-gold/5 disabled:opacity-60">
+                <BadgeCheck className="h-6 w-6 shrink-0 text-gold" />
+                <span className="flex-1"><span className="block font-body text-sm font-semibold text-foreground">I've paid the 1st installment</span><span className="block font-body text-xs text-muted-foreground">Tell us you've paid {formatPaiseAsRupees(dueNow)} — screenshot optional</span></span>
               </button>
             )}
             {link.methods.counter && (
@@ -317,7 +362,7 @@ const OnboardingPay = () => {
                 {busy === "counter" ? <Loader2 className="h-5 w-5 animate-spin text-gold" /> : <KeyRound className="h-5 w-5 text-muted-foreground" />}
               </button>
             )}
-            {!link.methods.razorpay && !link.methods.qr && !link.methods.counter && (
+            {!link.methods.razorpay && !link.methods.qr && !link.methods.counter && !isEmi && (
               <p className="rounded-md border border-amber-300 bg-amber-50 p-3 font-body text-sm text-amber-800">No payment options are enabled. Please contact us.</p>
             )}
           </div>

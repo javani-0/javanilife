@@ -13,6 +13,7 @@ import { applyNextChargeDue, getEnrollment, setEnrollmentStatus } from "@/lib/cl
 import type { Gender } from "@/lib/classes";
 import {
   buildFeeBreakdown,
+  onboardingDueNowInPaise,
   type EmiSplitConfig,
   type OnboardingStatus,
   type ParentRelation,
@@ -118,6 +119,8 @@ export const normalizeStudent = (id: string, data: DocumentData = {}): StudentDo
     rejectReason: getString(data.rejectReason) || undefined,
     paidVia: data.paidVia === "qr" || data.paidVia === "counter" || data.paidVia === "razorpay" ? data.paidVia : undefined,
     razorpayPaymentId: getString(data.razorpayPaymentId) || undefined,
+    emiInstallmentSubmitted: Math.max(0, Math.round(toNumber(data.emiInstallmentSubmitted))) || undefined,
+    submittedAmountInPaise: clampPaise(data.submittedAmountInPaise) || undefined,
     linkSharedAt: data.linkSharedAt,
     studentId: getString(data.studentId) || undefined,
     userUid: getString(data.userUid) || undefined,
@@ -251,6 +254,9 @@ const buildStudentPayload = (input: StudentWriteInput) => ({
 const syncOnboardingLink = async (student: StudentDoc): Promise<void> => {
   if (!student.linkToken) return;
   const { rows, totalInPaise, emiInstallments } = buildFeeBreakdown(student.fees);
+  // EMI links ask for the first installment only (req) — the rest are billed
+  // as dues after approval.
+  const dueNowInPaise = onboardingDueNowInPaise(student.fees, student.methods);
   const freeMonthNote = student.fees.firstMonthFree && student.fees.track === "monthly"
     ? "Offer: the first month's class fee is FREE — nothing extra to pay for it later."
     : "";
@@ -266,6 +272,7 @@ const syncOnboardingLink = async (student: StudentDoc): Promise<void> => {
       trainerName: student.trainerName || "",
       rows,
       totalInPaise,
+      dueNowInPaise,
       methods: student.methods,
       status: student.onboardingStatus,
       freeMonthNote,

@@ -33,7 +33,9 @@ import {
   createStudent,
   deleteDraftStudent,
   deleteEnrollmentRequest,
+  emiScheduleFor,
   markEnrollmentRequestAdded,
+  onboardingDueNowInPaise,
   subscribeToEnrollmentRequests,
   isPaymentFreeOnboarding,
   markLinkShared,
@@ -651,6 +653,10 @@ const AdminStudents = () => {
             const credential = credentials[student.id];
             const payUrl = student.linkToken ? buildPayLinkUrl(student.linkToken) : "";
             const { totalInPaise } = buildFeeBreakdown(student.fees);
+            // EMI onboarding → the link (and the WhatsApp message) ask for the
+            // FIRST installment only; the rest become dues after approval.
+            const emiSchedule = emiScheduleFor(student.fees, student.methods);
+            const dueNowInPaise = onboardingDueNowInPaise(student.fees, student.methods);
             const canApprove = ["payment-submitted", "counter-chosen", "paid-online"].includes(student.onboardingStatus);
             const approveMethod: "upi" | "cash" | "manual" = student.paidVia === "counter" ? "cash" : student.paidVia === "razorpay" ? "manual" : "upi";
             // An open fees panel / danger zone needs the full width — span all
@@ -680,7 +686,10 @@ const AdminStudents = () => {
                     <p className="font-body text-xs text-muted-foreground">
                       {PARENT_RELATION_LABELS[student.parentRelation]}: {student.parentName || "—"} · {student.email}{student.phone ? ` · ${student.phone}` : ""}
                     </p>
-                    <p className="mt-0.5 font-body text-xs text-muted-foreground">Onboarding total: <span className="font-semibold text-foreground">{formatPaiseAsRupees(totalInPaise)}</span></p>
+                    <p className="mt-0.5 font-body text-xs text-muted-foreground">
+                      Onboarding total: <span className="font-semibold text-foreground">{formatPaiseAsRupees(totalInPaise)}</span>
+                      {emiSchedule && <span className="text-gold"> · EMI — 1st installment {formatPaiseAsRupees(dueNowInPaise)} of {emiSchedule.length}</span>}
+                    </p>
                     {student.rejectReason && student.onboardingStatus === "awaiting-payment" && (
                       <p className="mt-1 font-body text-xs text-destructive">Sent back: {student.rejectReason}</p>
                     )}
@@ -713,7 +722,7 @@ const AdminStudents = () => {
                     </div>
                     <div className="flex flex-wrap items-center gap-1.5">
                       <button onClick={() => copyText(payUrl, "Link")} className="flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 font-body text-[0.72rem] font-semibold text-muted-foreground hover:bg-muted"><Copy className="h-3.5 w-3.5" /> Copy</button>
-                      <a href={buildPaymentLinkWhatsAppUrl(student, totalInPaise, payUrl)} target="_blank" rel="noreferrer" onClick={() => { markLinkShared(student.id); logAction("Sent payment link on WhatsApp", `${student.name} · ${formatPaiseAsRupees(totalInPaise)}`); }} className="flex items-center gap-1.5 rounded-md bg-[#25D366] px-3 py-1.5 font-body text-[0.72rem] font-semibold text-white hover:brightness-110"><MessageCircle className="h-3.5 w-3.5" /> Send link</a>
+                      <a href={buildPaymentLinkWhatsAppUrl(student, dueNowInPaise, payUrl, emiSchedule ? { totalInPaise, installments: emiSchedule } : undefined)} target="_blank" rel="noreferrer" onClick={() => { markLinkShared(student.id); logAction("Sent payment link on WhatsApp", `${student.name} · ${formatPaiseAsRupees(dueNowInPaise)}${emiSchedule ? ` (EMI 1/${emiSchedule.length} of ${formatPaiseAsRupees(totalInPaise)})` : ""}`); }} className="flex items-center gap-1.5 rounded-md bg-[#25D366] px-3 py-1.5 font-body text-[0.72rem] font-semibold text-white hover:brightness-110"><MessageCircle className="h-3.5 w-3.5" /> Send link</a>
                       <button onClick={() => handleRegenerate(student)} disabled={busyId === student.id} className="flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 font-body text-[0.72rem] font-semibold text-muted-foreground hover:bg-muted disabled:opacity-50" title="New link"><RefreshCw className="h-3.5 w-3.5" /></button>
                     </div>
                   </div>
@@ -724,10 +733,21 @@ const AdminStudents = () => {
                   <div className="mt-3 rounded-lg border border-gold/30 bg-gold/5 p-3">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <p className="font-body text-sm font-semibold text-foreground">
-                        {student.paidVia === "counter" ? "Parent will pay at the counter" : student.paidVia === "razorpay" ? "Paid online (Razorpay) — verify & issue login" : "Payment submitted — review the screenshot"}
+                        {student.emiInstallmentSubmitted
+                          ? `1st installment paid — please verify${student.submittedAmountInPaise ? ` (${formatPaiseAsRupees(student.submittedAmountInPaise)})` : ""}`
+                          : student.paidVia === "counter" ? "Parent will pay at the counter"
+                          : student.paidVia === "razorpay" ? "Paid online (Razorpay) — verify & issue login"
+                          : "Payment submitted — please verify"}
                       </p>
-                      {student.proofUrl && <a href={student.proofUrl} target="_blank" rel="noreferrer" className="font-body text-xs font-semibold text-gold hover:underline">View screenshot ↗</a>}
+                      {student.proofUrl
+                        ? <a href={student.proofUrl} target="_blank" rel="noreferrer" className="font-body text-xs font-semibold text-gold hover:underline">View screenshot ↗</a>
+                        : student.paidVia === "qr" && <span className="font-body text-xs text-muted-foreground">No screenshot attached — check the UPI statement</span>}
                     </div>
+                    {student.emiInstallmentSubmitted && emiSchedule && (
+                      <p className="mt-1 font-body text-xs text-muted-foreground">
+                        Installment 1 of {emiSchedule.length} · remaining {formatPaiseAsRupees(Math.max(0, totalInPaise - dueNowInPaise))} becomes due after approval.
+                      </p>
+                    )}
                     {student.upiRef && <p className="mt-1 font-body text-xs text-muted-foreground">UTR / ref: {student.upiRef}</p>}
                     {rejectingId === student.id ? (
                       <div className="mt-2 space-y-2">

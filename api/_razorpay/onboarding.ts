@@ -74,12 +74,22 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     if (action === "onboarding-submit") {
       const method = body.method === "counter" ? "counter" : "qr";
       if (method === "qr") {
+        // The screenshot is OPTIONAL (req): the parent may simply declare the
+        // payment and the admin verifies it against the bank/UPI statement. A
+        // supplied URL still has to be a real http(s) URL.
         const proofUrl = (body.proofUrl || "").trim();
-        if (!proofUrl || !isHttpUrl(proofUrl)) {
-          sendError(response, 400, "Please upload the payment screenshot.");
+        if (proofUrl && !isHttpUrl(proofUrl)) {
+          sendError(response, 400, "That payment screenshot could not be read. Please try uploading it again.");
           return;
         }
         const upiRef = (body.upiRef || "").trim().slice(0, 40);
+        // EMI link → the parent is declaring the FIRST installment, not the
+        // whole course fee. Price it server-side from the link doc.
+        const linkMethods = (link.data.methods || {}) as Record<string, unknown>;
+        const totalInPaise = Math.max(0, Math.round(Number(link.data.totalInPaise || 0)));
+        const dueNowInPaise = Math.max(0, Math.round(Number(link.data.dueNowInPaise ?? totalInPaise)));
+        const isEmi = linkMethods.emi === true && dueNowInPaise > 0 && dueNowInPaise < totalInPaise;
+
         await link.ref.set({
           status: "payment-submitted",
           rejectReason: FieldValue.delete(),
@@ -87,9 +97,11 @@ export default async function handler(request: ApiRequest, response: ApiResponse
         }, { merge: true });
         await updateStudentDoc(db, studentDocId, {
           onboardingStatus: "payment-submitted",
-          proofUrl,
+          ...(proofUrl ? { proofUrl } : { proofUrl: FieldValue.delete() }),
           ...(upiRef ? { upiRef } : {}),
           paidVia: "qr",
+          submittedAmountInPaise: dueNowInPaise,
+          ...(isEmi ? { emiInstallmentSubmitted: 1 } : { emiInstallmentSubmitted: FieldValue.delete() }),
           rejectReason: FieldValue.delete(),
         });
         sendJson(response, 200, { ok: true, status: "payment-submitted" });
@@ -113,7 +125,9 @@ export default async function handler(request: ApiRequest, response: ApiResponse
         sendError(response, 400, "Online payment isn't enabled for this link.");
         return;
       }
-      const amountInPaise = Math.max(0, Math.round(Number(link.data.totalInPaise || 0)));
+      // On an EMI link only the first installment is charged online today.
+      const linkTotalInPaise = Math.max(0, Math.round(Number(link.data.totalInPaise || 0)));
+      const amountInPaise = Math.max(0, Math.round(Number(link.data.dueNowInPaise ?? linkTotalInPaise)));
       if (amountInPaise < 100) {
         sendError(response, 400, "There is nothing to pay online on this link.");
         return;
@@ -166,10 +180,16 @@ export default async function handler(request: ApiRequest, response: ApiResponse
         updatedAt: FieldValue.serverTimestamp(),
       }, { merge: true });
       if (status !== "approved") {
+        const paidTotalInPaise = Math.max(0, Math.round(Number(link.data.totalInPaise || 0)));
+        const paidDueNowInPaise = Math.max(0, Math.round(Number(link.data.dueNowInPaise ?? paidTotalInPaise)));
+        const paidIsEmi = (link.data.methods as Record<string, unknown> | undefined)?.emi === true
+          && paidDueNowInPaise > 0 && paidDueNowInPaise < paidTotalInPaise;
         await updateStudentDoc(db, studentDocId, {
           onboardingStatus: "paid-online",
           paidVia: "razorpay",
           razorpayPaymentId,
+          submittedAmountInPaise: paidDueNowInPaise,
+          ...(paidIsEmi ? { emiInstallmentSubmitted: 1 } : {}),
           rejectReason: FieldValue.delete(),
         });
       }

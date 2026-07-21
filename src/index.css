@@ -3,9 +3,14 @@
 @tailwind utilities;
 
 /* ── Admin page transition ── */
+/* The end state MUST be `transform: none`, not `translateY(0)`: with
+   `animation-fill-mode: forwards` the final keyframe sticks, and any transform
+   other than `none` turns the page wrapper into the containing block for its
+   `position: fixed` descendants — which made admin dialogs scroll with the
+   page instead of staying pinned to the viewport. */
 @keyframes adminFadeIn {
   from { opacity: 0; transform: translateY(6px); }
-  to   { opacity: 1; transform: translateY(0); }
+  to   { opacity: 1; transform: none; }
 }
 .admin-page-enter {
   animation: adminFadeIn 220ms ease forwards;

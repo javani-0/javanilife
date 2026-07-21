@@ -40,6 +40,9 @@ export const normalizeOnboardingLink = (token: string, data: DocumentData = {}):
           .filter((row) => row.label)
       : [],
     totalInPaise: Math.max(0, Math.round(toNumber(data.totalInPaise))),
+    // Older links pre-date the EMI split and have no dueNowInPaise — fall back
+    // to the full total so they keep working unchanged.
+    dueNowInPaise: Math.max(0, Math.round(toNumber(data.dueNowInPaise, toNumber(data.totalInPaise)))),
     methods: {
       razorpay: methods.razorpay === true,
       qr: methods.qr === true,
@@ -89,7 +92,11 @@ const postJson = async <T>(url: string, payload: unknown, idToken?: string): Pro
   return data as T;
 };
 
-/** Parent: submit a UPI screenshot ("qr") or choose pay-at-counter ("counter"). */
+/**
+ * Parent: declare a payment ("qr" — UPI/EMI-installment, screenshot OPTIONAL)
+ * or choose pay-at-counter ("counter"). On an EMI link the declaration is for
+ * the first installment; the server prices it from the link doc.
+ */
 export const submitOnboardingPayment = (
   token: string,
   method: "qr" | "counter",
@@ -157,13 +164,39 @@ const waUrl = (phone: string | undefined, lines: string[]): string => {
   return number ? `https://wa.me/${number}?text=${text}` : `https://wa.me/?text=${text}`;
 };
 
-/** The professional payment-link message for the parent (req 2). */
+/**
+ * The professional payment-link message for the parent (req 2).
+ *
+ * On an EMI onboarding the message asks for the FIRST INSTALLMENT only (req) —
+ * `dueNowInPaise` is the amount to pay today and `emi` carries the full course
+ * total plus the remaining schedule so the parent still sees the whole picture.
+ */
 export const buildPaymentLinkWhatsAppUrl = (
   student: Pick<StudentDoc, "name" | "parentName" | "className" | "slotLabel" | "trainerName" | "phone">,
-  totalInPaise: number,
+  dueNowInPaise: number,
   payUrl: string,
-): string =>
-  waUrl(student.phone, [
+  emi?: { totalInPaise: number; installments: FeeBreakdownRow[] },
+): string => {
+  const askLines = emi
+    ? [
+        `The course fee is *${formatPaiseAsRupees(emi.totalInPaise)}*, payable in *${emi.installments.length} installments*.`,
+        "",
+        `To confirm the admission, please pay the *1st installment of ${formatPaiseAsRupees(dueNowInPaise)}* now using the secure link below:`,
+        payUrl,
+        "",
+        "Payment schedule:",
+        ...emi.installments.map((row, index) => `${index + 1}. ${row.label} — ${formatPaiseAsRupees(row.amountInPaise)}`),
+        "",
+        "Once you've paid, tap *\"I've paid the 1st installment\"* on the link (you may attach the payment screenshot — it's optional). We'll verify it and your student-portal login will appear on the same link. The remaining installments will be shown in your portal.",
+      ]
+    : [
+        `To confirm the admission, please complete the fee payment of *${formatPaiseAsRupees(dueNowInPaise)}* using the secure link below:`,
+        payUrl,
+        "",
+        "The link shows the full fee breakdown and the payment options available to you. Once we verify the payment, your login details for the student portal will appear on the same link.",
+      ];
+
+  return waUrl(student.phone, [
     `Dear ${student.parentName || "Parent"},`,
     "",
     `Greetings from Javani Spiritual Hub! 🙏`,
@@ -171,14 +204,12 @@ export const buildPaymentLinkWhatsAppUrl = (
     `We're delighted to welcome *${student.name}* to *${student.className}*${student.slotLabel ? ` (${student.slotLabel})` : ""}.`,
     ...(student.trainerName ? [`Trainer: *${student.trainerName}*`] : []),
     "",
-    `To confirm the admission, please complete the fee payment of *${formatPaiseAsRupees(totalInPaise)}* using the secure link below:`,
-    payUrl,
-    "",
-    "The link shows the full fee breakdown and the payment options available to you. Once we verify the payment, your login details for the student portal will appear on the same link.",
+    ...askLines,
     "",
     "If you have any questions, simply reply to this message. Thank you!",
     "— Javani Spiritual Hub",
   ]);
+};
 
 /** Login credentials message (req 2: admin can re-share anytime). */
 export const buildStudentCredentialsWhatsAppUrl = (
