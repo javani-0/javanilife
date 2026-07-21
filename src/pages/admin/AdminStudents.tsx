@@ -42,6 +42,7 @@ import {
   ONBOARDING_STATUS_LABELS,
   PARENT_RELATION_LABELS,
   regenerateLinkToken,
+  resyncOnboardingLink,
   ROLL_NUMBER_PATTERN,
   setStudentActive,
   suggestNextStudentId,
@@ -367,6 +368,16 @@ const AdminStudents = () => {
   const copyText = async (value: string, label: string) => {
     try { await navigator.clipboard.writeText(value); toast({ title: `${label} copied` }); }
     catch { toast({ title: `Could not copy the ${label.toLowerCase()}`, variant: "destructive" }); }
+  };
+
+  // Before the link leaves the building, push the CURRENT fees/methods onto the
+  // public link doc. Without this a link written before an EMI (or price)
+  // change keeps showing the parent the old amount.
+  const shareLink = (student: StudentDoc) => {
+    resyncOnboardingLink(student).catch((error) => {
+      console.error("Could not refresh the payment link before sharing", error);
+      toast({ title: "The link may be out of date", description: "Open Edit → Update Student to refresh it before the parent pays.", variant: "destructive" });
+    });
   };
 
   const handleApprove = async (student: StudentDoc, paymentMethod: "upi" | "cash" | "manual") => {
@@ -721,8 +732,8 @@ const AdminStudents = () => {
                       <span className="truncate font-body text-xs text-muted-foreground">{payUrl}</span>
                     </div>
                     <div className="flex flex-wrap items-center gap-1.5">
-                      <button onClick={() => copyText(payUrl, "Link")} className="flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 font-body text-[0.72rem] font-semibold text-muted-foreground hover:bg-muted"><Copy className="h-3.5 w-3.5" /> Copy</button>
-                      <a href={buildPaymentLinkWhatsAppUrl(student, dueNowInPaise, payUrl, emiSchedule ? { totalInPaise, installments: emiSchedule } : undefined)} target="_blank" rel="noreferrer" onClick={() => { markLinkShared(student.id); logAction("Sent payment link on WhatsApp", `${student.name} · ${formatPaiseAsRupees(dueNowInPaise)}${emiSchedule ? ` (EMI 1/${emiSchedule.length} of ${formatPaiseAsRupees(totalInPaise)})` : ""}`); }} className="flex items-center gap-1.5 rounded-md bg-[#25D366] px-3 py-1.5 font-body text-[0.72rem] font-semibold text-white hover:brightness-110"><MessageCircle className="h-3.5 w-3.5" /> Send link</a>
+                      <button onClick={() => { shareLink(student); copyText(payUrl, "Link"); }} className="flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 font-body text-[0.72rem] font-semibold text-muted-foreground hover:bg-muted"><Copy className="h-3.5 w-3.5" /> Copy</button>
+                      <a href={buildPaymentLinkWhatsAppUrl(student, dueNowInPaise, payUrl, emiSchedule ? { totalInPaise, installments: emiSchedule } : undefined)} target="_blank" rel="noreferrer" onClick={() => { shareLink(student); markLinkShared(student.id); logAction("Sent payment link on WhatsApp", `${student.name} · ${formatPaiseAsRupees(dueNowInPaise)}${emiSchedule ? ` (EMI 1/${emiSchedule.length} of ${formatPaiseAsRupees(totalInPaise)})` : ""}`); }} className="flex items-center gap-1.5 rounded-md bg-[#25D366] px-3 py-1.5 font-body text-[0.72rem] font-semibold text-white hover:brightness-110"><MessageCircle className="h-3.5 w-3.5" /> Send link</a>
                       <button onClick={() => handleRegenerate(student)} disabled={busyId === student.id} className="flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 font-body text-[0.72rem] font-semibold text-muted-foreground hover:bg-muted disabled:opacity-50" title="New link"><RefreshCw className="h-3.5 w-3.5" /></button>
                     </div>
                   </div>

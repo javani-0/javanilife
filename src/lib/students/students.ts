@@ -371,6 +371,18 @@ export const setStudentActive = async (student: StudentDoc, active: boolean): Pr
   }
 };
 
+/**
+ * Staff: force the public link snapshot to match the student record right now.
+ *
+ * The link doc is only rewritten on create/update, so a link shared from a
+ * stale tab — or one written before a pricing change like the EMI split —
+ * keeps showing the parent the OLD amount. Sharing or copying the link
+ * re-syncs it first, so what the parent opens is always what the admin sees.
+ */
+export const resyncOnboardingLink = async (student: StudentDoc): Promise<void> => {
+  await syncOnboardingLink(student);
+};
+
 /** Staff: mark that the payment link was shared (for the list's status chips). */
 export const markLinkShared = async (id: string): Promise<void> => {
   await updateDoc(doc(db, STUDENTS_COLLECTION, id), { linkSharedAt: serverTimestamp(), updatedAt: serverTimestamp() });

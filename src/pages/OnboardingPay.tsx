@@ -253,7 +253,9 @@ const OnboardingPay = () => {
                   </div>
                 ))}
               </div>
-              <p className="mt-1.5 font-body text-[0.68rem] text-muted-foreground">Only the 1st installment is payable today. The rest appear in your student portal after we confirm this payment.</p>
+              <p className="mt-1.5 font-body text-[0.68rem] text-muted-foreground">
+                Only the <span className="font-semibold text-foreground">1st installment</span> is payable today. Once we confirm it you'll get your portal login — the remaining installments appear under <span className="font-semibold text-foreground">My Classes → EMI installments</span>, and you can pay them any time from there.
+              </p>
             </div>
           )}
         </div>

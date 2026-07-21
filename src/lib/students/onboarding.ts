@@ -17,8 +17,23 @@ const toNumber = (value: unknown, fallback = 0): number => {
   return Number.isFinite(parsed) ? parsed : fallback;
 };
 
+const toFeeRows = (value: unknown): FeeBreakdownRow[] =>
+  (Array.isArray(value) ? value : [])
+    .map((row: DocumentData): FeeBreakdownRow => ({ label: getString(row?.label), amountInPaise: Math.round(toNumber(row?.amountInPaise)) }))
+    .filter((row) => row.label);
+
 export const normalizeOnboardingLink = (token: string, data: DocumentData = {}): OnboardingLinkDoc => {
   const methods = (data.methods || {}) as DocumentData;
+  const totalInPaise = Math.max(0, Math.round(toNumber(data.totalInPaise)));
+  const emiInstallments = toFeeRows(data.emiInstallments).filter((row) => row.amountInPaise > 0);
+  // `dueNowInPaise` was added with the EMI-first-installment change. Links
+  // written before that (or by a stale admin tab) don't have it, so derive it
+  // from the installment rows the doc DOES carry — an EMI parent must never be
+  // shown the full course fee as payable today.
+  const storedDueNow = Math.round(toNumber(data.dueNowInPaise, -1));
+  const dueNowInPaise = storedDueNow >= 0
+    ? Math.max(0, storedDueNow)
+    : (methods.emi === true && emiInstallments.length > 1 ? emiInstallments[0].amountInPaise : totalInPaise);
   const credentials = (data.credentials || null) as DocumentData | null;
   const rawEmiSplit = data.emiSplit as DocumentData | null;
   const emiSplit: EmiSplitConfig | undefined = rawEmiSplit && typeof rawEmiSplit === "object"
@@ -34,15 +49,9 @@ export const normalizeOnboardingLink = (token: string, data: DocumentData = {}):
     className: getString(data.className),
     slotLabel: getString(data.slotLabel) || undefined,
     trainerName: getString(data.trainerName) || undefined,
-    rows: Array.isArray(data.rows)
-      ? data.rows
-          .map((row: DocumentData): FeeBreakdownRow => ({ label: getString(row?.label), amountInPaise: Math.round(toNumber(row?.amountInPaise)) }))
-          .filter((row) => row.label)
-      : [],
-    totalInPaise: Math.max(0, Math.round(toNumber(data.totalInPaise))),
-    // Older links pre-date the EMI split and have no dueNowInPaise — fall back
-    // to the full total so they keep working unchanged.
-    dueNowInPaise: Math.max(0, Math.round(toNumber(data.dueNowInPaise, toNumber(data.totalInPaise)))),
+    rows: toFeeRows(data.rows),
+    totalInPaise,
+    dueNowInPaise,
     methods: {
       razorpay: methods.razorpay === true,
       qr: methods.qr === true,
@@ -53,11 +62,7 @@ export const normalizeOnboardingLink = (token: string, data: DocumentData = {}):
     rejectReason: getString(data.rejectReason) || undefined,
     freeMonthNote: getString(data.freeMonthNote) || undefined,
     emiSplit,
-    emiInstallments: Array.isArray(data.emiInstallments)
-      ? data.emiInstallments
-          .map((row: DocumentData): FeeBreakdownRow => ({ label: getString(row?.label), amountInPaise: Math.round(toNumber(row?.amountInPaise)) }))
-          .filter((row) => row.label && row.amountInPaise > 0)
-      : undefined,
+    emiInstallments: emiInstallments.length > 0 ? emiInstallments : undefined,
     credentials: credentials && getString(credentials.email)
       ? { email: getString(credentials.email), password: getString(credentials.password), studentId: getString(credentials.studentId) }
       : undefined,
@@ -187,7 +192,9 @@ export const buildPaymentLinkWhatsAppUrl = (
         "Payment schedule:",
         ...emi.installments.map((row, index) => `${index + 1}. ${row.label} — ${formatPaiseAsRupees(row.amountInPaise)}`),
         "",
-        "Once you've paid, tap *\"I've paid the 1st installment\"* on the link (you may attach the payment screenshot — it's optional). We'll verify it and your student-portal login will appear on the same link. The remaining installments will be shown in your portal.",
+        "Once you've paid, tap *\"I've paid the 1st installment\"* on the link (you may attach the payment screenshot — it's optional). We'll verify it and your student-portal login will appear on the same link.",
+        "",
+        `The remaining ${emi.installments.length - 1} installment${emi.installments.length === 2 ? "" : "s"} are NOT due today. After you log in they appear under *My Classes → EMI installments*, and you can pay them any time from there.`,
       ]
     : [
         `To confirm the admission, please complete the fee payment of *${formatPaiseAsRupees(dueNowInPaise)}* using the secure link below:`,

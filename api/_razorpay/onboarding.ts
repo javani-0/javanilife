@@ -28,6 +28,29 @@ interface OnboardingBody {
 
 const isHttpUrl = (value: string) => /^https?:\/\/\S+$/i.test(value);
 const getString = (value: unknown, fallback = ""): string => (typeof value === "string" ? value : fallback);
+const clampPaise = (value: unknown): number => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.max(0, Math.round(parsed)) : 0;
+};
+
+/**
+ * What this link asks the parent to pay TODAY, and whether that is an EMI
+ * first installment. Mirrors normalizeOnboardingLink on the client, including
+ * the fallback for link docs written before `dueNowInPaise` existed — the
+ * amount is always priced server-side, never trusted from the request.
+ */
+const priceLink = (data: FirebaseFirestore.DocumentData): { totalInPaise: number; dueNowInPaise: number; isEmi: boolean } => {
+  const methods = (data.methods || {}) as Record<string, unknown>;
+  const totalInPaise = clampPaise(data.totalInPaise);
+  const installments = (Array.isArray(data.emiInstallments) ? data.emiInstallments : [])
+    .map((row: FirebaseFirestore.DocumentData) => clampPaise(row?.amountInPaise))
+    .filter((amount: number) => amount > 0);
+  const hasStoredDueNow = Number.isFinite(Number(data.dueNowInPaise));
+  const dueNowInPaise = hasStoredDueNow
+    ? clampPaise(data.dueNowInPaise)
+    : (methods.emi === true && installments.length > 1 ? installments[0] : totalInPaise);
+  return { totalInPaise, dueNowInPaise, isEmi: methods.emi === true && dueNowInPaise > 0 && dueNowInPaise < totalInPaise };
+};
 
 const loadLink = async (db: FirebaseFirestore.Firestore, token: string) => {
   if (!token || token.length < 16) return null;
@@ -85,10 +108,7 @@ export default async function handler(request: ApiRequest, response: ApiResponse
         const upiRef = (body.upiRef || "").trim().slice(0, 40);
         // EMI link → the parent is declaring the FIRST installment, not the
         // whole course fee. Price it server-side from the link doc.
-        const linkMethods = (link.data.methods || {}) as Record<string, unknown>;
-        const totalInPaise = Math.max(0, Math.round(Number(link.data.totalInPaise || 0)));
-        const dueNowInPaise = Math.max(0, Math.round(Number(link.data.dueNowInPaise ?? totalInPaise)));
-        const isEmi = linkMethods.emi === true && dueNowInPaise > 0 && dueNowInPaise < totalInPaise;
+        const { dueNowInPaise, isEmi } = priceLink(link.data);
 
         await link.ref.set({
           status: "payment-submitted",
@@ -126,8 +146,7 @@ export default async function handler(request: ApiRequest, response: ApiResponse
         return;
       }
       // On an EMI link only the first installment is charged online today.
-      const linkTotalInPaise = Math.max(0, Math.round(Number(link.data.totalInPaise || 0)));
-      const amountInPaise = Math.max(0, Math.round(Number(link.data.dueNowInPaise ?? linkTotalInPaise)));
+      const { dueNowInPaise: amountInPaise } = priceLink(link.data);
       if (amountInPaise < 100) {
         sendError(response, 400, "There is nothing to pay online on this link.");
         return;
@@ -180,16 +199,13 @@ export default async function handler(request: ApiRequest, response: ApiResponse
         updatedAt: FieldValue.serverTimestamp(),
       }, { merge: true });
       if (status !== "approved") {
-        const paidTotalInPaise = Math.max(0, Math.round(Number(link.data.totalInPaise || 0)));
-        const paidDueNowInPaise = Math.max(0, Math.round(Number(link.data.dueNowInPaise ?? paidTotalInPaise)));
-        const paidIsEmi = (link.data.methods as Record<string, unknown> | undefined)?.emi === true
-          && paidDueNowInPaise > 0 && paidDueNowInPaise < paidTotalInPaise;
+        const paid = priceLink(link.data);
         await updateStudentDoc(db, studentDocId, {
           onboardingStatus: "paid-online",
           paidVia: "razorpay",
           razorpayPaymentId,
-          submittedAmountInPaise: paidDueNowInPaise,
-          ...(paidIsEmi ? { emiInstallmentSubmitted: 1 } : {}),
+          submittedAmountInPaise: paid.dueNowInPaise,
+          ...(paid.isEmi ? { emiInstallmentSubmitted: 1 } : {}),
           rejectReason: FieldValue.delete(),
         });
       }
