@@ -37,7 +37,7 @@ Two structural changes plus a full student portal:
 - `students/{id}` is hard-bound to **one** class: `classId`, `className`, `slotId`, `slotLabel`, `trainerName`, `joiningDate`, `nextChargeDate`, `inventory`, `fees`, `methods`, `enrollmentId` are all singular (`src/lib/students/types.ts:80-116`).
 - `api/_razorpay/approve-onboarding.ts:394` creates exactly one `EnrollmentDoc`; its idempotency guard is `studentId && userUid && enrollmentId` (line 205).
 - Fee itemisation exists **only** on the admission fee doc (`FeePaymentDoc.breakdown[]`). Recurring monthly fees carry a bare `amountInPaise`.
-- The admin student form has **no** fee-total preview.
+- The admin student form has a live itemised "Payment link total" preview (`AdminStudents.tsx:1141-1172`) — rows, total, EMI schedule. It is **single-class only** and must become per-class sections plus a grand total.
 - There is no faculty login role.
 - `classes/{id}` is `allow read: if true` — `liveClassUrl`, `recordings` and `materials` are publicly readable.
 - `AdminStudents.tsx` is 1189 lines.
@@ -172,7 +172,7 @@ The server mirror in `approve-onboarding.ts` (`buildOnboardingBreakdown`) is upd
 
 ### 5.2 Where the breakdown appears
 
-1. **Admin student form** — `StudentFeeSummary` live-updates as fees are typed. Per-class section + grand total + "Due now" when EMI is on. *(No preview exists today.)*
+1. **Admin student form** — the existing single-class "Payment link total" block (`AdminStudents.tsx:1141-1172`) is replaced by `StudentFeeSummary`: one section per class, then a grand total and a "Due now" line when any course is on EMI. Existing behaviour retained — the zero-total note, the first-month-free note, and the EMI schedule (now per class).
 2. **`/pay/:token`** — `OnboardingPay.tsx` renders `sections[]` instead of one flat `rows[]`; each class is a titled block with its own subtotal, then one grand total and one "Pay now" amount. `OnboardingLinkDoc` gains `sections: CourseBreakdown[]`; the existing `rows`/`totalInPaise` stay populated (flattened) for older links.
 3. **Every `feePayments` doc** — `buildFeePaymentSeed` (server `api/_lib/fee-store.ts` + client mirror `src/lib/classes/fees.ts`) now writes a `breakdown[]` even for recurring monthly fees (single row, e.g. `"Monthly class fee — Bharatanatyam"`). This makes the parent's history and the admin ledger always render an itemised table rather than a bare number.
 4. **Parent portal** — `account/Classes.tsx` history and the new dashboard fee card render `breakdown[]` for every fee, not just admission.
