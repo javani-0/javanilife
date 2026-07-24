@@ -1,5 +1,6 @@
 import type { Timestamp } from "firebase/firestore";
 import type { Gender } from "@/lib/classes";
+import { buildCourseRows, buildEmiRows } from "./feeBreakdown";
 
 // ---------------------------------------------------------------------------
 // Student Manager (req): the admin creates and manages every student profile.
@@ -379,56 +380,11 @@ export const mirrorPrimaryCourse = (courses: StudentCourse[]) => {
  * billable month is waived at approval instead.
  */
 export const buildFeeBreakdown = (fees: StudentFeeSetup): { rows: FeeBreakdownRow[]; totalInPaise: number; emiInstallments?: FeeBreakdownRow[] } => {
-  const rows: FeeBreakdownRow[] = [];
-  if (clampPaise(fees.kitFeeInPaise) > 0) rows.push({ label: "Kit fee", amountInPaise: clampPaise(fees.kitFeeInPaise) });
-  if (clampPaise(fees.booksFeeInPaise) > 0) rows.push({ label: "Books fee", amountInPaise: clampPaise(fees.booksFeeInPaise) });
-  if (clampPaise(fees.uniformFeeInPaise) > 0) rows.push({ label: "Uniform fee", amountInPaise: clampPaise(fees.uniformFeeInPaise) });
-
-  // A TERM course is a one-time full payment — charged for BOTH new and
-  // existing students (it isn't a recurring "pre-payment"). Only the MONTHLY
-  // pre-payment (the first advance) is skipped for existing students, who bill
-  // in arrears from their first collectable month.
-  if (fees.track === "term" && clampPaise(fees.termFeeInPaise) > 0) {
-    rows.push({ label: "Course fee (full term)", amountInPaise: clampPaise(fees.termFeeInPaise) });
-  }
-  if (fees.studentType === "new" && fees.track === "monthly" && clampPaise(fees.monthlyFeeInPaise) > 0) {
-    rows.push({ label: "Pre-payment (first fee)", amountInPaise: clampPaise(fees.monthlyFeeInPaise) });
-  }
-
-  const subtotal = rows.reduce((sum, row) => sum + row.amountInPaise, 0);
-  const discount = Math.min(clampPaise(fees.discountInPaise), subtotal);
-  if (discount > 0) rows.push({ label: "Discount", amountInPaise: -discount });
-
-  const totalInPaise = Math.max(0, subtotal - discount);
-
-  // Build EMI installment rows when EMI split is configured (term only)
-  let emiInstallments: FeeBreakdownRow[] | undefined;
-  if (fees.emiSplit && fees.track === "term" && totalInPaise > 0) {
-    const { upfrontPercentage, installmentPercentages } = fees.emiSplit;
-    const upfrontAmount = Math.round((totalInPaise * upfrontPercentage) / 100);
-    emiInstallments = [
-      { label: `Pay now (${upfrontPercentage}%)`, amountInPaise: upfrontAmount },
-    ];
-    let remaining = totalInPaise - upfrontAmount;
-    installmentPercentages.forEach((pct, i) => {
-      const isLast = i === installmentPercentages.length - 1;
-      const amount = isLast ? remaining : Math.round((totalInPaise * pct) / 100);
-      remaining -= amount;
-      emiInstallments!.push({
-        label: `${ordinal(i + 2)} installment (${pct}%)`,
-        amountInPaise: amount,
-      });
-    });
-  }
-
+  const { rows, totalInPaise } = buildCourseRows(fees);
+  // Legacy behaviour: emiInstallments were computed whenever a split existed,
+  // regardless of the `emi` method flag. Preserved exactly.
+  const emiInstallments = buildEmiRows(fees, { emi: true }, totalInPaise);
   return { rows, totalInPaise, emiInstallments };
-};
-
-/** Convert 2 → "2nd", 3 → "3rd", etc. */
-const ordinal = (n: number): string => {
-  const s = ["th", "st", "nd", "rd"];
-  const v = n % 100;
-  return n + (s[(v - 20) % 10] || s[v] || s[0]);
 };
 
 /**
