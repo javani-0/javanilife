@@ -257,7 +257,10 @@ const StudentFeePanel = ({ student, adminUid }: StudentFeePanelProps) => {
                     </p>
                     {paidLine && <p className="font-body text-[0.7rem] font-medium text-green-700">{paidLine}</p>}
                     {fee.adminNote && displayStatus !== "paid" && <p className="font-body text-[0.7rem] text-amber-700">{fee.adminNote}</p>}
-                    {(fee.breakdown || []).length > 0 && (
+                    {/* Only itemise a real split — a single row restating the
+                        total (a plain monthly fee) adds nothing. */}
+                    {(fee.breakdown || []).length > 0
+                      && !((fee.breakdown || []).length === 1 && fee.breakdown![0].amountInPaise === fee.amountInPaise) && (
                       <div className="mt-1 rounded-md bg-muted/50 px-2 py-1.5">
                         {(fee.breakdown || []).map((row, i) => (
                           <div key={i} className="flex justify-between gap-3 font-body text-[0.7rem] text-muted-foreground">
