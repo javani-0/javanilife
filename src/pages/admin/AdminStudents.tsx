@@ -13,7 +13,9 @@ import { CLOUDINARY_CLOUD_NAME, CLOUDINARY_UPLOAD_PRESET } from "@/lib/cloudinar
 import { openSquareCropper } from "@/components/SquareImageCropper";
 import StudentFeePanel from "@/components/admin/StudentFeePanel";
 import StudentFeeCollections from "@/components/admin/StudentFeeCollections";
-import { formatPaiseAsRupees, parsePriceToPaise } from "@/lib/ecommerce";
+import StudentCourseEditor from "@/components/admin/StudentCourseEditor";
+import StudentFeeSummary from "@/components/admin/StudentFeeSummary";
+import { formatPaiseAsRupees } from "@/lib/ecommerce";
 import {
   classOffersMonthly,
   classOffersTerm,
@@ -24,20 +26,18 @@ import {
 } from "@/lib/classes";
 import {
   approveOnboarding,
-  buildFeeBreakdown,
+  buildCourseBreakdown,
   buildPayLinkUrl,
-  DEFAULT_EMI_SPLIT,
+  buildStudentBreakdown,
   deleteStudentCompletely,
   buildPaymentLinkWhatsAppUrl,
   buildStudentCredentialsWhatsAppUrl,
   createStudent,
   deleteDraftStudent,
   deleteEnrollmentRequest,
-  emiScheduleFor,
   markEnrollmentRequestAdded,
-  onboardingDueNowInPaise,
+  newCourseKey,
   subscribeToEnrollmentRequests,
-  isPaymentFreeOnboarding,
   markLinkShared,
   ONBOARDING_STATUS_LABELS,
   PARENT_RELATION_LABELS,
@@ -52,11 +52,11 @@ import {
   updateStudent,
   type OnboardingStatus,
   type ParentRelation,
+  type StudentCourse,
   type StudentCredential,
   type StudentDoc,
   type StudentMode,
   type StudentTrack,
-  type StudentType,
   type StudentWriteInput,
   type EnrollmentRequestDoc,
 } from "@/lib/students";
@@ -76,43 +76,47 @@ interface StudentFormState {
   mode: StudentMode;
   photoUrl: string;
   rollNumber: string;
-  classId: string;
-  slotId: string;
-  track: StudentTrack;
-  joiningDate: string;
-  nextChargeDate: string;
-  invUniform: boolean;
-  invKit: boolean;
-  invBooks: boolean;
-  studentType: StudentType;
-  kitFeeRupees: string;
-  booksFeeRupees: string;
-  uniformFeeRupees: string;
-  monthlyFeeRupees: string;
-  termFeeRupees: string;
-  discountRupees: string;
-  firstMonthFree: boolean;
-  mRazorpay: boolean;
-  mQr: boolean;
-  mCounter: boolean;
-  mEmi: boolean;
-  emiUpfront: string;
-  emiParts: string[];  // e.g. ["25", "25"]
+  // Every class this student takes (req). Each carries its own slot, fees,
+  // inventory, payment methods and dates.
+  courses: StudentCourse[];
 }
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
 
+/** A blank course row, optionally seeded from a class's catalog defaults. */
+const makeCourse = (cls?: ClassDoc, overrides: Partial<StudentCourse> = {}): StudentCourse => {
+  const track: StudentTrack = cls && !classOffersMonthly(cls) && classOffersTerm(cls) ? "term" : "monthly";
+  return {
+    key: newCourseKey(),
+    classId: cls?.id || "",
+    className: cls?.name || "",
+    slotId: "",
+    slotLabel: "",
+    trainerName: cls?.facultyName || "",
+    joiningDate: todayIso(),
+    nextChargeDate: "",
+    inventory: { uniform: false, kit: false, books: false },
+    fees: {
+      studentType: "new",
+      track,
+      kitFeeInPaise: 0,
+      booksFeeInPaise: 0,
+      uniformFeeInPaise: 0,
+      monthlyFeeInPaise: track === "monthly" ? (cls?.monthlyFeeInPaise || 0) : 0,
+      termFeeInPaise: track === "term" && cls ? getTermPayFullPriceInPaise(cls) : 0,
+      discountInPaise: 0,
+      firstMonthFree: false,
+    },
+    methods: { razorpay: false, qr: true, counter: true, emi: false },
+    status: "active",
+    ...overrides,
+  };
+};
+
 const defaultForm: StudentFormState = {
   name: "", age: "", gender: "male", email: "", phone: "",
   parentName: "", parentRelation: "father", address: "", mode: "offline", photoUrl: "", rollNumber: "",
-  classId: "", slotId: "", track: "monthly", joiningDate: "", nextChargeDate: "",
-  invUniform: false, invKit: false, invBooks: false,
-  studentType: "new",
-  kitFeeRupees: "", booksFeeRupees: "", uniformFeeRupees: "",
-  monthlyFeeRupees: "", termFeeRupees: "", discountRupees: "", firstMonthFree: false,
-  mRazorpay: false, mQr: true, mCounter: true, mEmi: false,
-  emiUpfront: String(DEFAULT_EMI_SPLIT.upfrontPercentage),
-  emiParts: DEFAULT_EMI_SPLIT.installmentPercentages.map(String),
+  courses: [],
 };
 
 const statusChip: Record<OnboardingStatus, string> = {
@@ -122,22 +126,6 @@ const statusChip: Record<OnboardingStatus, string> = {
   "paid-online": "bg-teal-100 text-teal-700",
   approved: "bg-green-100 text-green-700",
 };
-
-const toFormFees = (form: StudentFormState) => ({
-  studentType: form.studentType,
-  track: form.track,
-  kitFeeInPaise: parsePriceToPaise(form.kitFeeRupees) || 0,
-  booksFeeInPaise: parsePriceToPaise(form.booksFeeRupees) || 0,
-  uniformFeeInPaise: parsePriceToPaise(form.uniformFeeRupees) || 0,
-  monthlyFeeInPaise: parsePriceToPaise(form.monthlyFeeRupees) || 0,
-  termFeeInPaise: parsePriceToPaise(form.termFeeRupees) || 0,
-  discountInPaise: parsePriceToPaise(form.discountRupees) || 0,
-  firstMonthFree: form.firstMonthFree,
-  emiSplit: form.mEmi && form.track === "term" ? {
-    upfrontPercentage: Math.max(1, Math.round(Number(form.emiUpfront) || DEFAULT_EMI_SPLIT.upfrontPercentage)),
-    installmentPercentages: form.emiParts.map((v) => Math.max(1, Math.round(Number(v) || 0))).filter((v) => v > 0),
-  } : undefined,
-});
 
 const AdminStudents = () => {
   const { user, userProfile } = useAuth();
@@ -179,19 +167,50 @@ const AdminStudents = () => {
   useEffect(() => subscribeToStudentCredentials(setCredentials, () => undefined), []);
   useEffect(() => subscribeToEnrollmentRequests(setRequests, () => undefined), []);
 
-  const selectedClass = useMemo(() => classes.find((cls) => cls.id === form.classId), [classes, form.classId]);
-  const classTracks = useMemo(() => {
-    if (!selectedClass) return [] as StudentTrack[];
-    return [classOffersMonthly(selectedClass) ? "monthly" : null, classOffersTerm(selectedClass) ? "term" : null].filter(Boolean) as StudentTrack[];
-  }, [selectedClass]);
+  // The transparent price the admin sees — and exactly what the parent's link
+  // will show: one section per class, then the one grand total (req).
+  const previewFees = useMemo(() => buildStudentBreakdown(form.courses), [form.courses]);
+  const paymentFree = previewFees.grandTotalInPaise <= 0;
+  const firstMonthFreeNotes = useMemo(() => {
+    const active = form.courses.filter((course) => course.status !== "dropped");
+    return active
+      .filter((course) => course.fees.firstMonthFree && course.fees.track === "monthly")
+      .map((course) => (active.length > 1
+        ? `${course.className || "This class"}: first month's class fee will be waived automatically.`
+        : "First month's class fee will be waived automatically."));
+  }, [form.courses]);
 
-  const previewFees = useMemo(() => buildFeeBreakdown(toFormFees(form)), [form]);
-  const paymentFree = isPaymentFreeOnboarding(toFormFees(form));
+  const patchCourse = (key: string, next: StudentCourse) =>
+    setForm((current) => ({ ...current, courses: current.courses.map((course) => (course.key === key ? next : course)) }));
+
+  const addCourse = () => setForm((current) => ({ ...current, courses: [...current.courses, makeCourse()] }));
+
+  // Removing an APPROVED class never deletes it — it is marked dropped so the
+  // fee history survives and only that enrollment is paused.
+  const removeCourse = async (key: string) => {
+    const course = form.courses.find((item) => item.key === key);
+    if (!course) return;
+    if (course.enrollmentId) {
+      const ok = await confirmDialog({
+        title: `Drop ${course.className || "this class"}?`,
+        description: "Billing stops for this class and it disappears from the parent's portal. The fee history is kept.",
+        confirmText: "Drop class",
+        destructive: true,
+      });
+      if (!ok) return;
+      setForm((current) => ({
+        ...current,
+        courses: current.courses.map((item) => (item.key === key ? { ...item, status: "dropped" as const } : item)),
+      }));
+      return;
+    }
+    setForm((current) => ({ ...current, courses: current.courses.filter((item) => item.key !== key) }));
+  };
 
   const openAdd = (prefill?: Partial<StudentFormState>) => {
     // Suggest the next roll number — the admin can overwrite it (req). Joining
     // date defaults to today (editable).
-    setForm({ ...defaultForm, joiningDate: todayIso(), rollNumber: suggestNextStudentId(students), ...prefill });
+    setForm({ ...defaultForm, rollNumber: suggestNextStudentId(students), courses: [makeCourse()], ...prefill });
     setEmailAuto(!prefill?.email); // auto-derive the email unless one was prefilled
     setEditing(null);
     setShowModal(true);
@@ -202,7 +221,7 @@ const AdminStudents = () => {
   // mark the lead handled.
   const addFromRequest = (request: EnrollmentRequestDoc) => {
     const cls = classes.find((item) => item.id === request.classId);
-    const track: StudentTrack = cls && classOffersMonthly(cls) ? "monthly" : cls && classOffersTerm(cls) ? "term" : "monthly";
+    const slot = (cls?.timeSlots || []).find((item) => item.id === request.slotId);
     openAdd({
       name: request.studentName,
       age: request.age > 0 ? String(request.age) : "",
@@ -211,11 +230,7 @@ const AdminStudents = () => {
       phone: request.whatsapp || request.phone,
       parentName: request.parentName,
       address: request.address,
-      classId: request.classId,
-      slotId: request.slotId || "",
-      track,
-      monthlyFeeRupees: cls?.monthlyFeeInPaise ? String(cls.monthlyFeeInPaise / 100) : "",
-      termFeeRupees: cls?.termFeeInPaise ? String(getTermPayFullPriceInPaise(cls) / 100) : "",
+      courses: [makeCourse(cls, { slotId: slot?.id || "", slotLabel: slot?.label || "" })],
     });
     markEnrollmentRequestAdded(request.id).catch(() => undefined);
     logAction("Added student from enrolment lead", `${request.studentName} · ${request.className}`);
@@ -246,50 +261,16 @@ const AdminStudents = () => {
       mode: student.mode,
       photoUrl: student.photoUrl || "",
       rollNumber: student.studentId || student.desiredStudentId || "",
-      classId: student.classId,
-      slotId: student.slotId || "",
-      track: student.fees.track,
-      joiningDate: student.joiningDate || "",
-      nextChargeDate: student.nextChargeDate || "",
-      invUniform: student.inventory.uniform,
-      invKit: student.inventory.kit,
-      invBooks: student.inventory.books,
-      studentType: student.fees.studentType,
-      kitFeeRupees: student.fees.kitFeeInPaise > 0 ? String(student.fees.kitFeeInPaise / 100) : "",
-      booksFeeRupees: student.fees.booksFeeInPaise > 0 ? String(student.fees.booksFeeInPaise / 100) : "",
-      uniformFeeRupees: student.fees.uniformFeeInPaise > 0 ? String(student.fees.uniformFeeInPaise / 100) : "",
-      monthlyFeeRupees: student.fees.monthlyFeeInPaise > 0 ? String(student.fees.monthlyFeeInPaise / 100) : "",
-      termFeeRupees: student.fees.termFeeInPaise > 0 ? String(student.fees.termFeeInPaise / 100) : "",
-      discountRupees: student.fees.discountInPaise > 0 ? String(student.fees.discountInPaise / 100) : "",
-      firstMonthFree: student.fees.firstMonthFree,
-      mRazorpay: student.methods.razorpay,
-      mQr: student.methods.qr,
-      mCounter: student.methods.counter,
-      mEmi: student.methods.emi,
-      emiUpfront: student.fees.emiSplit ? String(student.fees.emiSplit.upfrontPercentage) : String(DEFAULT_EMI_SPLIT.upfrontPercentage),
-      emiParts: student.fees.emiSplit ? student.fees.emiSplit.installmentPercentages.map(String) : DEFAULT_EMI_SPLIT.installmentPercentages.map(String),
+      // Every class the student takes — legacy single-class docs normalise to
+      // a one-entry array, so old students open exactly as before.
+      courses: student.courses.map((course) => ({ ...course })),
     });
     setShowModal(true);
   };
 
   const closeModal = () => { setShowModal(false); setEditing(null); setForm(defaultForm); };
 
-  // When a class is picked, default its fee + track and (only when adding) its fee amounts.
-  const handleClassChange = (classId: string) => {
-    const cls = classes.find((item) => item.id === classId);
-    const nextTrack: StudentTrack = cls && classOffersMonthly(cls) ? "monthly" : cls && classOffersTerm(cls) ? "term" : "monthly";
-    setForm((current) => ({
-      ...current,
-      classId,
-      slotId: "",
-      track: nextTrack,
-      monthlyFeeRupees: !editing && cls?.monthlyFeeInPaise ? String(cls.monthlyFeeInPaise / 100) : current.monthlyFeeRupees,
-      termFeeRupees: !editing && cls?.termFeeInPaise ? String(getTermPayFullPriceInPaise(cls) / 100) : current.termFeeRupees,
-    }));
-  };
-
   const buildWriteInput = (): StudentWriteInput | null => {
-    const cls = classes.find((item) => item.id === form.classId);
     if (!form.name.trim()) { toast({ title: "Student name is required", variant: "destructive" }); return null; }
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(form.email.trim())) { toast({ title: "A valid login email is required", description: "The parent signs in with this email.", variant: "destructive" }); return null; }
     const rollNumber = form.rollNumber.trim().toUpperCase();
@@ -304,8 +285,19 @@ const AdminStudents = () => {
       const holder = students.find((s) => s.id !== editing?.id && (s.studentId || s.desiredStudentId) === rollNumber);
       if (holder) { toast({ title: `Roll number ${rollNumber} is already taken`, description: `It belongs to ${holder.name}. Delete that student to free the number, or pick another.`, variant: "destructive" }); return null; }
     }
-    if (!cls) { toast({ title: "Pick a class", variant: "destructive" }); return null; }
-    const slot = (cls.timeSlots || []).find((item) => item.id === form.slotId);
+    const liveCourses = form.courses.filter((course) => course.status !== "dropped");
+    if (liveCourses.length === 0 || liveCourses.some((course) => !course.classId)) {
+      toast({ title: "Pick a class", description: "Every class row needs a class selected.", variant: "destructive" });
+      return null;
+    }
+    // The same class twice would create two enrollments and two ledgers for it.
+    const classIds = liveCourses.map((course) => course.classId);
+    const duplicate = classIds.find((id, index) => classIds.indexOf(id) !== index);
+    if (duplicate) {
+      const name = classes.find((cls) => cls.id === duplicate)?.name || "That class";
+      toast({ title: `${name} is already added`, description: "Remove the duplicate row — a student can only enrol once per class.", variant: "destructive" });
+      return null;
+    }
     return {
       name: form.name,
       age: Number(form.age) || 0,
@@ -318,44 +310,47 @@ const AdminStudents = () => {
       mode: form.mode,
       photoUrl: form.photoUrl,
       desiredStudentId: rollNumber,
-      classId: cls.id,
-      className: cls.name,
-      slotId: slot?.id,
-      slotLabel: slot?.label,
-      trainerName: cls.facultyName || "",
-      joiningDate: form.joiningDate || todayIso(),
-      nextChargeDate: form.nextChargeDate || "",
-      inventory: { uniform: form.invUniform, kit: form.invKit, books: form.invBooks },
-      fees: toFormFees(form),
-      methods: { razorpay: form.mRazorpay, qr: form.mQr, counter: form.mCounter, emi: form.mEmi && form.track === "term" },
+      courses: form.courses.map((course) => ({
+        ...course,
+        joiningDate: course.joiningDate || todayIso(),
+      })),
     };
   };
 
   const handleSave = async () => {
     const input = buildWriteInput();
     if (!input) return;
-    if (!input.methods.razorpay && !input.methods.qr && !input.methods.counter && !isPaymentFreeOnboarding(input.fees)) {
-      toast({ title: "Enable at least one payment method", description: "Pick which options the parent can use to pay.", variant: "destructive" });
-      return;
-    }
-    // Validate EMI split adds up to 100%
-    if (input.methods.emi && input.fees.emiSplit) {
-      const total = input.fees.emiSplit.upfrontPercentage + input.fees.emiSplit.installmentPercentages.reduce((s, v) => s + v, 0);
-      if (total !== 100) {
-        toast({ title: "EMI split must total 100%", description: `Currently ${total}%. Adjust the percentages.`, variant: "destructive" });
+
+    // Per-class validation — the parent pays one combined total, but each class
+    // carries its own methods and EMI split.
+    for (const course of input.courses) {
+      if (course.status === "dropped") continue;
+      const label = course.className || "A class";
+      const courseTotal = buildCourseBreakdown(course).totalInPaise;
+      if (!course.methods.razorpay && !course.methods.qr && !course.methods.counter && courseTotal > 0) {
+        toast({ title: `Enable a payment method for ${label}`, description: "Pick which options the parent can use to pay.", variant: "destructive" });
         return;
       }
+      if (course.methods.emi && course.fees.emiSplit) {
+        const total = course.fees.emiSplit.upfrontPercentage + course.fees.emiSplit.installmentPercentages.reduce((sum, value) => sum + value, 0);
+        if (total !== 100) {
+          toast({ title: `EMI split for ${label} must total 100%`, description: `Currently ${total}%. Adjust the percentages.`, variant: "destructive" });
+          return;
+        }
+      }
     }
+
+    const classSummary = input.courses.filter((course) => course.status !== "dropped").map((course) => course.className).filter(Boolean).join(", ");
     setSaving(true);
     try {
       if (editing) {
         await updateStudent(editing, input);
         toast({ title: "Student updated" });
-        logAction("Updated student", `${input.name}${editing.studentId ? ` (${editing.studentId})` : ""} · ${input.className}`);
+        logAction("Updated student", `${input.name}${editing.studentId ? ` (${editing.studentId})` : ""} · ${classSummary}`);
       } else {
         await createStudent(input);
         toast({ title: "Student created", description: "Share the payment link from the card, then approve to issue the login." });
-        logAction("Created student", `${input.name} · ${input.className}${input.desiredStudentId ? ` · roll ${input.desiredStudentId}` : ""}`);
+        logAction("Created student", `${input.name} · ${classSummary}${input.desiredStudentId ? ` · roll ${input.desiredStudentId}` : ""}`);
       }
       closeModal();
     } catch (error) {
@@ -512,7 +507,9 @@ const AdminStudents = () => {
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     const list = q
-      ? students.filter((s) => [s.name, s.email, s.parentName, s.className, s.studentId].some((v) => (v || "").toLowerCase().includes(q)))
+      // Search every class the student takes, not just the first (req).
+      ? students.filter((s) => [s.name, s.email, s.parentName, s.studentId, ...s.courses.map((course) => course.className)]
+          .some((v) => (v || "").toLowerCase().includes(q)))
       : students;
     return [...list].sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
   }, [students, search]);
@@ -663,12 +660,20 @@ const AdminStudents = () => {
           {filtered.map((student) => {
             const credential = credentials[student.id];
             const payUrl = student.linkToken ? buildPayLinkUrl(student.linkToken) : "";
-            const { totalInPaise } = buildFeeBreakdown(student.fees);
+            // The combined price across EVERY class this student takes (req).
+            const studentBreakdown = buildStudentBreakdown(student.courses);
+            const totalInPaise = studentBreakdown.grandTotalInPaise;
             // EMI onboarding → the link (and the WhatsApp message) ask for the
-            // FIRST installment only; the rest become dues after approval.
-            const emiSchedule = emiScheduleFor(student.fees, student.methods);
-            const dueNowInPaise = onboardingDueNowInPaise(student.fees, student.methods);
+            // FIRST installment only; the rest become dues after approval. EMI
+            // only applies when a single class drives the link.
+            const emiSchedule = studentBreakdown.sections.length === 1
+              ? studentBreakdown.sections[0].emiInstallments
+              : undefined;
+            const dueNowInPaise = studentBreakdown.dueNowInPaise;
             const canApprove = ["payment-submitted", "counter-chosen", "paid-online"].includes(student.onboardingStatus);
+            // Classes added after the student was approved still need their own
+            // enrolment + ledger — re-running Approve materialises only those.
+            const newClassCount = student.courses.filter((course) => !course.enrollmentId && course.status !== "dropped").length;
             const approveMethod: "upi" | "cash" | "manual" = student.paidVia === "counter" ? "cash" : student.paidVia === "razorpay" ? "manual" : "upi";
             // An open fees panel / danger zone needs the full width — span all
             // grid columns so its table isn't cramped in one narrow cell.
@@ -692,7 +697,8 @@ const AdminStudents = () => {
                       {!student.active && <span className="rounded-full bg-muted px-2.5 py-0.5 font-body text-xs text-muted-foreground">Inactive</span>}
                     </div>
                     <p className="mt-1 font-body text-sm text-muted-foreground">
-                      {student.className}{student.slotLabel ? ` · ${student.slotLabel}` : ""} · {student.fees.studentType === "new" ? "New" : "Existing"} · {student.mode === "online" ? "Online" : "Offline"}
+                      {student.courses.filter((course) => course.status !== "dropped").map((course) => course.className).filter(Boolean).join(" · ") || "—"}
+                      {student.courses.length === 1 && student.slotLabel ? ` · ${student.slotLabel}` : ""} · {student.fees.studentType === "new" ? "New" : "Existing"} · {student.mode === "online" ? "Online" : "Offline"}
                     </p>
                     <p className="font-body text-xs text-muted-foreground">
                       {PARENT_RELATION_LABELS[student.parentRelation]}: {student.parentName || "—"} · {student.email}{student.phone ? ` · ${student.phone}` : ""}
@@ -779,8 +785,21 @@ const AdminStudents = () => {
                   </div>
                 )}
 
+                {/* A class added AFTER approval — materialise just that class
+                    (req: one student can take multiple classes). */}
+                {student.onboardingStatus === "approved" && newClassCount > 0 && (
+                  <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-gold/40 bg-gold/5 p-3">
+                    <p className="min-w-0 font-body text-xs text-muted-foreground">
+                      <span className="font-semibold text-foreground">{newClassCount} new {newClassCount > 1 ? "classes" : "class"}</span> added — set up {newClassCount > 1 ? "their" : "its"} enrolment &amp; fees.
+                    </p>
+                    <button onClick={() => handleApprove(student, approveMethod)} disabled={busyId === student.id} className="flex shrink-0 items-center gap-1.5 rounded-md bg-gradient-primary px-4 py-1.5 font-body text-xs font-semibold text-primary-foreground hover:brightness-110 disabled:opacity-60">
+                      {busyId === student.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />} Approve new {newClassCount > 1 ? "classes" : "class"}
+                    </button>
+                  </div>
+                )}
+
                 {/* Direct-approve for a zero-payment onboarding (existing student, nothing due) */}
-                {student.onboardingStatus === "awaiting-payment" && isPaymentFreeOnboarding(student.fees) && (
+                {student.onboardingStatus === "awaiting-payment" && totalInPaise <= 0 && (
                   <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border/60 bg-background/70 p-3">
                     <p className="font-body text-xs text-muted-foreground">Nothing to pay now — issue the login directly.</p>
                     <button onClick={() => handleApprove(student, "manual")} disabled={busyId === student.id} className="flex items-center gap-1.5 rounded-md bg-gradient-primary px-4 py-1.5 font-body text-xs font-semibold text-primary-foreground hover:brightness-110 disabled:opacity-60">
@@ -948,229 +967,45 @@ const AdminStudents = () => {
               </div>
             </div>
 
-            {/* B. Class details */}
-            <p className="mb-2 mt-5 border-t border-border/60 pt-4 font-display text-[0.95rem] font-semibold text-foreground">Class details</p>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div>
-                <label className={labelClass}>Class *</label>
-                <select value={form.classId} onChange={(e) => handleClassChange(e.target.value)} className={inputClass}>
-                  <option value="">Select a class…</option>
-                  {classes.map((cls) => <option key={cls.id} value={cls.id}>{cls.name}{cls.active ? "" : " (inactive)"}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className={labelClass}>Time slot</label>
-                <select value={form.slotId} onChange={(e) => setForm({ ...form, slotId: e.target.value })} className={inputClass} disabled={!selectedClass || (selectedClass.timeSlots || []).length === 0}>
-                  <option value="">{(selectedClass?.timeSlots || []).length === 0 ? "No slots defined" : "Select a slot…"}</option>
-                  {(selectedClass?.timeSlots || []).map((slot) => <option key={slot.id} value={slot.id}>{slot.label}</option>)}
-                </select>
-              </div>
-              {classTracks.length > 1 && (
-                <div className="sm:col-span-2">
-                  <label className={labelClass}>Fee track</label>
-                  <div className="flex gap-2">
-                    {classTracks.map((track) => (
-                      <button key={track} type="button" onClick={() => setForm({ ...form, track })} className={`flex-1 rounded-md border px-3 py-2 font-body text-[0.82rem] transition-colors ${form.track === track ? "border-gold bg-gold/10 font-semibold text-gold" : "border-border text-muted-foreground hover:border-gold/40"}`}>
-                        {track === "monthly" ? "Monthly fee" : "Term course"}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-              {selectedClass?.facultyName && (
-                <div className="sm:col-span-2 -mt-1 flex items-center gap-1.5 font-body text-[0.75rem] text-muted-foreground">
-                  <GraduationCap className="h-3.5 w-3.5 text-gold" /> Trainer: <span className="font-semibold text-foreground">{selectedClass.facultyName}</span> <span className="text-muted-foreground">(shown to the parent)</span>
-                </div>
-              )}
-              <div>
-                <label className={labelClass}>Joining date</label>
-                <input type="date" value={form.joiningDate} onChange={(e) => setForm({ ...form, joiningDate: e.target.value })} className={inputClass} />
-                <p className="mt-1 font-body text-[0.7rem] text-muted-foreground">Defaults to today — edit if they joined earlier.</p>
-              </div>
-              <div>
-                <label className={labelClass}>Next charge date</label>
-                <input type="date" value={form.nextChargeDate} onChange={(e) => setForm({ ...form, nextChargeDate: e.target.value })} className={inputClass} />
-                <p className="mt-1 font-body text-[0.7rem] text-muted-foreground">When the next fee is due — drives the reminder &amp; the parent's Pay button.</p>
-              </div>
-              <div className="sm:col-span-2">
-                <label className={labelClass}>Inventory received</label>
-                <div className="flex flex-wrap gap-2">
-                  {([["invUniform", "Uniform"], ["invKit", "Kit"], ["invBooks", "Books"]] as const).map(([key, label]) => (
-                    <button key={key} type="button" onClick={() => setForm({ ...form, [key]: !form[key] })} className={`flex items-center gap-1.5 rounded-md border px-3 py-2 font-body text-[0.82rem] transition-colors ${form[key] ? "border-green-500 bg-green-50 font-semibold text-green-700" : "border-border text-muted-foreground hover:border-gold/40"}`}>
-                      {form[key] ? <Check className="h-3.5 w-3.5" /> : <X className="h-3.5 w-3.5" />} {label}
-                    </button>
-                  ))}
-                </div>
-              </div>
+            {/* B + C. Classes — one editor per class the student takes (req). */}
+            <div className="mb-2 mt-5 flex flex-wrap items-center justify-between gap-2 border-t border-border/60 pt-4">
+              <p className="font-display text-[0.95rem] font-semibold text-foreground">
+                Classes &amp; fees
+                {form.courses.filter((course) => course.status !== "dropped").length > 1 && (
+                  <span className="ml-2 rounded-full bg-gold/15 px-2 py-0.5 font-body text-[0.68rem] font-semibold text-gold">
+                    {form.courses.filter((course) => course.status !== "dropped").length} classes
+                  </span>
+                )}
+              </p>
+              <button
+                type="button"
+                onClick={addCourse}
+                className="flex items-center gap-1.5 rounded-md border border-gold/40 px-3 py-1.5 font-body text-[0.78rem] font-semibold text-gold hover:bg-gold/10"
+              >
+                <UserPlus className="h-3.5 w-3.5" /> Add another class
+              </button>
             </div>
 
-            {/* C. Fees & payment setup */}
-            <p className="mb-2 mt-5 border-t border-border/60 pt-4 font-display text-[0.95rem] font-semibold text-foreground">Fees &amp; payment setup</p>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="sm:col-span-2">
-                <label className={labelClass}>Student type</label>
-                <div className="flex gap-2">
-                  {(["new", "existing"] as StudentType[]).map((type) => (
-                    <button key={type} type="button" onClick={() => setForm({ ...form, studentType: type })} className={`flex-1 rounded-md border px-3 py-2 font-body text-[0.82rem] transition-colors ${form.studentType === type ? "border-gold bg-gold/10 font-semibold text-gold" : "border-border text-muted-foreground hover:border-gold/40"}`}>
-                      {type === "new" ? "New student" : "Existing student"}
-                    </button>
-                  ))}
-                </div>
-                <p className="mt-1 font-body text-[0.72rem] text-muted-foreground">
-                  {form.studentType === "new"
-                    ? (form.track === "term" ? "Includes the full course fee on the link." : "Includes the first month's pre-payment on the link.")
-                    : (form.track === "term" ? "No monthly pre-payment — the full course fee & one-time items are charged." : "No pre-payment charged — only the one-time items below.")}
+            <div className="space-y-3">
+              {form.courses.length === 0 ? (
+                <p className="rounded-lg border border-dashed border-border p-4 text-center font-body text-sm text-muted-foreground">
+                  No classes yet — click <span className="font-semibold text-foreground">Add another class</span>.
                 </p>
-              </div>
-              {([["kitFeeRupees", "Kit fee"], ["booksFeeRupees", "Books fee"], ["uniformFeeRupees", "Uniform fee"]] as const).map(([key, label]) => (
-                <div key={key}>
-                  <label className={labelClass}>{label} (₹)</label>
-                  <div className="relative">
-                    <BadgeIndianRupee className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                    <input value={form[key]} onChange={(e) => setForm({ ...form, [key]: e.target.value })} className={`${inputClass} pl-10`} inputMode="decimal" placeholder="0" />
-                  </div>
-                </div>
+              ) : form.courses.map((course, index) => (
+                <StudentCourseEditor
+                  key={course.key}
+                  course={course}
+                  classes={classes}
+                  index={index}
+                  total={form.courses.length}
+                  locked={Boolean(course.enrollmentId)}
+                  onChange={(next) => patchCourse(course.key, next)}
+                  onRemove={() => { void removeCourse(course.key); }}
+                />
               ))}
-              <div>
-                <label className={labelClass}>Discount (₹)</label>
-                <div className="relative">
-                  <BadgeIndianRupee className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                  <input value={form.discountRupees} onChange={(e) => setForm({ ...form, discountRupees: e.target.value })} className={`${inputClass} pl-10`} inputMode="decimal" placeholder="0" />
-                </div>
-              </div>
-              {form.track === "term" ? (
-                <div className="sm:col-span-2">
-                  <label className={labelClass}>Term / course fee (₹)</label>
-                  <div className="relative">
-                    <BadgeIndianRupee className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                    <input value={form.termFeeRupees} onChange={(e) => setForm({ ...form, termFeeRupees: e.target.value })} className={`${inputClass} pl-10`} inputMode="decimal" placeholder="0" />
-                  </div>
-                </div>
-              ) : (
-                <>
-                  <div>
-                    <label className={labelClass}>Monthly class fee (₹)</label>
-                    <div className="relative">
-                      <BadgeIndianRupee className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                      <input value={form.monthlyFeeRupees} onChange={(e) => setForm({ ...form, monthlyFeeRupees: e.target.value })} className={`${inputClass} pl-10`} inputMode="decimal" placeholder="0" />
-                    </div>
-                  </div>
-                  <label className="flex items-end gap-2 pb-2 font-body text-[0.82rem] text-foreground">
-                    <input type="checkbox" checked={form.firstMonthFree} onChange={(e) => setForm({ ...form, firstMonthFree: e.target.checked })} />
-                    1 month free
-                  </label>
-                </>
-              )}
             </div>
 
-            {/* Admin-selected payment methods */}
-            <div className="mt-3">
-              <label className={labelClass}>Payment options the parent will see</label>
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-                {([
-                  ["mRazorpay", "Autopay / Pay online", "Razorpay"],
-                  ["mQr", "Pay Now (QR)", "Scan & upload screenshot"],
-                  ["mCounter", "Pay at counter", "Cash / POS at centre"],
-                  // EMI only makes sense for a term course (installment plan).
-                  ...(form.track === "term" ? [["mEmi", "EMI (installments)", "Pay the course in parts"] as const] : []),
-                ] as const).map(([key, label, sub]) => (
-                  <button key={key} type="button" onClick={() => setForm({ ...form, [key]: !form[key] })} className={`rounded-md border p-3 text-left font-body text-[0.8rem] transition-colors ${form[key] ? "border-gold bg-gold/5" : "border-border"}`}>
-                    <span className="flex items-center gap-2">
-                      <input type="checkbox" readOnly checked={form[key]} className="pointer-events-none" />
-                      <span className="font-semibold text-foreground">{label}</span>
-                    </span>
-                    <span className="mt-1 block text-muted-foreground">{sub}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* EMI split configuration — shown when EMI is toggled on */}
-            {form.mEmi && form.track === "term" && (
-              <div className="mt-3 rounded-lg border border-gold/25 bg-gold/5 p-3">
-                <p className="font-body text-xs font-semibold uppercase tracking-wide text-gold">EMI split method</p>
-                <p className="mt-1 font-body text-[0.72rem] text-muted-foreground">Configure how the total is split into installments. Percentages must add up to 100%.</p>
-                <div className="mt-2 space-y-2">
-                  <div className="flex items-center gap-2">
-                    <label className={`${labelClass} mb-0 w-32 shrink-0`}>Pay now</label>
-                    <div className="relative flex-1">
-                      <input
-                        value={form.emiUpfront}
-                        onChange={(e) => setForm({ ...form, emiUpfront: e.target.value.replace(/[^0-9]/g, "") })}
-                        className={`${inputClass} pr-7`}
-                        inputMode="numeric"
-                        placeholder="50"
-                      />
-                      <span className="absolute right-3 top-1/2 -translate-y-1/2 font-body text-xs text-muted-foreground">%</span>
-                    </div>
-                  </div>
-                  {form.emiParts.map((part, idx) => (
-                    <div key={idx} className="flex items-center gap-2">
-                      <label className={`${labelClass} mb-0 w-32 shrink-0`}>{idx + 2}{idx === 0 ? "nd" : idx === 1 ? "rd" : "th"} installment</label>
-                      <div className="relative flex-1">
-                        <input
-                          value={part}
-                          onChange={(e) => {
-                            const next = [...form.emiParts];
-                            next[idx] = e.target.value.replace(/[^0-9]/g, "");
-                            setForm({ ...form, emiParts: next });
-                          }}
-                          className={`${inputClass} pr-7`}
-                          inputMode="numeric"
-                          placeholder="25"
-                        />
-                        <span className="absolute right-3 top-1/2 -translate-y-1/2 font-body text-xs text-muted-foreground">%</span>
-                      </div>
-                      {form.emiParts.length > 1 && (
-                        <button type="button" onClick={() => setForm({ ...form, emiParts: form.emiParts.filter((_, i) => i !== idx) })} className="rounded p-1 text-destructive hover:bg-destructive/10" title="Remove">
-                          <X className="h-3.5 w-3.5" />
-                        </button>
-                      )}
-                    </div>
-                  ))}
-                  <button type="button" onClick={() => setForm({ ...form, emiParts: [...form.emiParts, ""] })} className="mt-1 font-body text-[0.75rem] font-semibold text-gold hover:underline">+ Add installment</button>
-                  {(() => {
-                    const total = (Number(form.emiUpfront) || 0) + form.emiParts.reduce((s, v) => s + (Number(v) || 0), 0);
-                    if (total !== 100) return <p className="mt-1 font-body text-[0.72rem] font-semibold text-destructive">Total is {total}% — must be 100%</p>;
-                    return <p className="mt-1 font-body text-[0.72rem] text-green-700">✓ Percentages add up to 100%</p>;
-                  })()}
-                </div>
-              </div>
-            )}
-
-            {/* Live total */}
-            <div className="mt-4 rounded-lg border border-gold/25 bg-gold/5 p-3">
-              <p className="font-body text-xs font-semibold uppercase tracking-wide text-muted-foreground">Payment link total</p>
-              {previewFees.rows.length === 0 ? (
-                <p className="mt-1 font-body text-sm text-muted-foreground">Nothing to pay now — a login can be issued directly after saving.</p>
-              ) : (
-                <div className="mt-1 space-y-0.5">
-                  {previewFees.rows.map((row, i) => (
-                    <div key={i} className="flex justify-between font-body text-xs text-muted-foreground">
-                      <span>{row.label}</span>
-                      <span className={row.amountInPaise < 0 ? "text-green-700" : "text-foreground"}>{row.amountInPaise < 0 ? "−" : ""}{formatPaiseAsRupees(Math.abs(row.amountInPaise))}</span>
-                    </div>
-                  ))}
-                  <div className="mt-1 flex justify-between border-t border-gold/20 pt-1 font-body text-sm font-bold text-foreground">
-                    <span>Total</span><span>{formatPaiseAsRupees(previewFees.totalInPaise)}</span>
-                  </div>
-                </div>
-              )}
-              {form.firstMonthFree && form.track === "monthly" && <p className="mt-1 font-body text-[0.72rem] text-green-700">First month's class fee will be waived automatically.</p>}
-              {previewFees.emiInstallments && previewFees.emiInstallments.length > 0 && (
-                <div className="mt-2 border-t border-gold/20 pt-2">
-                  <p className="font-body text-[0.7rem] font-semibold uppercase tracking-wide text-gold">EMI Payment Schedule</p>
-                  <div className="mt-1 space-y-0.5">
-                    {previewFees.emiInstallments.map((row, i) => (
-                      <div key={i} className="flex justify-between font-body text-xs">
-                        <span className={i === 0 ? "font-semibold text-foreground" : "text-muted-foreground"}>{row.label}</span>
-                        <span className={i === 0 ? "font-semibold text-foreground" : "text-foreground"}>{formatPaiseAsRupees(row.amountInPaise)}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
+            <StudentFeeSummary breakdown={previewFees} firstMonthFreeNotes={firstMonthFreeNotes} />
 
             <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:justify-end">
               <button type="button" onClick={closeModal} className="rounded-md border border-border px-5 py-2.5 font-body text-sm font-semibold text-muted-foreground hover:bg-muted">Cancel</button>
