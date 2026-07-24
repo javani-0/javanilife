@@ -57,6 +57,10 @@ const OnboardingPay = () => {
   // everywhere else "due now" is simply the whole onboarding total.
   const dueNow = link?.dueNowInPaise ?? total;
   const isEmi = Boolean(link?.methods.emi && dueNow > 0 && dueNow < total);
+  // Multi-class links carry one breakdown section per class. Links written
+  // before multi-class have no `sections` — those fall back to the flat rows.
+  const sections = link?.sections || [];
+  const multiClass = sections.length > 1;
   const upiIntentUrl = useMemo(
     () => (settings.upiId ? buildUpiIntentUrl({ upiId: settings.upiId, name: settings.upiName, amountInPaise: dueNow, note: link ? `${link.studentName} admission` : "" }) : ""),
     [settings.upiId, settings.upiName, dueNow, link],
@@ -219,7 +223,10 @@ const OnboardingPay = () => {
       <div className="w-full rounded-2xl bg-card p-6 shadow-xl">
         <h1 className="font-display text-2xl text-foreground">Complete admission</h1>
         <p className="mt-1 font-body text-sm text-muted-foreground">
-          {link.studentName} — {link.className}{link.slotLabel ? ` · ${link.slotLabel}` : ""}
+          {link.studentName}
+          {multiClass
+            ? ` — ${sections.length} classes`
+            : ` — ${link.className}${link.slotLabel ? ` · ${link.slotLabel}` : ""}`}
         </p>
         {link.trainerName && (
           <p className="mt-0.5 font-body text-xs text-muted-foreground">Trainer: <span className="font-semibold text-foreground">{link.trainerName}</span></p>
@@ -228,18 +235,54 @@ const OnboardingPay = () => {
           <p className="mt-3 rounded-md border border-amber-300 bg-amber-50 p-3 font-body text-[0.8rem] text-amber-800">{link.rejectReason}</p>
         )}
 
-        {/* Fee breakdown */}
+        {/* Fee breakdown — one section PER CLASS (req: transparent pricing),
+            falling back to the flat rows for links written before multi-class. */}
         <div className="mt-4 rounded-xl border border-border/60 bg-background/60 p-4">
-          <div className="space-y-1">
-            {link.rows.map((row, i) => (
-              <div key={i} className="flex justify-between font-body text-sm">
-                <span className="text-muted-foreground">{row.label}</span>
-                <span className={row.amountInPaise < 0 ? "font-semibold text-green-700" : "text-foreground"}>{row.amountInPaise < 0 ? "−" : ""}{formatPaiseAsRupees(Math.abs(row.amountInPaise))}</span>
-              </div>
-            ))}
-          </div>
-          <div className={`mt-2 flex justify-between border-t border-border/60 pt-2 font-display ${isEmi ? "text-base font-semibold text-muted-foreground" : "text-lg font-bold text-foreground"}`}>
-            <span>{isEmi ? "Course fee (total)" : "Total"}</span><span className={isEmi ? "text-foreground" : "text-primary"}>{formatPaiseAsRupees(total)}</span>
+          {sections.length > 0 ? (
+            <div className="space-y-3">
+              {sections.map((section) => (
+                <div key={section.key} className={multiClass ? "rounded-lg border border-border/60 bg-card/60 p-3" : ""}>
+                  {multiClass && (
+                    <div className="mb-1.5 flex flex-wrap items-baseline justify-between gap-x-2">
+                      <p className="min-w-0 font-body text-sm font-semibold text-foreground">{section.className}</p>
+                      {section.slotLabel && <p className="font-body text-xs text-muted-foreground">{section.slotLabel}</p>}
+                    </div>
+                  )}
+                  <div className="space-y-1">
+                    {section.rows.map((row, i) => (
+                      <div key={i} className="flex justify-between gap-2 font-body text-sm">
+                        <span className="min-w-0 text-muted-foreground">{row.label}</span>
+                        <span className={row.amountInPaise < 0 ? "shrink-0 font-semibold text-green-700" : "shrink-0 text-foreground"}>{row.amountInPaise < 0 ? "−" : ""}{formatPaiseAsRupees(Math.abs(row.amountInPaise))}</span>
+                      </div>
+                    ))}
+                  </div>
+                  {multiClass && (
+                    <div className="mt-1.5 flex justify-between gap-2 border-t border-border/60 pt-1.5 font-body text-sm font-semibold text-foreground">
+                      <span className="min-w-0">Subtotal</span>
+                      <span className="shrink-0">{formatPaiseAsRupees(section.totalInPaise)}</span>
+                    </div>
+                  )}
+                  {section.recurring && (
+                    <p className="mt-1 font-body text-[0.72rem] text-muted-foreground">
+                      Then {formatPaiseAsRupees(section.recurring.amountInPaise)} / month
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="space-y-1">
+              {link.rows.map((row, i) => (
+                <div key={i} className="flex justify-between gap-2 font-body text-sm">
+                  <span className="min-w-0 text-muted-foreground">{row.label}</span>
+                  <span className={row.amountInPaise < 0 ? "shrink-0 font-semibold text-green-700" : "shrink-0 text-foreground"}>{row.amountInPaise < 0 ? "−" : ""}{formatPaiseAsRupees(Math.abs(row.amountInPaise))}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className={`mt-2 flex justify-between gap-2 border-t border-border/60 pt-2 font-display ${isEmi ? "text-base font-semibold text-muted-foreground" : "text-lg font-bold text-foreground"}`}>
+            <span className="min-w-0">{isEmi ? "Course fee (total)" : multiClass ? `Total for ${sections.length} classes` : "Total"}</span>
+            <span className={isEmi ? "shrink-0 text-foreground" : "shrink-0 text-primary"}>{formatPaiseAsRupees(total)}</span>
           </div>
           {link.freeMonthNote && <p className="mt-2 font-body text-[0.72rem] text-green-700">🎁 {link.freeMonthNote}</p>}
           {isEmi && link.emiInstallments && link.emiInstallments.length > 0 && (
