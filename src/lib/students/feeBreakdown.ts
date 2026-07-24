@@ -104,7 +104,9 @@ export const buildCourseBreakdown = (course: StudentCourse): CourseBreakdown => 
     key: course.key,
     classId: course.classId,
     className: course.className,
-    slotLabel: course.slotLabel,
+    // Sections are WRITTEN TO FIRESTORE (onboardingLinks.sections), and
+    // Firestore rejects `undefined` — omit the key instead of setting it.
+    ...(course.slotLabel ? { slotLabel: course.slotLabel } : {}),
     rows,
     subtotalInPaise,
     discountInPaise,

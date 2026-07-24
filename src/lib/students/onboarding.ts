@@ -2,6 +2,7 @@ import { doc, onSnapshot, type DocumentData } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { formatPaiseAsRupees } from "@/lib/ecommerce";
 import { ONBOARDING_LINKS_COLLECTION } from "./students";
+import type { CourseBreakdown } from "./feeBreakdown";
 import type { EmiSplitConfig, FeeBreakdownRow, OnboardingLinkDoc, OnboardingStatus, StudentCredential, StudentDoc } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -21,6 +22,40 @@ const toFeeRows = (value: unknown): FeeBreakdownRow[] =>
   (Array.isArray(value) ? value : [])
     .map((row: DocumentData): FeeBreakdownRow => ({ label: getString(row?.label), amountInPaise: Math.round(toNumber(row?.amountInPaise)) }))
     .filter((row) => row.label);
+
+/**
+ * The per-class breakdown sections (multi-class links). Links written before
+ * multi-class have no `sections` — the page falls back to the flat `rows`.
+ */
+const toSections = (value: unknown): CourseBreakdown[] | undefined => {
+  const raw = Array.isArray(value) ? value : [];
+  const sections = raw.map((section: DocumentData, index: number): CourseBreakdown => {
+    const emi = toFeeRows(section?.emiInstallments).filter((row) => row.amountInPaise > 0);
+    const recurring = (section?.recurring || null) as DocumentData | null;
+    const totalInPaise = Math.max(0, Math.round(toNumber(section?.totalInPaise)));
+    return {
+      key: getString(section?.key) || `section-${index + 1}`,
+      classId: getString(section?.classId),
+      className: getString(section?.className),
+      slotLabel: getString(section?.slotLabel) || undefined,
+      rows: toFeeRows(section?.rows),
+      subtotalInPaise: Math.max(0, Math.round(toNumber(section?.subtotalInPaise))),
+      discountInPaise: Math.max(0, Math.round(toNumber(section?.discountInPaise))),
+      totalInPaise,
+      dueNowInPaise: Math.max(0, Math.round(toNumber(section?.dueNowInPaise, totalInPaise))),
+      ...(emi.length > 1 ? { emiInstallments: emi } : {}),
+      ...(recurring && toNumber(recurring.amountInPaise) > 0
+        ? {
+            recurring: {
+              label: getString(recurring.label) || "Monthly class fee",
+              amountInPaise: Math.round(toNumber(recurring.amountInPaise)),
+            },
+          }
+        : {}),
+    };
+  }).filter((section) => section.rows.length > 0 || section.totalInPaise > 0);
+  return sections.length > 0 ? sections : undefined;
+};
 
 export const normalizeOnboardingLink = (token: string, data: DocumentData = {}): OnboardingLinkDoc => {
   const methods = (data.methods || {}) as DocumentData;
@@ -50,6 +85,7 @@ export const normalizeOnboardingLink = (token: string, data: DocumentData = {}):
     slotLabel: getString(data.slotLabel) || undefined,
     trainerName: getString(data.trainerName) || undefined,
     rows: toFeeRows(data.rows),
+    sections: toSections(data.sections),
     totalInPaise,
     dueNowInPaise,
     methods: {

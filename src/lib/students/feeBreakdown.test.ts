@@ -146,6 +146,23 @@ describe("buildStudentBreakdown", () => {
   it("is empty-safe", () => {
     expect(buildStudentBreakdown([])).toEqual({ sections: [], grandTotalInPaise: 0, dueNowInPaise: 0 });
   });
+
+  // REGRESSION: sections are written to onboardingLinks.sections, and Firestore
+  // REJECTS undefined — a stray `slotLabel: undefined` made the whole setDoc
+  // throw, so the pay link doc was never created and /pay/:token 404'd.
+  it("never emits an undefined value in a section (Firestore-safe)", () => {
+    const { sections } = buildStudentBreakdown([
+      course({ key: "a", className: "Vocal", slotLabel: undefined, fees: { ...course().fees, kitFeeInPaise: 100000 } }),
+      course({ key: "b", className: "Veena", slotLabel: "Mon 6PM", fees: { ...course().fees, booksFeeInPaise: 40000 } }),
+    ]);
+    for (const section of sections) {
+      for (const [key, value] of Object.entries(section)) {
+        expect(value, `section.${key} must not be undefined`).not.toBeUndefined();
+      }
+    }
+    expect("slotLabel" in sections[0]).toBe(false);
+    expect(sections[1].slotLabel).toBe("Mon 6PM");
+  });
 });
 
 describe("flattenBreakdownRows", () => {
