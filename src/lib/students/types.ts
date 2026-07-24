@@ -1,6 +1,6 @@
 import type { Timestamp } from "firebase/firestore";
 import type { Gender } from "@/lib/classes";
-import { buildCourseRows, buildEmiRows } from "./feeBreakdown";
+import { buildCourseRows, buildEmiRows, type CourseBreakdown } from "./feeBreakdown";
 
 // ---------------------------------------------------------------------------
 // Student Manager (req): the admin creates and manages every student profile.
@@ -169,6 +169,9 @@ export interface OnboardingLinkDoc {
   slotLabel?: string;
   trainerName?: string;
   rows: FeeBreakdownRow[];
+  // Multi-class: one breakdown section per class the student takes. Older links
+  // carry only the flattened `rows` — renderers must fall back to those.
+  sections?: CourseBreakdown[];
   totalInPaise: number;
   // What the parent must pay RIGHT NOW to confirm the admission. Equals
   // totalInPaise normally; on an EMI link it is only the FIRST installment

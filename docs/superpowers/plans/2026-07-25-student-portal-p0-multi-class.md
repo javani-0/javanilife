@@ -19,6 +19,8 @@
 - The repo is at Vercel's **12-function limit**. Do **not** add files under `api/`; route new server actions through `api/razorpay.ts`.
 - Mobile: `min-w-0` on grid/flex children; `overflow-x-clip`, never `overflow-x-hidden`; scroll containers need `min-h-0` + `shrink-0` header.
 - Test runner: `npx vitest run <path>`. Full suite: `npm test`. Build: `npm run build`. Lint: `npm run lint`.
+- **TYPECHECK GOTCHA:** the root `tsconfig.json` has `"files": []` and only project references, so **`npx tsc --noEmit -p tsconfig.json` checks NOTHING and always reports success.** Always typecheck with **`npx tsc --noEmit -p tsconfig.app.json`** (client) and `npx tsc --noEmit -p api/tsconfig.json` (server). Every "typecheck" step in this plan means those two commands.
+- **Pre-existing type errors** (present on a clean tree — ignore, do not fix here): 5 in `src/components/admin/CategoryManager.tsx` (TS2352) and 2 in `src/lib/ecommerce/categories.ts` (TS2677).
 - **Test baseline measured 2026-07-25: 202 passing, 5 PRE-EXISTING failures** in `src/test/course-installments.test.ts` (1) and `src/test/delivery-flow-ui.test.tsx` (4). These fail on a clean tree and are unrelated to this work — do **not** try to fix them here, and do not count them as regressions. No task may add a new failure or reduce the 202.
 
 ---

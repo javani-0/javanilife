@@ -12,21 +12,19 @@ import { db } from "@/lib/firebase";
 import { applyNextChargeDue, getEnrollment, setEnrollmentStatus } from "@/lib/classes";
 import type { Gender } from "@/lib/classes";
 import {
-  buildFeeBreakdown,
+  mirrorPrimaryCourse,
   normalizeCourses,
-  onboardingDueNowInPaise,
   type EmiSplitConfig,
   type OnboardingStatus,
   type ParentRelation,
+  type StudentCourse,
   type StudentCredential,
   type StudentDoc,
-  type StudentFeeSetup,
   type StudentInventory,
   type StudentMode,
   type StudentPaymentMethods,
-  type StudentTrack,
-  type StudentType,
 } from "./types";
+import { buildStudentBreakdown, flattenBreakdownRows } from "./feeBreakdown";
 
 export const STUDENTS_COLLECTION = "students";
 export const ONBOARDING_LINKS_COLLECTION = "onboardingLinks";
@@ -183,89 +181,104 @@ export interface StudentWriteInput {
   address: string;
   mode: StudentMode;
   photoUrl?: string;
-  classId: string;
-  className: string;
-  slotId?: string;
-  slotLabel?: string;
-  trainerName?: string;
-  joiningDate?: string;
-  nextChargeDate?: string;
   desiredStudentId?: string;
-  inventory: StudentInventory;
-  fees: {
-    studentType: StudentType;
-    track: StudentTrack;
-    kitFeeInPaise: number;
-    booksFeeInPaise: number;
-    uniformFeeInPaise: number;
-    monthlyFeeInPaise: number;
-    termFeeInPaise: number;
-    discountInPaise: number;
-    firstMonthFree: boolean;
-    emiSplit?: EmiSplitConfig;
-  };
-  methods: StudentPaymentMethods;
+  /** Every class this student takes (req). At least one is required. */
+  courses: StudentCourse[];
 }
 
-const buildStudentPayload = (input: StudentWriteInput) => ({
-  name: input.name.trim(),
-  age: Math.max(0, Math.round(toNumber(input.age))),
-  gender: input.gender,
-  email: input.email.trim().toLowerCase(),
-  phone: input.phone.trim(),
-  parentName: input.parentName.trim(),
-  parentRelation: input.parentRelation,
-  address: input.address.trim(),
-  mode: input.mode,
-  photoUrl: (input.photoUrl || "").trim(),
-  classId: input.classId,
-  className: input.className.trim(),
-  slotId: input.slotId || "",
-  slotLabel: input.slotLabel || "",
-  trainerName: (input.trainerName || "").trim(),
-  joiningDate: (input.joiningDate || "").trim(),
-  nextChargeDate: (input.nextChargeDate || "").trim(),
-  desiredStudentId: (input.desiredStudentId || "").trim().toUpperCase(),
-  inventory: {
-    uniform: input.inventory.uniform === true,
-    kit: input.inventory.kit === true,
-    books: input.inventory.books === true,
-  },
-  fees: {
-    studentType: input.fees.studentType,
-    track: input.fees.track,
-    kitFeeInPaise: clampPaise(input.fees.kitFeeInPaise),
-    booksFeeInPaise: clampPaise(input.fees.booksFeeInPaise),
-    uniformFeeInPaise: clampPaise(input.fees.uniformFeeInPaise),
-    monthlyFeeInPaise: clampPaise(input.fees.monthlyFeeInPaise),
-    termFeeInPaise: clampPaise(input.fees.termFeeInPaise),
-    discountInPaise: clampPaise(input.fees.discountInPaise),
-    firstMonthFree: input.fees.firstMonthFree === true && input.fees.track === "monthly",
-    emiSplit: input.fees.emiSplit || null,
-  },
-  methods: {
-    razorpay: input.methods.razorpay === true,
-    qr: input.methods.qr === true,
-    counter: input.methods.counter === true,
-    emi: input.methods.emi === true && input.fees.track === "term",
-  },
-  updatedAt: serverTimestamp(),
-});
+const buildStudentPayload = (input: StudentWriteInput) => {
+  const courses: StudentCourse[] = (input.courses || []).map((course, index) => ({
+    ...course,
+    key: course.key || `course-${index + 1}`,
+    classId: course.classId,
+    className: (course.className || "").trim(),
+    slotId: course.slotId || "",
+    slotLabel: course.slotLabel || "",
+    trainerName: (course.trainerName || "").trim(),
+    joiningDate: (course.joiningDate || "").trim(),
+    nextChargeDate: (course.nextChargeDate || "").trim(),
+    enrollmentId: course.enrollmentId || "",
+    inventory: {
+      uniform: course.inventory.uniform === true,
+      kit: course.inventory.kit === true,
+      books: course.inventory.books === true,
+    },
+    fees: {
+      studentType: course.fees.studentType,
+      track: course.fees.track,
+      kitFeeInPaise: clampPaise(course.fees.kitFeeInPaise),
+      booksFeeInPaise: clampPaise(course.fees.booksFeeInPaise),
+      uniformFeeInPaise: clampPaise(course.fees.uniformFeeInPaise),
+      monthlyFeeInPaise: clampPaise(course.fees.monthlyFeeInPaise),
+      termFeeInPaise: clampPaise(course.fees.termFeeInPaise),
+      discountInPaise: clampPaise(course.fees.discountInPaise),
+      firstMonthFree: course.fees.firstMonthFree === true && course.fees.track === "monthly",
+      // Firestore rejects undefined — a missing split is stored as null.
+      emiSplit: course.fees.emiSplit || null,
+    },
+    methods: {
+      razorpay: course.methods.razorpay === true,
+      qr: course.methods.qr === true,
+      counter: course.methods.counter === true,
+      emi: course.methods.emi === true && course.fees.track === "term",
+    },
+    status: course.status === "dropped" ? "dropped" : "active",
+  })) as StudentCourse[];
+
+  return {
+    name: input.name.trim(),
+    age: Math.max(0, Math.round(toNumber(input.age))),
+    gender: input.gender,
+    email: input.email.trim().toLowerCase(),
+    phone: input.phone.trim(),
+    parentName: input.parentName.trim(),
+    parentRelation: input.parentRelation,
+    address: input.address.trim(),
+    mode: input.mode,
+    photoUrl: (input.photoUrl || "").trim(),
+    desiredStudentId: (input.desiredStudentId || "").trim().toUpperCase(),
+    courses,
+    // Keep the legacy singular fields in step so every existing reader works.
+    ...mirrorPrimaryCourse(courses),
+    updatedAt: serverTimestamp(),
+  };
+};
 
 /**
  * Keep the public link snapshot in sync with the student record. Before
  * approval the link is a payment page; after approval the server owns the doc
  * (it holds the credentials) and we only refresh display fields.
  */
+/**
+ * The payment methods offered on the COMBINED link. The parent pays one total
+ * across every class, so a method is offered only when EVERY active course
+ * allows it — the strictest class wins, otherwise a class that forbids online
+ * payment could still be paid online. EMI only applies to a single-course link.
+ */
+const mergeLinkMethods = (courses: StudentCourse[]): StudentPaymentMethods => {
+  const active = courses.filter((course) => course.status !== "dropped");
+  if (active.length === 0) return { razorpay: false, qr: true, counter: true, emi: false };
+  return {
+    razorpay: active.every((course) => course.methods.razorpay === true),
+    qr: active.every((course) => course.methods.qr === true),
+    counter: active.every((course) => course.methods.counter === true),
+    emi: active.length === 1 && active[0].methods.emi === true,
+  };
+};
+
 const syncOnboardingLink = async (student: StudentDoc): Promise<void> => {
   if (!student.linkToken) return;
-  const { rows, totalInPaise, emiInstallments } = buildFeeBreakdown(student.fees);
-  // EMI links ask for the first installment only (req) — the rest are billed
-  // as dues after approval.
-  const dueNowInPaise = onboardingDueNowInPaise(student.fees, student.methods);
-  const freeMonthNote = student.fees.firstMonthFree && student.fees.track === "monthly"
-    ? "Offer: the first month's class fee is FREE — nothing extra to pay for it later."
-    : "";
+  const breakdown = buildStudentBreakdown(student.courses);
+  const primary = student.courses[0];
+  const multi = breakdown.sections.length > 1;
+  // "First month free" is per class — name the class when there is more than one.
+  const freeMonthNote = student.courses
+    .filter((course) => course.status !== "dropped" && course.fees.firstMonthFree && course.fees.track === "monthly")
+    .map((course) => (multi
+      ? `${course.className}: first month's class fee is FREE.`
+      : "Offer: the first month's class fee is FREE — nothing extra to pay for it later."))
+    .join(" ");
+
   await setDoc(
     doc(db, ONBOARDING_LINKS_COLLECTION, student.linkToken),
     {
@@ -273,17 +286,22 @@ const syncOnboardingLink = async (student: StudentDoc): Promise<void> => {
       studentDocId: student.id,
       studentName: student.name,
       parentName: student.parentName,
-      className: student.className,
-      slotLabel: student.slotLabel || "",
-      trainerName: student.trainerName || "",
-      rows,
-      totalInPaise,
-      dueNowInPaise,
-      methods: student.methods,
+      // Legacy single-class display fields — the first class, kept for old readers.
+      className: primary?.className || "",
+      slotLabel: primary?.slotLabel || "",
+      trainerName: primary?.trainerName || "",
+      // Multi-class: one section per class, plus the flattened legacy rows.
+      sections: breakdown.sections,
+      rows: flattenBreakdownRows(breakdown),
+      totalInPaise: breakdown.grandTotalInPaise,
+      // EMI links ask for the first installment only (req) — the rest are billed
+      // as dues after approval.
+      dueNowInPaise: breakdown.dueNowInPaise,
+      methods: mergeLinkMethods(student.courses),
       status: student.onboardingStatus,
       freeMonthNote,
-      emiSplit: student.fees.emiSplit || null,
-      emiInstallments: emiInstallments || null,
+      emiSplit: primary?.fees.emiSplit || null,
+      emiInstallments: breakdown.sections[0]?.emiInstallments || null,
       updatedAt: serverTimestamp(),
     },
     { merge: true },
@@ -309,8 +327,14 @@ export const createStudent = async (input: StudentWriteInput): Promise<StudentDo
 
 /** Staff: update an existing student profile and refresh its link snapshot. */
 export const updateStudent = async (existing: StudentDoc, input: StudentWriteInput): Promise<void> => {
-  await updateDoc(doc(db, STUDENTS_COLLECTION, existing.id), buildStudentPayload(input));
-  await syncOnboardingLink({ ...existing, ...normalizeStudent(existing.id, buildStudentPayload(input)), linkToken: existing.linkToken, onboardingStatus: existing.onboardingStatus });
+  const payload = buildStudentPayload(input);
+  await updateDoc(doc(db, STUDENTS_COLLECTION, existing.id), payload);
+  await syncOnboardingLink({
+    ...existing,
+    ...normalizeStudent(existing.id, payload),
+    linkToken: existing.linkToken,
+    onboardingStatus: existing.onboardingStatus,
+  });
   // Keep the portal avatar in sync for approved students (best-effort — the
   // admin role may write users docs; managers without that right just skip).
   const photoUrl = (input.photoUrl || "").trim();
@@ -321,35 +345,53 @@ export const updateStudent = async (existing: StudentDoc, input: StudentWriteInp
       console.error("Could not sync the student photo to the portal account", error);
     }
   }
-  // Keep the parent's autopay OPTION in sync (req): turning the Razorpay
-  // toggle off in the Student Manager removes the autopay UI from their
-  // portal immediately (and turning it on invites them to enable it).
-  if (existing.enrollmentId && input.methods.razorpay !== existing.methods.razorpay) {
-    try {
-      await updateDoc(doc(db, "enrollments", existing.enrollmentId), {
-        autopayInvited: input.methods.razorpay === true,
-        updatedAt: serverTimestamp(),
-      });
-    } catch (error) {
-      console.error("Could not sync the autopay option to the enrollment", error);
+  // Per-COURSE syncs, matched to the previous state by course key.
+  for (const course of input.courses) {
+    if (!course.enrollmentId || course.status === "dropped") continue;
+    const before = existing.courses.find((item) => item.key === course.key);
+
+    // Keep the parent's autopay OPTION in sync (req): turning the Razorpay
+    // toggle off in the Student Manager removes the autopay UI from their
+    // portal immediately (and turning it on invites them to enable it).
+    if (before && course.methods.razorpay !== before.methods.razorpay) {
+      try {
+        await updateDoc(doc(db, "enrollments", course.enrollmentId), {
+          autopayInvited: course.methods.razorpay === true,
+          updatedAt: serverTimestamp(),
+        });
+      } catch (error) {
+        console.error("Could not sync the autopay option to the enrollment", error);
+      }
+    }
+
+    // Next charge date changed on an approved MONTHLY course → refresh the
+    // enrollment's next-charge date + the pending due the parent pays and the
+    // reminder targets (req 7/8).
+    const nextChargeDate = (course.nextChargeDate || "").trim();
+    if (
+      existing.onboardingStatus === "approved"
+      && course.fees.track === "monthly"
+      && nextChargeDate
+      && nextChargeDate !== (before?.nextChargeDate || "")
+    ) {
+      try {
+        const enrollment = await getEnrollment(course.enrollmentId);
+        if (enrollment) await applyNextChargeDue(enrollment, nextChargeDate);
+      } catch (error) {
+        console.error("Could not apply the next charge date", error);
+      }
     }
   }
-  // Next charge date changed on an approved MONTHLY student → refresh the
-  // enrollment's next-charge date + the pending due the parent pays and the
-  // reminder targets (req 7/8).
-  const nextChargeDate = (input.nextChargeDate || "").trim();
-  if (
-    existing.enrollmentId
-    && existing.onboardingStatus === "approved"
-    && existing.fees.track === "monthly"
-    && nextChargeDate
-    && nextChargeDate !== (existing.nextChargeDate || "")
-  ) {
+
+  // A course the admin DROPPED stops billing immediately (history is kept).
+  for (const course of input.courses) {
+    if (course.status !== "dropped" || !course.enrollmentId) continue;
+    const before = existing.courses.find((item) => item.key === course.key);
+    if (before?.status === "dropped") continue; // already handled previously
     try {
-      const enrollment = await getEnrollment(existing.enrollmentId);
-      if (enrollment) await applyNextChargeDue(enrollment, nextChargeDate);
+      await setEnrollmentStatus(course.enrollmentId, "paused");
     } catch (error) {
-      console.error("Could not apply the next charge date", error);
+      console.error("Could not pause the dropped course's enrollment", course.classId, error);
     }
   }
 };
@@ -368,11 +410,15 @@ export const updateStudentInventory = async (id: string, inventory: StudentInven
  */
 export const setStudentActive = async (student: StudentDoc, active: boolean): Promise<void> => {
   await updateDoc(doc(db, STUDENTS_COLLECTION, student.id), { active, updatedAt: serverTimestamp() });
-  if (student.enrollmentId) {
+  // Every class the student takes follows the toggle. A DROPPED course stays
+  // paused even when the student is reactivated.
+  for (const course of student.courses) {
+    if (!course.enrollmentId) continue;
+    const target = active && course.status !== "dropped" ? "active" : "paused";
     try {
-      await setEnrollmentStatus(student.enrollmentId, active ? "active" : "paused");
+      await setEnrollmentStatus(course.enrollmentId, target);
     } catch (error) {
-      console.error("Could not sync enrollment status for student", student.id, error);
+      console.error("Could not sync enrollment status for student", student.id, course.classId, error);
     }
   }
 };
