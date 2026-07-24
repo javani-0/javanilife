@@ -67,15 +67,29 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     const student = studentSnap.data() || {};
     const linkToken = getString(student.linkToken);
     const uid = getString(student.userUid);
-    const enrollmentId = getString(student.enrollmentId);
+    // EVERY class this student took (req: a student may hold several). Collects
+    // the legacy singular id, the enrollmentIds array, and any id still only on
+    // a course row — deduped, so nothing is left orphaned.
+    const enrollmentIds = Array.from(new Set([
+      getString(student.enrollmentId),
+      ...(Array.isArray(student.enrollmentIds)
+        ? (student.enrollmentIds as unknown[]).map((value) => getString(value))
+        : []),
+      ...(Array.isArray(student.courses)
+        ? (student.courses as Record<string, unknown>[]).map((course) => getString(course.enrollmentId))
+        : []),
+    ].filter(Boolean)));
     const removed: string[] = [];
 
-    // 1. Fee ledger + enrollment.
-    const feeCount = await deleteQueryDocs(db, "feePayments", "enrollmentId", enrollmentId);
-    if (feeCount > 0) removed.push(`${feeCount} fee record${feeCount > 1 ? "s" : ""}`);
-    if (enrollmentId) {
+    // 1. Fee ledger + enrollments — one set per class.
+    let feeCount = 0;
+    for (const enrollmentId of enrollmentIds) {
+      feeCount += await deleteQueryDocs(db, "feePayments", "enrollmentId", enrollmentId);
       await db.collection("enrollments").doc(enrollmentId).delete();
-      removed.push("enrollment");
+    }
+    if (feeCount > 0) removed.push(`${feeCount} fee record${feeCount > 1 ? "s" : ""}`);
+    if (enrollmentIds.length > 0) {
+      removed.push(`${enrollmentIds.length} enrollment${enrollmentIds.length > 1 ? "s" : ""}`);
     }
 
     // 2. Onboarding link + stored credentials.
