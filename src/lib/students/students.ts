@@ -13,6 +13,7 @@ import { applyNextChargeDue, getEnrollment, setEnrollmentStatus } from "@/lib/cl
 import type { Gender } from "@/lib/classes";
 import {
   buildFeeBreakdown,
+  normalizeCourses,
   onboardingDueNowInPaise,
   type EmiSplitConfig,
   type OnboardingStatus,
@@ -126,6 +127,11 @@ export const normalizeStudent = (id: string, data: DocumentData = {}): StudentDo
     userUid: getString(data.userUid) || undefined,
     enrollmentId: getString(data.enrollmentId) || undefined,
     approvedAt: data.approvedAt,
+    courses: normalizeCourses(data),
+    enrollmentIds: Array.isArray(data.enrollmentIds)
+      ? (data.enrollmentIds as unknown[]).map((value) => getString(value)).filter(Boolean)
+      : [getString(data.enrollmentId)].filter(Boolean),
+    accessOverrideUntil: getString(data.accessOverrideUntil) || undefined,
     active: data.active !== false,
     createdAt: data.createdAt,
     updatedAt: data.updatedAt,
