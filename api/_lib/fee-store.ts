@@ -179,6 +179,14 @@ export const buildFeePaymentSeed = (enrollment: EnrollmentRecord, monthKey: stri
     billingEndMonth: billing.endMonthKey,
     nextChargeDate: dueDateFor(billing.nextChargeMonthKey, billingDay),
     amountInPaise: Math.max(0, Math.round(toNumber(enrollment.monthlyFeeInPaise))),
+    // Every fee is itemised (req: transparent pricing). A recurring monthly fee
+    // is one line naming the class, so the parent's history and the admin
+    // ledger always render a breakdown table rather than a bare number.
+    // Client mirror: src/lib/classes/fees.ts — keep in sync.
+    breakdown: [{
+      label: `Monthly class fee — ${getString(enrollment.className) || "Class"}`,
+      amountInPaise: Math.max(0, Math.round(toNumber(enrollment.monthlyFeeInPaise))),
+    }],
     // dueDate stays the *collection* month (when payment is expected).
     dueDate: dueDateFor(monthKey, billingDay),
   };
@@ -249,6 +257,9 @@ export const ensureCustomFeePayment = async (
     billingEndMonth: getString(enrollment.billingEndMonth),
     nextChargeDate: getString(enrollment.nextChargeDate),
     amountInPaise: Math.max(0, Math.round(toNumber(params.amountInPaise))),
+    // Default single-line breakdown. Callers that know the real split (e.g.
+    // approve-onboarding's kit/books/uniform rows) merge a richer one on top.
+    breakdown: [{ label: params.periodLabel, amountInPaise: Math.max(0, Math.round(toNumber(params.amountInPaise))) }],
     dueDate: params.dueDate,
     status: "pending",
     createdAt: FieldValue.serverTimestamp(),

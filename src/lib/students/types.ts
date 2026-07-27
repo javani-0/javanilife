@@ -1,5 +1,6 @@
 import type { Timestamp } from "firebase/firestore";
 import type { Gender } from "@/lib/classes";
+import { buildCourseRows, buildEmiRows, type CourseBreakdown } from "./feeBreakdown";
 
 // ---------------------------------------------------------------------------
 // Student Manager (req): the admin creates and manages every student profile.
@@ -61,6 +62,29 @@ export interface StudentFeeSetup {
   emiSplit?: EmiSplitConfig; // EMI split when EMI is selected (term only)
 }
 
+export type StudentCourseStatus = "active" | "dropped";
+
+/**
+ * ONE class a student takes. A student may hold several (req: "one student can
+ * take multiple classes"). Each course materialises its own EnrollmentDoc and
+ * its own fee ledger at approval, so the existing fee engine is untouched.
+ */
+export interface StudentCourse {
+  key: string;                 // stable local id; survives reorder/removal
+  classId: string;
+  className: string;
+  slotId?: string;
+  slotLabel?: string;
+  trainerName?: string;
+  joiningDate?: string;        // YYYY-MM-DD
+  nextChargeDate?: string;     // YYYY-MM-DD
+  inventory: StudentInventory;
+  fees: StudentFeeSetup;
+  methods: StudentPaymentMethods;
+  enrollmentId?: string;       // set once this course is approved
+  status: StudentCourseStatus;
+}
+
 export interface StudentDoc {
   id: string;
   // A. Personal details
@@ -114,6 +138,14 @@ export interface StudentDoc {
   userUid?: string;
   enrollmentId?: string;
   approvedAt?: Timestamp;
+  // Every class this student takes. Legacy docs carry only the singular fields
+  // above; `normalizeCourses` synthesises a one-entry array from them and every
+  // write mirrors courses[0] back, so no backfill migration is needed.
+  courses: StudentCourse[];
+  enrollmentIds: string[];
+  // Admin override: force portal access unlocked through this date (YYYY-MM-DD)
+  // even when a fee is overdue. Consumed from P1; stored from P0 on.
+  accessOverrideUntil?: string;
   // D. Status — inactive keeps the full history (never delete).
   active: boolean;
   createdAt?: Timestamp;
@@ -137,6 +169,9 @@ export interface OnboardingLinkDoc {
   slotLabel?: string;
   trainerName?: string;
   rows: FeeBreakdownRow[];
+  // Multi-class: one breakdown section per class the student takes. Older links
+  // carry only the flattened `rows` — renderers must fall back to those.
+  sections?: CourseBreakdown[];
   totalInPaise: number;
   // What the parent must pay RIGHT NOW to confirm the admission. Equals
   // totalInPaise normally; on an EMI link it is only the FIRST installment
@@ -206,6 +241,139 @@ export const suggestNextStudentId = (
 
 const clampPaise = (value: number): number => Math.max(0, Math.round(Number(value) || 0));
 
+// ---------------------------------------------------------------------------
+// Multi-class helpers (req: one student, several classes)
+// ---------------------------------------------------------------------------
+
+const courseNumber = (value: unknown, fallback = 0): number => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
+const coursePaise = (value: unknown): number => Math.max(0, Math.round(courseNumber(value)));
+const courseString = (value: unknown, fallback = ""): string => (typeof value === "string" ? value : fallback);
+
+const normalizeCourseEmiSplit = (raw: unknown): EmiSplitConfig | undefined => {
+  if (!raw || typeof raw !== "object") return undefined;
+  const data = raw as Record<string, unknown>;
+  const upfront = Math.round(courseNumber(data.upfrontPercentage, 50));
+  const parts = Array.isArray(data.installmentPercentages)
+    ? data.installmentPercentages.map((value) => Math.round(courseNumber(value))).filter((value) => value > 0)
+    : [];
+  if (upfront <= 0 || parts.length === 0) return undefined;
+  return { upfrontPercentage: Math.min(100, Math.max(1, upfront)), installmentPercentages: parts };
+};
+
+/** Normalize ONE stored course row. `fallbackKey` is used when none is stored. */
+const normalizeCourse = (raw: Record<string, unknown>, fallbackKey: string): StudentCourse => {
+  const fees = (raw.fees || {}) as Record<string, unknown>;
+  const inventory = (raw.inventory || {}) as Record<string, unknown>;
+  const methods = (raw.methods || {}) as Record<string, unknown>;
+  const track: StudentTrack = fees.track === "term" ? "term" : "monthly";
+  return {
+    key: courseString(raw.key) || fallbackKey,
+    classId: courseString(raw.classId),
+    className: courseString(raw.className),
+    slotId: courseString(raw.slotId) || undefined,
+    slotLabel: courseString(raw.slotLabel) || undefined,
+    trainerName: courseString(raw.trainerName) || undefined,
+    joiningDate: courseString(raw.joiningDate) || undefined,
+    nextChargeDate: courseString(raw.nextChargeDate) || undefined,
+    inventory: {
+      uniform: inventory.uniform === true,
+      kit: inventory.kit === true,
+      books: inventory.books === true,
+    },
+    fees: {
+      studentType: fees.studentType === "existing" ? "existing" : "new",
+      track,
+      kitFeeInPaise: coursePaise(fees.kitFeeInPaise),
+      booksFeeInPaise: coursePaise(fees.booksFeeInPaise),
+      uniformFeeInPaise: coursePaise(fees.uniformFeeInPaise),
+      monthlyFeeInPaise: coursePaise(fees.monthlyFeeInPaise),
+      termFeeInPaise: coursePaise(fees.termFeeInPaise),
+      discountInPaise: coursePaise(fees.discountInPaise),
+      firstMonthFree: fees.firstMonthFree === true && track === "monthly",
+      emiSplit: normalizeCourseEmiSplit(fees.emiSplit),
+    },
+    methods: {
+      razorpay: methods.razorpay === true,
+      qr: methods.qr !== false,
+      counter: methods.counter !== false,
+      emi: methods.emi === true && track === "term",
+    },
+    enrollmentId: courseString(raw.enrollmentId) || undefined,
+    status: raw.status === "dropped" ? "dropped" : "active",
+  };
+};
+
+/**
+ * The student's courses. Prefers a stored `courses` array; otherwise synthesises
+ * ONE course from the legacy flat fields (classId/fees/methods/…) so
+ * pre-multi-class documents keep working with no migration. Returns [] when
+ * there is no class at all (a half-filled draft).
+ */
+export const normalizeCourses = (data: Record<string, unknown> = {}): StudentCourse[] => {
+  const stored = Array.isArray(data.courses) ? (data.courses as Record<string, unknown>[]) : [];
+  if (stored.length > 0) return stored.map((raw, index) => normalizeCourse(raw, `course-${index + 1}`));
+  if (!courseString(data.classId)) return [];
+  return [normalizeCourse(
+    {
+      key: "legacy",
+      classId: data.classId,
+      className: data.className,
+      slotId: data.slotId,
+      slotLabel: data.slotLabel,
+      trainerName: data.trainerName,
+      joiningDate: data.joiningDate,
+      nextChargeDate: data.nextChargeDate,
+      inventory: data.inventory,
+      fees: data.fees,
+      methods: data.methods,
+      enrollmentId: data.enrollmentId,
+      status: "active",
+    },
+    "legacy",
+  )];
+};
+
+/** Courses that still count — dropped ones keep their history but stop billing. */
+export const activeCourses = (courses: StudentCourse[]): StudentCourse[] =>
+  (courses || []).filter((course) => course.status !== "dropped");
+
+/** A fresh unique key for a newly added course row in the admin form. */
+export const newCourseKey = (): string =>
+  `c${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
+
+const emptyCourseFees = (): StudentFeeSetup => ({
+  studentType: "new", track: "monthly", kitFeeInPaise: 0, booksFeeInPaise: 0,
+  uniformFeeInPaise: 0, monthlyFeeInPaise: 0, termFeeInPaise: 0,
+  discountInPaise: 0, firstMonthFree: false,
+});
+
+/**
+ * Mirror courses[0] back into the LEGACY flat fields (classId/className/fees/…)
+ * so every existing reader — StudentFeeCollections, the student list, search,
+ * activity-log captions — keeps working untouched while consumers migrate to
+ * `courses`. Firestore rejects `undefined`, so blanks are written as "".
+ */
+export const mirrorPrimaryCourse = (courses: StudentCourse[]) => {
+  const primary = (courses || [])[0];
+  return {
+    classId: primary?.classId || "",
+    className: primary?.className || "",
+    slotId: primary?.slotId || "",
+    slotLabel: primary?.slotLabel || "",
+    trainerName: primary?.trainerName || "",
+    joiningDate: primary?.joiningDate || "",
+    nextChargeDate: primary?.nextChargeDate || "",
+    inventory: primary?.inventory || { uniform: false, kit: false, books: false },
+    fees: { ...(primary?.fees || emptyCourseFees()), emiSplit: primary?.fees.emiSplit || null },
+    methods: primary?.methods || { razorpay: false, qr: true, counter: true, emi: false },
+    enrollmentId: primary?.enrollmentId || "",
+    enrollmentIds: (courses || []).map((course) => course.enrollmentId || "").filter(Boolean),
+  };
+};
+
 /**
  * The onboarding payment breakdown shown to the admin AND on the parent link.
  * New students pay kit/books/uniform + the first recurring fee (pre-payment for
@@ -215,56 +383,11 @@ const clampPaise = (value: number): number => Math.max(0, Math.round(Number(valu
  * billable month is waived at approval instead.
  */
 export const buildFeeBreakdown = (fees: StudentFeeSetup): { rows: FeeBreakdownRow[]; totalInPaise: number; emiInstallments?: FeeBreakdownRow[] } => {
-  const rows: FeeBreakdownRow[] = [];
-  if (clampPaise(fees.kitFeeInPaise) > 0) rows.push({ label: "Kit fee", amountInPaise: clampPaise(fees.kitFeeInPaise) });
-  if (clampPaise(fees.booksFeeInPaise) > 0) rows.push({ label: "Books fee", amountInPaise: clampPaise(fees.booksFeeInPaise) });
-  if (clampPaise(fees.uniformFeeInPaise) > 0) rows.push({ label: "Uniform fee", amountInPaise: clampPaise(fees.uniformFeeInPaise) });
-
-  // A TERM course is a one-time full payment — charged for BOTH new and
-  // existing students (it isn't a recurring "pre-payment"). Only the MONTHLY
-  // pre-payment (the first advance) is skipped for existing students, who bill
-  // in arrears from their first collectable month.
-  if (fees.track === "term" && clampPaise(fees.termFeeInPaise) > 0) {
-    rows.push({ label: "Course fee (full term)", amountInPaise: clampPaise(fees.termFeeInPaise) });
-  }
-  if (fees.studentType === "new" && fees.track === "monthly" && clampPaise(fees.monthlyFeeInPaise) > 0) {
-    rows.push({ label: "Pre-payment (first fee)", amountInPaise: clampPaise(fees.monthlyFeeInPaise) });
-  }
-
-  const subtotal = rows.reduce((sum, row) => sum + row.amountInPaise, 0);
-  const discount = Math.min(clampPaise(fees.discountInPaise), subtotal);
-  if (discount > 0) rows.push({ label: "Discount", amountInPaise: -discount });
-
-  const totalInPaise = Math.max(0, subtotal - discount);
-
-  // Build EMI installment rows when EMI split is configured (term only)
-  let emiInstallments: FeeBreakdownRow[] | undefined;
-  if (fees.emiSplit && fees.track === "term" && totalInPaise > 0) {
-    const { upfrontPercentage, installmentPercentages } = fees.emiSplit;
-    const upfrontAmount = Math.round((totalInPaise * upfrontPercentage) / 100);
-    emiInstallments = [
-      { label: `Pay now (${upfrontPercentage}%)`, amountInPaise: upfrontAmount },
-    ];
-    let remaining = totalInPaise - upfrontAmount;
-    installmentPercentages.forEach((pct, i) => {
-      const isLast = i === installmentPercentages.length - 1;
-      const amount = isLast ? remaining : Math.round((totalInPaise * pct) / 100);
-      remaining -= amount;
-      emiInstallments!.push({
-        label: `${ordinal(i + 2)} installment (${pct}%)`,
-        amountInPaise: amount,
-      });
-    });
-  }
-
+  const { rows, totalInPaise } = buildCourseRows(fees);
+  // Legacy behaviour: emiInstallments were computed whenever a split existed,
+  // regardless of the `emi` method flag. Preserved exactly.
+  const emiInstallments = buildEmiRows(fees, { emi: true }, totalInPaise);
   return { rows, totalInPaise, emiInstallments };
-};
-
-/** Convert 2 → "2nd", 3 → "3rd", etc. */
-const ordinal = (n: number): string => {
-  const s = ["th", "st", "nd", "rd"];
-  const v = n % 100;
-  return n + (s[(v - 20) % 10] || s[v] || s[0]);
 };
 
 /**

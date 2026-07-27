@@ -216,6 +216,12 @@ export const ensureMonthlyDueFee = async (
     billingEndMonth: billing.endMonthKey,
     nextChargeDate: dueDateFor(billing.nextChargeMonthKey, billingDay),
     amountInPaise: Math.max(0, Math.round(enrollment.monthlyFeeInPaise || 0)),
+    // Every fee is itemised (req: transparent pricing). Server mirror:
+    // api/_lib/fee-store.ts buildFeePaymentSeed — keep in sync.
+    breakdown: [{
+      label: `Monthly class fee — ${enrollment.className || "Class"}`,
+      amountInPaise: Math.max(0, Math.round(enrollment.monthlyFeeInPaise || 0)),
+    }],
     dueDate: dueDateFor(monthKey, billingDay),
     status: "pending",
     createdAt: serverTimestamp(),

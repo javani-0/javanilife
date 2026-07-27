@@ -1,14 +1,18 @@
 import { describe, expect, it } from "vitest";
 import {
+  activeCourses,
   buildFeeBreakdown,
   DEFAULT_EMI_SPLIT,
   emiScheduleFor,
   formatStudentId,
   isPaymentFreeOnboarding,
+  mirrorPrimaryCourse,
+  normalizeCourses,
   onboardingDueNowInPaise,
   ROLL_NUMBER_PATTERN,
   suggestNextStudentId,
   suggestStudentEmail,
+  type StudentCourse,
   type StudentFeeSetup,
   type StudentPaymentMethods,
 } from "./types";
@@ -189,5 +193,130 @@ describe("onboardingDueNowInPaise", () => {
   });
   it("falls back to the total for a monthly student", () => {
     expect(onboardingDueNowInPaise(baseFees, methodsWith(true))).toBe(buildFeeBreakdown(baseFees).totalInPaise);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Multi-class (req): one student may take several classes under one profile.
+// ---------------------------------------------------------------------------
+
+describe("normalizeCourses", () => {
+  it("synthesises one course from legacy flat fields", () => {
+    const courses = normalizeCourses({
+      classId: "c1",
+      className: "Bharatanatyam",
+      slotId: "s1",
+      slotLabel: "Mon–Fri 6PM",
+      trainerName: "Guru A",
+      joiningDate: "2026-07-01",
+      nextChargeDate: "2026-08-05",
+      inventory: { kit: true, books: false, uniform: false },
+      fees: { studentType: "new", track: "monthly", monthlyFeeInPaise: 100000 },
+      methods: { qr: true, counter: true },
+      enrollmentId: "e1",
+    });
+    expect(courses).toHaveLength(1);
+    expect(courses[0].key).toBe("legacy");
+    expect(courses[0].classId).toBe("c1");
+    expect(courses[0].enrollmentId).toBe("e1");
+    expect(courses[0].status).toBe("active");
+    expect(courses[0].fees.monthlyFeeInPaise).toBe(100000);
+    expect(courses[0].inventory.kit).toBe(true);
+  });
+
+  it("returns an empty array when there is no class at all", () => {
+    expect(normalizeCourses({})).toEqual([]);
+  });
+
+  it("reads a real courses array and ignores the flat fields", () => {
+    const courses = normalizeCourses({
+      classId: "legacy-ignored",
+      courses: [
+        { key: "a", classId: "c1", className: "Vocal", fees: { track: "monthly", monthlyFeeInPaise: 50000 } },
+        { key: "b", classId: "c2", className: "Veena", status: "dropped" },
+      ],
+    });
+    expect(courses).toHaveLength(2);
+    expect(courses.map((c) => c.classId)).toEqual(["c1", "c2"]);
+    expect(courses[1].status).toBe("dropped");
+  });
+
+  it("gives every course a unique key even when the stored key is blank", () => {
+    const courses = normalizeCourses({
+      courses: [{ classId: "c1", className: "A" }, { classId: "c2", className: "B" }],
+    });
+    expect(courses[0].key).not.toBe(courses[1].key);
+    expect(courses[0].key).toBeTruthy();
+  });
+
+  it("clamps money and defaults methods the same way the single-class normaliser did", () => {
+    const [course] = normalizeCourses({
+      courses: [{ classId: "c1", className: "A", fees: { kitFeeInPaise: -50, monthlyFeeInPaise: "1200" } }],
+    });
+    expect(course.fees.kitFeeInPaise).toBe(0);
+    expect(course.fees.monthlyFeeInPaise).toBe(1200);
+    expect(course.methods.qr).toBe(true);
+    expect(course.methods.counter).toBe(true);
+    expect(course.methods.razorpay).toBe(false);
+  });
+});
+
+describe("activeCourses", () => {
+  it("drops courses marked dropped", () => {
+    const courses = [
+      { status: "active", classId: "c1" },
+      { status: "dropped", classId: "c2" },
+    ] as StudentCourse[];
+    expect(activeCourses(courses).map((c) => c.classId)).toEqual(["c1"]);
+  });
+});
+
+const courseFixture = (over: Partial<StudentCourse> = {}): StudentCourse => ({
+  key: "k",
+  classId: "c1",
+  className: "Vocal",
+  inventory: { uniform: false, kit: false, books: false },
+  fees: {
+    studentType: "new", track: "monthly", kitFeeInPaise: 0, booksFeeInPaise: 0,
+    uniformFeeInPaise: 0, monthlyFeeInPaise: 0, termFeeInPaise: 0,
+    discountInPaise: 0, firstMonthFree: false,
+  },
+  methods: { razorpay: false, qr: true, counter: true, emi: false },
+  status: "active",
+  ...over,
+});
+
+describe("mirrorPrimaryCourse", () => {
+  it("mirrors the first course into the legacy flat fields", () => {
+    const flat = mirrorPrimaryCourse([
+      courseFixture({
+        key: "a", classId: "c1", className: "Vocal", slotId: "s1", slotLabel: "Mon 6PM",
+        trainerName: "Guru A", joiningDate: "2026-07-01", nextChargeDate: "2026-08-05",
+        inventory: { kit: true, books: false, uniform: false },
+        fees: { ...courseFixture().fees, kitFeeInPaise: 1000, monthlyFeeInPaise: 5000 },
+        enrollmentId: "e1",
+      }),
+      courseFixture({ key: "b", classId: "c2", className: "Veena", enrollmentId: "e2" }),
+    ]);
+    expect(flat.classId).toBe("c1");
+    expect(flat.className).toBe("Vocal");
+    expect(flat.slotLabel).toBe("Mon 6PM");
+    expect(flat.enrollmentId).toBe("e1");
+    expect(flat.enrollmentIds).toEqual(["e1", "e2"]);
+    expect(flat.fees.monthlyFeeInPaise).toBe(5000);
+  });
+
+  it("never writes undefined into Firestore fields", () => {
+    const flat = mirrorPrimaryCourse([courseFixture()]);
+    expect(Object.values(flat)).not.toContain(undefined);
+    expect(flat.slotId).toBe("");
+    expect(flat.enrollmentId).toBe("");
+    expect(flat.enrollmentIds).toEqual([]);
+  });
+
+  it("is safe on an empty course list", () => {
+    const flat = mirrorPrimaryCourse([]);
+    expect(flat.classId).toBe("");
+    expect(flat.enrollmentIds).toEqual([]);
   });
 });

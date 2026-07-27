@@ -411,16 +411,20 @@ const Classes = () => {
                               <p className="font-body text-xs text-muted-foreground">{formatFeeAmount(fee)}{fee.paymentMethod ? ` · ${fee.paymentMethod}` : ""}</p>
                               {/* Itemized split (req): show exactly what was charged —
                                   kit/books/uniform/pre-payment/discount — like the admin sees. */}
-                              {(fee.breakdown || []).length > 0 && (
+                              {/* A single row that just restates the total (a plain
+                                  monthly fee) adds nothing — only itemise a real split. */}
+                              {(fee.breakdown || []).length > 0
+                                && !((fee.breakdown || []).length === 1 && fee.breakdown![0].amountInPaise === fee.amountInPaise) && (
                                 <div className="mt-1 max-w-xs rounded-md bg-muted/50 px-2 py-1.5">
+                                  <p className="mb-0.5 font-body text-[0.65rem] font-semibold uppercase tracking-wide text-muted-foreground">What this covers</p>
                                   {(fee.breakdown || []).map((row, index) => (
                                     <div key={index} className="flex justify-between gap-3 font-body text-[0.7rem] text-muted-foreground">
-                                      <span>{row.label}</span>
-                                      <span className={row.amountInPaise < 0 ? "text-green-700" : ""}>{row.amountInPaise < 0 ? "−" : ""}{formatPaiseAsRupees(Math.abs(row.amountInPaise))}</span>
+                                      <span className="min-w-0">{row.label}</span>
+                                      <span className={row.amountInPaise < 0 ? "shrink-0 text-green-700" : "shrink-0"}>{row.amountInPaise < 0 ? "−" : ""}{formatPaiseAsRupees(Math.abs(row.amountInPaise))}</span>
                                     </div>
                                   ))}
                                   <div className="mt-0.5 flex justify-between gap-3 border-t border-border/60 pt-0.5 font-body text-[0.7rem] font-semibold text-foreground">
-                                    <span>Total paid</span><span>{formatFeeAmount(fee)}</span>
+                                    <span className="min-w-0">Total</span><span className="shrink-0">{formatFeeAmount(fee)}</span>
                                   </div>
                                 </div>
                               )}
