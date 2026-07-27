@@ -3,7 +3,7 @@ import { useNavigate, useParams, Link } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { ArrowLeft, CalendarDays, CheckCircle2, GraduationCap, Loader2, Maximize2, Users } from "lucide-react";
+import { ArrowLeft, CalendarDays, Check, CheckCircle2, GraduationCap, Loader2, Maximize2, Users } from "lucide-react";
 import Footer from "@/components/Footer";
 import PageHero from "@/components/PageHero";
 import SEO from "@/components/SEO";
@@ -14,6 +14,7 @@ import {
   classOffersTerm,
   getClass,
   getClassFeeLabel,
+  listActiveClasses,
   type ClassDoc,
   type ClassTimeSlot,
 } from "@/lib/classes";
@@ -60,6 +61,12 @@ const ClassDetail = () => {
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [viewerOpen, setViewerOpen] = useState(false);
+  // Req: a student can ask to join SEVERAL classes in one request. The class
+  // they landed on is always included; these are the extra ones they tick.
+  const [otherClasses, setOtherClasses] = useState<ClassDoc[]>([]);
+  const [extraIds, setExtraIds] = useState<string[]>([]);
+  const [extraSlots, setExtraSlots] = useState<Record<string, string>>({});
+  const [submittedNames, setSubmittedNames] = useState<string[]>([]);
 
   const { register, handleSubmit, formState: { errors } } = useForm<EnrollFormValues>({
     resolver: zodResolver(enrollSchema),
@@ -85,8 +92,32 @@ const ClassDetail = () => {
     return () => { cancelled = true; };
   }, [id]);
 
+  // The other classes on offer, so the visitor can join more than one at once.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const all = await listActiveClasses();
+        if (!cancelled) setOtherClasses(all.filter((item) => item.id !== id));
+      } catch {
+        if (!cancelled) setOtherClasses([]); // extra classes are a bonus, never a blocker
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [id]);
+
   const slots = useMemo(() => classDoc?.timeSlots || [], [classDoc]);
   const isTerm = classDoc ? classOffersTerm(classDoc) && !classDoc.offersMonthly : false;
+
+  const toggleExtra = (extraId: string) => {
+    setExtraIds((current) => {
+      if (current.includes(extraId)) {
+        setExtraSlots(({ [extraId]: _removed, ...rest }) => rest);
+        return current.filter((item) => item !== extraId);
+      }
+      return [...current, extraId];
+    });
+  };
 
   const onSubmit = async (values: EnrollFormValues) => {
     if (!classDoc) return;
@@ -94,9 +125,40 @@ const ClassDetail = () => {
       toast({ title: "Please choose a time slot", variant: "destructive" });
       return;
     }
+    // Every extra class that defines slots needs one chosen too, or the admin
+    // would have to chase the parent for it later.
+    const missingSlot = extraIds
+      .map((extraId) => otherClasses.find((item) => item.id === extraId))
+      .find((cls) => cls && (cls.timeSlots || []).length > 0 && !extraSlots[cls.id]);
+    if (missingSlot) {
+      toast({ title: `Choose a time slot for ${missingSlot.name}`, variant: "destructive" });
+      return;
+    }
+
     setSubmitting(true);
     try {
       const slot = slots.find((item) => item.id === selectedSlotId);
+      // The class they landed on, then every extra one they ticked (req).
+      const requestedClasses = [
+        {
+          classId: classDoc.id,
+          className: classDoc.name,
+          ...(slot?.id ? { slotId: slot.id } : {}),
+          ...(slot?.label ? { slotLabel: slot.label } : {}),
+        },
+        ...extraIds.flatMap((extraId) => {
+          const cls = otherClasses.find((item) => item.id === extraId);
+          if (!cls) return [];
+          const extraSlot = (cls.timeSlots || []).find((item) => item.id === extraSlots[cls.id]);
+          return [{
+            classId: cls.id,
+            className: cls.name,
+            ...(extraSlot?.id ? { slotId: extraSlot.id } : {}),
+            ...(extraSlot?.label ? { slotLabel: extraSlot.label } : {}),
+          }];
+        }),
+      ];
+
       await createEnrollmentRequest({
         studentName: values.studentName,
         age: values.studentAge,
@@ -106,11 +168,9 @@ const ClassDetail = () => {
         whatsapp: values.parentWhatsapp || values.parentPhone,
         email: values.email || "",
         address: values.parentAddress,
-        classId: classDoc.id,
-        className: classDoc.name,
-        slotId: slot?.id,
-        slotLabel: slot?.label,
+        classes: requestedClasses,
       });
+      setSubmittedNames(requestedClasses.map((item) => item.className));
       setSubmitted(true);
     } catch (error) {
       toast({ title: "Could not submit", description: error instanceof Error ? error.message : "Please try again.", variant: "destructive" });
@@ -157,8 +217,19 @@ const ClassDetail = () => {
                   <div className="flex h-16 w-16 items-center justify-center rounded-full bg-green-100"><CheckCircle2 className="h-9 w-9 text-green-600" /></div>
                   <h2 className="mt-4 font-display text-2xl text-foreground">Enrolment request sent! 🎉</h2>
                   <p className="mt-2 max-w-md font-body text-sm text-muted-foreground">
-                    Thank you for your interest in <span className="font-semibold text-foreground">{classDoc.name}</span>. Our team will reach out shortly to confirm your admission and share the payment details.
+                    Thank you for your interest in{" "}
+                    <span className="font-semibold text-foreground">
+                      {submittedNames.length > 1
+                        ? `${submittedNames.slice(0, -1).join(", ")} and ${submittedNames.at(-1)}`
+                        : classDoc.name}
+                    </span>. Our team will reach out shortly to confirm{" "}
+                    {submittedNames.length > 1 ? "your admissions" : "your admission"} and share the payment details.
                   </p>
+                  {submittedNames.length > 1 && (
+                    <p className="mt-2 font-body text-[0.8rem] text-gold">
+                      All {submittedNames.length} classes will be set up under one login.
+                    </p>
+                  )}
                   <div className="mt-6 flex flex-wrap justify-center gap-3">
                     <Link to="/classes" className="rounded-sm border border-gold/40 bg-card px-5 py-2.5 font-body text-sm font-semibold text-gold hover:bg-gold hover:text-white">Browse more classes</Link>
                     <Link to="/" className="rounded-sm bg-gradient-primary px-5 py-2.5 font-body text-sm font-semibold text-primary-foreground hover:brightness-110">Back to home</Link>
@@ -249,6 +320,73 @@ const ClassDetail = () => {
                           );
                         })}
                       </div>
+                    </>
+                  )}
+
+                  {/* Join more than one class in a single request (req). */}
+                  {otherClasses.length > 0 && (
+                    <>
+                      <h3 className="mt-7 font-display text-lg text-foreground">Want to join more classes?</h3>
+                      <p className="mt-1 font-body text-[0.8rem] text-muted-foreground">
+                        Optional — tick any other classes and we'll set them all up together under one login.
+                      </p>
+                      <div className="mt-3 space-y-2">
+                        {otherClasses.map((cls) => {
+                          const picked = extraIds.includes(cls.id);
+                          const clsSlots = cls.timeSlots || [];
+                          return (
+                            <div key={cls.id} className={`rounded-xl border transition-all ${picked ? "border-gold bg-gold/5" : "border-border"}`}>
+                              <button
+                                type="button"
+                                onClick={() => toggleExtra(cls.id)}
+                                className="flex w-full items-center gap-3 p-3 text-left"
+                              >
+                                <span className={`flex h-5 w-5 flex-shrink-0 items-center justify-center rounded border ${picked ? "border-gold bg-gold text-white" : "border-border"}`}>
+                                  {picked && <Check className="h-3.5 w-3.5" />}
+                                </span>
+                                <span className="min-w-0 flex-1">
+                                  <span className="block font-body text-[0.9rem] font-semibold text-foreground">{cls.name}</span>
+                                  <span className="block font-body text-[0.78rem] text-muted-foreground">
+                                    {getClassFeeLabel(cls)}{cls.schedule ? ` · ${cls.schedule}` : ""}
+                                  </span>
+                                </span>
+                              </button>
+
+                              {picked && clsSlots.length > 0 && (
+                                <div className="border-t border-gold/20 p-3">
+                                  <p className={labelClass}>Time slot for {cls.name} *</p>
+                                  <div className="grid gap-2 sm:grid-cols-2">
+                                    {clsSlots.map((slot) => {
+                                      const left = seatsLeft(slot);
+                                      const full = left !== null && left <= 0;
+                                      const active = extraSlots[cls.id] === slot.id;
+                                      return (
+                                        <button
+                                          type="button"
+                                          key={slot.id}
+                                          disabled={full}
+                                          onClick={() => setExtraSlots((current) => ({ ...current, [cls.id]: slot.id }))}
+                                          className={`flex min-w-0 items-center justify-between gap-2 rounded-lg border px-3 py-2 text-left font-body text-[0.8rem] transition-all disabled:cursor-not-allowed disabled:opacity-60 ${active ? "border-gold bg-gold/10 font-semibold" : "border-border hover:border-gold/50"}`}
+                                        >
+                                          <span className="min-w-0 truncate text-foreground">{slot.label}</span>
+                                          <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[0.65rem] font-semibold ${full ? "bg-red-100 text-red-700" : left === null ? "bg-muted text-muted-foreground" : "bg-green-100 text-green-700"}`}>
+                                            {left === null ? "Open" : full ? "Full" : `${left} left`}
+                                          </span>
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                      {extraIds.length > 0 && (
+                        <p className="mt-2 font-body text-[0.78rem] font-semibold text-gold">
+                          Requesting {extraIds.length + 1} classes — one admission, one login.
+                        </p>
+                      )}
                     </>
                   )}
 

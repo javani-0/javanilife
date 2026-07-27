@@ -37,6 +37,7 @@ import {
   deleteEnrollmentRequest,
   markEnrollmentRequestAdded,
   newCourseKey,
+  requestedClassLabel,
   subscribeToEnrollmentRequests,
   markLinkShared,
   ONBOARDING_STATUS_LABELS,
@@ -220,8 +221,18 @@ const AdminStudents = () => {
   // pre-filled with the lead's details + the class's fee/track defaults, and
   // mark the lead handled.
   const addFromRequest = (request: EnrollmentRequestDoc) => {
-    const cls = classes.find((item) => item.id === request.classId);
-    const slot = (cls?.timeSlots || []).find((item) => item.id === request.slotId);
+    // A lead may request SEVERAL classes (req) — seed one course row per class.
+    const requested = request.classes.length > 0
+      ? request.classes
+      : [{ classId: request.classId, className: request.className, slotId: request.slotId, slotLabel: request.slotLabel }];
+    const courses = requested
+      .map((item) => {
+        const cls = classes.find((entry) => entry.id === item.classId);
+        const slot = (cls?.timeSlots || []).find((entry) => entry.id === item.slotId);
+        return makeCourse(cls, { slotId: slot?.id || "", slotLabel: slot?.label || item.slotLabel || "" });
+      })
+      .filter((course) => course.classId);
+
     openAdd({
       name: request.studentName,
       age: request.age > 0 ? String(request.age) : "",
@@ -230,10 +241,10 @@ const AdminStudents = () => {
       phone: request.whatsapp || request.phone,
       parentName: request.parentName,
       address: request.address,
-      courses: [makeCourse(cls, { slotId: slot?.id || "", slotLabel: slot?.label || "" })],
+      courses: courses.length > 0 ? courses : [makeCourse()],
     });
     markEnrollmentRequestAdded(request.id).catch(() => undefined);
-    logAction("Added student from enrolment lead", `${request.studentName} · ${request.className}`);
+    logAction("Added student from enrolment lead", `${request.studentName} · ${requestedClassLabel(requested)}`);
   };
 
   const dismissRequest = async (request: EnrollmentRequestDoc) => {
@@ -573,7 +584,14 @@ const AdminStudents = () => {
                     <h3 className="font-display text-lg text-foreground">{request.studentName}</h3>
                     {request.status === "new" ? <span className="rounded-full bg-red-500 px-2 py-0.5 font-body text-[0.65rem] font-semibold text-white">New</span> : <span className="rounded-full bg-muted px-2 py-0.5 font-body text-[0.65rem] font-semibold text-muted-foreground">Added</span>}
                   </div>
-                  <p className="mt-0.5 font-body text-sm text-muted-foreground">{request.className}{request.slotLabel ? ` · ${request.slotLabel}` : ""} · {request.age > 0 ? `${request.age} yrs · ` : ""}{request.gender}</p>
+                  <p className="mt-0.5 font-body text-sm text-muted-foreground">
+                    {requestedClassLabel(request.classes)} · {request.age > 0 ? `${request.age} yrs · ` : ""}{request.gender}
+                  </p>
+                  {request.classes.length > 1 && (
+                    <span className="mt-1 inline-block rounded-full bg-gold/15 px-2 py-0.5 font-body text-[0.65rem] font-semibold text-gold">
+                      {request.classes.length} classes requested
+                    </span>
+                  )}
                   <p className="font-body text-xs text-muted-foreground">Parent: {request.parentName || "—"} · {request.phone || request.whatsapp}{request.email ? ` · ${request.email}` : ""}</p>
                   {request.address && <p className="font-body text-xs text-muted-foreground">{request.address}</p>}
                 </div>
