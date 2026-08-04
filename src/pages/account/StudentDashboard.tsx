@@ -22,6 +22,14 @@ interface WeekSession extends SessionOccurrence {
   locked: boolean;
 }
 
+/** "2026-07-02" → "2 Jul 2026". Never show a parent a raw ISO date. */
+const niceDate = (iso?: string): string => {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || "");
+  if (!match) return iso || "—";
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  return `${Number(match[3])} ${months[Number(match[2]) - 1]} ${match[1]}`;
+};
+
 const StudentDashboard = () => {
   const { user, userProfile } = useAuth();
   const { loading, isStudent, enrollments, classes, feesByEnrollment, access, hasLockedClass } = useStudentPortal();
@@ -114,7 +122,7 @@ const StudentDashboard = () => {
           <div className="rounded-xl border border-border/60 bg-card p-4 shadow-card">
             <p className="font-body text-xs text-muted-foreground">Next due</p>
             <p className="mt-1 font-body text-sm font-semibold text-foreground">
-              {summary.nextDue ? summary.nextDue.dueDate : "—"}
+              {summary.nextDue ? niceDate(summary.nextDue.dueDate) : "—"}
             </p>
             {summary.nextDue && <p className="font-body text-[0.7rem] text-muted-foreground">{summary.nextDue.periodLabel}</p>}
           </div>
