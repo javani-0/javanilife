@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
-  ArrowLeft, CalendarClock, Clock, Download, FileText, GraduationCap, Loader2,
+  ArrowLeft, CalendarClock, Clock, Download, FileText, GraduationCap, Loader2, Lock,
   PlayCircle, Radio, Video, Wallet,
 } from "lucide-react";
 import AccountLayout from "@/components/account/AccountLayout";
 import { useAuth } from "@/contexts/AuthContext";
+import { computeClassAccess } from "@/lib/portal/access";
+import { joinStatusFor, nextSessionsFor } from "@/lib/portal/schedule";
 import {
   deriveDisplayFeeStatus,
   formatFeeAmount,
@@ -58,6 +60,23 @@ const ClassRoom = () => {
     [fees],
   );
 
+  // Per-class access + join gating (req P1).
+  const access = useMemo(
+    () => (enrollment
+      ? computeClassAccess({ fees, enrollmentStatus: enrollment.status })
+      : { locked: false, reason: "", daysOverdue: 0 }),
+    [fees, enrollment],
+  );
+  const locked = access.locked;
+  const sessions = useMemo(
+    () => nextSessionsFor(classDoc, enrollment?.slotId, new Date(), 3),
+    [classDoc, enrollment?.slotId],
+  );
+  const joinStatus = useMemo(
+    () => joinStatusFor(sessions, new Date(), Boolean(classDoc?.liveClassUrl)),
+    [sessions, classDoc?.liveClassUrl],
+  );
+
   const recordings = classDoc?.recordings || [];
   const materials = classDoc?.materials || [];
   const liveUrl = classDoc?.liveClassUrl || "";
@@ -108,25 +127,64 @@ const ClassRoom = () => {
           )}
         </div>
 
-        {/* Live class */}
-        <div className="rounded-2xl border border-border/60 bg-card p-5 shadow-card sm:p-6">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-center gap-3">
-              <div className="flex h-11 w-11 items-center justify-center rounded-full bg-red-100"><Radio className="h-5 w-5 text-red-600" /></div>
-              <div>
-                <h3 className="font-display text-lg text-foreground">Live Class</h3>
-                <p className="font-body text-xs text-muted-foreground">{liveUrl ? "Join the daily live session." : "The live link will appear here when the class sets it up."}</p>
+        {/* Access restriction (req): this class's content is paused while a fee
+            is overdue. Paying is always still reachable. */}
+        {locked && (
+          <div className="flex flex-col gap-3 rounded-2xl border border-red-300 bg-red-50 p-5 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex min-w-0 items-start gap-3">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-red-100"><Lock className="h-5 w-5 text-red-600" /></div>
+              <div className="min-w-0">
+                <h3 className="font-display text-lg text-red-800">Class content is paused</h3>
+                <p className="font-body text-sm text-red-700">{access.reason}</p>
               </div>
             </div>
-            {liveUrl ? (
-              <a href={liveUrl} target="_blank" rel="noreferrer" className="flex min-h-11 items-center justify-center gap-2 rounded-md bg-gradient-primary px-5 font-body text-sm font-semibold text-primary-foreground hover:brightness-110">
-                <PlayCircle className="h-4 w-4" /> Join Live Class
-              </a>
-            ) : (
-              <span className="rounded-md border border-border px-4 py-2 font-body text-sm text-muted-foreground">Not live yet</span>
+            <Link to={`/account/classes${access.blockingFee ? `?fee=${access.blockingFee.id}` : ""}`} className="flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-md bg-gradient-primary px-5 font-body text-sm font-semibold text-primary-foreground hover:brightness-110">
+              <Wallet className="h-4 w-4" /> Pay to restore access
+            </Link>
+          </div>
+        )}
+
+        {/* Grace warning — late but not yet locked. */}
+        {!locked && access.graceEndsOn && (
+          <div className="rounded-2xl border border-amber-300 bg-amber-50 px-5 py-3">
+            <p className="font-body text-sm text-amber-800">{access.reason}</p>
+          </div>
+        )}
+
+        {/* Live class — the Join button only opens around the actual session. */}
+        {!locked && (
+          <div className="rounded-2xl border border-border/60 bg-card p-5 shadow-card sm:p-6">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-center gap-3">
+                <div className="flex h-11 w-11 items-center justify-center rounded-full bg-red-100"><Radio className="h-5 w-5 text-red-600" /></div>
+                <div className="min-w-0">
+                  <h3 className="font-display text-lg text-foreground">Live Class</h3>
+                  <p className="font-body text-xs text-muted-foreground">{joinStatus.message}</p>
+                </div>
+              </div>
+              {joinStatus.open && liveUrl ? (
+                <a href={liveUrl} target="_blank" rel="noreferrer" className="flex min-h-11 items-center justify-center gap-2 rounded-md bg-gradient-primary px-5 font-body text-sm font-semibold text-primary-foreground hover:brightness-110">
+                  <PlayCircle className="h-4 w-4" /> Join Live Class
+                </a>
+              ) : (
+                <span className="shrink-0 rounded-md border border-border px-4 py-2 font-body text-sm text-muted-foreground">
+                  {liveUrl ? "Not live yet" : "Link not set"}
+                </span>
+              )}
+            </div>
+
+            {/* Upcoming sessions so the student knows when to come back. */}
+            {sessions.length > 0 && (
+              <div className="mt-3 flex flex-wrap gap-2 border-t border-border/60 pt-3">
+                {sessions.map((session, index) => (
+                  <span key={index} className="rounded-md bg-muted/60 px-2.5 py-1 font-body text-[0.72rem] text-muted-foreground">
+                    {session.label}
+                  </span>
+                ))}
+              </div>
             )}
           </div>
-        </div>
+        )}
 
         {/* Fee status shortcut */}
         {upcomingFee && (
@@ -145,7 +203,7 @@ const ClassRoom = () => {
         )}
 
         {/* Recordings */}
-        <div className="rounded-2xl border border-border/60 bg-card p-5 shadow-card sm:p-6">
+        {!locked && <div className="rounded-2xl border border-border/60 bg-card p-5 shadow-card sm:p-6">
           <h3 className="flex items-center gap-2 font-display text-lg text-foreground"><Video className="h-5 w-5 text-gold" /> Class Recordings</h3>
           {recordings.length === 0 ? (
             <p className="mt-2 font-body text-sm text-muted-foreground">No recordings have been shared yet.</p>
@@ -162,10 +220,9 @@ const ClassRoom = () => {
               ))}
             </div>
           )}
-        </div>
+        </div>}
 
-        {/* Study materials */}
-        <div className="rounded-2xl border border-border/60 bg-card p-5 shadow-card sm:p-6">
+        {!locked && <div className="rounded-2xl border border-border/60 bg-card p-5 shadow-card sm:p-6">
           <h3 className="flex items-center gap-2 font-display text-lg text-foreground"><FileText className="h-5 w-5 text-gold" /> Study Materials</h3>
           {materials.length === 0 ? (
             <p className="mt-2 font-body text-sm text-muted-foreground">No materials have been uploaded yet.</p>
@@ -182,7 +239,7 @@ const ClassRoom = () => {
               ))}
             </div>
           )}
-        </div>
+        </div>}
       </div>
     </AccountLayout>
   );

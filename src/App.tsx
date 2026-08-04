@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Navigate, Routes, Route, useLocation, useParams } from "react-router-dom";
 import { useEffect, lazy, Suspense, useState, type ComponentType } from "react";
 import { AuthProvider } from "@/contexts/AuthContext";
+import { StudentPortalProvider } from "@/contexts/StudentPortalContext";
 import { CartProvider } from "@/contexts/CartContext";
 import FloatingButtons from "./components/FloatingButtons";
 import ScrollProgressBar from "./components/ScrollProgressBar";
@@ -28,6 +29,7 @@ import Courses from "./pages/Courses";
 import Classes from "./pages/Classes";
 import ClassDetail from "./pages/ClassDetail";
 import AccountClasses from "./pages/account/Classes";
+import StudentDashboard from "./pages/account/StudentDashboard";
 import AccountClassRoom from "./pages/account/ClassRoom";
 import Grading from "./pages/Grading";
 import Gallery from "./pages/Gallery";
@@ -185,6 +187,7 @@ const App = () => {
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
         <CartProvider>
+          <StudentPortalProvider>
           <TooltipProvider>
             <Toaster />
             <Sonner />
@@ -215,6 +218,7 @@ const App = () => {
                     <Route path="/account" element={<AccountRoute><AccountProfile /></AccountRoute>} />
                     <Route path="/account/profile" element={<AccountRoute><AccountProfile /></AccountRoute>} />
                     <Route path="/account/orders" element={<AccountRoute><AccountOrders /></AccountRoute>} />
+                    <Route path="/account/dashboard" element={<AccountRoute><StudentDashboard /></AccountRoute>} />
                     <Route path="/account/classes" element={<AccountRoute><AccountClasses /></AccountRoute>} />
                     <Route path="/account/classes/:enrollmentId" element={<AccountRoute><AccountClassRoom /></AccountRoute>} />
                     <Route path="/account/emi" element={<AccountRoute><AccountEmiDashboard /></AccountRoute>} />
@@ -266,6 +270,7 @@ const App = () => {
               </Suspense>
             </BrowserRouter>
           </TooltipProvider>
+          </StudentPortalProvider>
         </CartProvider>
       </AuthProvider>
     </QueryClientProvider>

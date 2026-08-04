@@ -1,12 +1,13 @@
 import type { ReactNode } from "react";
 import { Link, NavLink } from "react-router-dom";
-import { ArrowLeft, GraduationCap, Heart, MapPin, PackageCheck, UserRound, CalendarDays } from "lucide-react";
+import { ArrowLeft, GraduationCap, Heart, LayoutDashboard, MapPin, PackageCheck, UserRound, CalendarDays } from "lucide-react";
+import { useStudentPortal } from "@/contexts/StudentPortalContext";
 import Footer from "@/components/Footer";
 import PageHero from "@/components/PageHero";
 import SEO from "@/components/SEO";
 import heroTemple from "@/assets/hero-temple.jpg";
 
-const accountLinks = [
+const shopLinks = [
   { label: "Profile", path: "/account/profile", Icon: UserRound },
   { label: "Orders", path: "/account/orders", Icon: PackageCheck },
   { label: "EMI Payments", path: "/account/emi", Icon: CalendarDays },
@@ -15,13 +16,24 @@ const accountLinks = [
   { label: "Addresses", path: "/account/addresses", Icon: MapPin },
 ];
 
+// A student gets their portal links FIRST; the shop links stay because a
+// parent may still buy products from the same account.
+const studentLinks = [
+  { label: "Dashboard", path: "/account/dashboard", Icon: LayoutDashboard },
+];
+
 interface AccountLayoutProps {
   title: string;
   description: string;
   children: ReactNode;
 }
 
-const AccountLayout = ({ title, description, children }: AccountLayoutProps) => (
+const AccountLayout = ({ title, description, children }: AccountLayoutProps) => {
+  // Students see their portal links first; everyone keeps the shop links.
+  const { isStudent } = useStudentPortal();
+  const accountLinks = isStudent ? [...studentLinks, ...shopLinks] : shopLinks;
+
+  return (
   // overflow-x-CLIP (not hidden): hidden creates a scroll container that
   // silently kills position:sticky on the desktop sidebar; clip doesn't.
   <div className="min-h-screen overflow-x-clip bg-background">
@@ -92,6 +104,7 @@ const AccountLayout = ({ title, description, children }: AccountLayoutProps) => 
 
     <Footer />
   </div>
-);
+  );
+};
 
 export default AccountLayout;
