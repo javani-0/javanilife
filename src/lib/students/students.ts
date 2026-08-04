@@ -24,7 +24,7 @@ import {
   type StudentMode,
   type StudentPaymentMethods,
 } from "./types";
-import { buildStudentBreakdown, flattenBreakdownRows } from "./feeBreakdown";
+import { buildStudentBreakdown, flattenBreakdownRows, normalizeGst, type GstConfig } from "./feeBreakdown";
 
 export const STUDENTS_COLLECTION = "students";
 export const ONBOARDING_LINKS_COLLECTION = "onboardingLinks";
@@ -126,6 +126,7 @@ export const normalizeStudent = (id: string, data: DocumentData = {}): StudentDo
     enrollmentId: getString(data.enrollmentId) || undefined,
     approvedAt: data.approvedAt,
     courses: normalizeCourses(data),
+    gst: normalizeGst(data.gst),
     enrollmentIds: Array.isArray(data.enrollmentIds)
       ? (data.enrollmentIds as unknown[]).map((value) => getString(value)).filter(Boolean)
       : [getString(data.enrollmentId)].filter(Boolean),
@@ -184,6 +185,8 @@ export interface StudentWriteInput {
   desiredStudentId?: string;
   /** Every class this student takes (req). At least one is required. */
   courses: StudentCourse[];
+  /** GST for this student (req). Disabled by default. */
+  gst?: GstConfig;
 }
 
 const buildStudentPayload = (input: StudentWriteInput) => {
@@ -237,6 +240,7 @@ const buildStudentPayload = (input: StudentWriteInput) => {
     mode: input.mode,
     photoUrl: (input.photoUrl || "").trim(),
     desiredStudentId: (input.desiredStudentId || "").trim().toUpperCase(),
+    gst: normalizeGst(input.gst),
     courses,
     // Keep the legacy singular fields in step so every existing reader works.
     ...mirrorPrimaryCourse(courses),
@@ -268,7 +272,7 @@ const mergeLinkMethods = (courses: StudentCourse[]): StudentPaymentMethods => {
 
 const syncOnboardingLink = async (student: StudentDoc): Promise<void> => {
   if (!student.linkToken) return;
-  const breakdown = buildStudentBreakdown(student.courses);
+  const breakdown = buildStudentBreakdown(student.courses, student.gst);
   const primary = student.courses[0];
   const multi = breakdown.sections.length > 1;
   // "First month free" is per class — name the class when there is more than one.

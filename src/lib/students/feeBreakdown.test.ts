@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildCourseBreakdown, buildStudentBreakdown, flattenBreakdownRows } from "./feeBreakdown";
+import { buildCourseBreakdown, buildStudentBreakdown, flattenBreakdownRows, normalizeGst } from "./feeBreakdown";
 import type { StudentCourse } from "./types";
 
 const course = (over: Partial<StudentCourse> = {}): StudentCourse => ({
@@ -144,7 +144,9 @@ describe("buildStudentBreakdown", () => {
   });
 
   it("is empty-safe", () => {
-    expect(buildStudentBreakdown([])).toEqual({ sections: [], grandTotalInPaise: 0, dueNowInPaise: 0 });
+    expect(buildStudentBreakdown([])).toEqual({
+      sections: [], grandTotalInPaise: 0, dueNowInPaise: 0, gstInPaise: 0, taxableInPaise: 0,
+    });
   });
 
   // REGRESSION: sections are written to onboardingLinks.sections, and Firestore
@@ -182,5 +184,87 @@ describe("flattenBreakdownRows", () => {
       { label: "Vocal · Kit fee", amountInPaise: 100000 },
       { label: "Veena · Books fee", amountInPaise: 40000 },
     ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GST (req): opt-in per student, default 18%, admin-editable.
+// ---------------------------------------------------------------------------
+
+describe("GST", () => {
+  const gst = (percent = 18) => ({ enabled: true, percent });
+
+  it("adds a GST row on the POST-DISCOUNT amount and grosses up the total", () => {
+    const result = buildCourseBreakdown(course({
+      fees: { ...course().fees, kitFeeInPaise: 200000, discountInPaise: 100000 },
+    }), gst());
+    expect(result.taxableInPaise).toBe(100000);         // 2000 - 1000
+    expect(result.gstInPaise).toBe(18000);              // 18% of 1000
+    expect(result.totalInPaise).toBe(118000);
+    expect(result.rows.at(-1)).toEqual({ label: "GST @ 18%", amountInPaise: 18000 });
+  });
+
+  it("honours a custom percentage", () => {
+    const result = buildCourseBreakdown(course({
+      fees: { ...course().fees, kitFeeInPaise: 100000 },
+    }), gst(5));
+    expect(result.gstInPaise).toBe(5000);
+    expect(result.gstPercent).toBe(5);
+    expect(result.rows.at(-1)?.label).toBe("GST @ 5%");
+  });
+
+  it("adds nothing when GST is disabled", () => {
+    const result = buildCourseBreakdown(course({
+      fees: { ...course().fees, kitFeeInPaise: 100000 },
+    }), { enabled: false, percent: 18 });
+    expect(result.gstInPaise).toBe(0);
+    expect(result.gstPercent).toBe(0);
+    expect(result.totalInPaise).toBe(100000);
+    expect(result.rows.some((r) => r.label.startsWith("GST"))).toBe(false);
+  });
+
+  it("splits EMI on the GST-INCLUSIVE total so installments still sum to what is owed", () => {
+    const result = buildCourseBreakdown(course({
+      methods: { razorpay: false, qr: true, counter: true, emi: true },
+      fees: {
+        ...course().fees, track: "term", termFeeInPaise: 100000,
+        emiSplit: { upfrontPercentage: 50, installmentPercentages: [50] },
+      },
+    }), gst());
+    expect(result.totalInPaise).toBe(118000);
+    expect(result.emiInstallments!.reduce((s, r) => s + r.amountInPaise, 0)).toBe(118000);
+    expect(result.dueNowInPaise).toBe(59000);
+  });
+
+  it("sums GST across every class on the student breakdown", () => {
+    const result = buildStudentBreakdown([
+      course({ key: "a", className: "Vocal", fees: { ...course().fees, kitFeeInPaise: 100000 } }),
+      course({ key: "b", className: "Veena", fees: { ...course().fees, booksFeeInPaise: 200000 } }),
+    ], gst());
+    expect(result.taxableInPaise).toBe(300000);
+    expect(result.gstInPaise).toBe(54000);
+    expect(result.grandTotalInPaise).toBe(354000);
+  });
+
+  it("never emits undefined in a GST section (Firestore-safe)", () => {
+    const { sections } = buildStudentBreakdown([
+      course({ key: "a", className: "Vocal", fees: { ...course().fees, kitFeeInPaise: 100000 } }),
+    ], gst());
+    for (const [key, value] of Object.entries(sections[0])) {
+      expect(value, `section.${key} must not be undefined`).not.toBeUndefined();
+    }
+  });
+});
+
+describe("normalizeGst", () => {
+  it("defaults to disabled at 18%", () => {
+    expect(normalizeGst(undefined)).toEqual({ enabled: false, percent: 18 });
+    expect(normalizeGst({})).toEqual({ enabled: false, percent: 18 });
+  });
+  it("keeps a valid custom percent and clamps nonsense back to the default", () => {
+    expect(normalizeGst({ enabled: true, percent: 12 })).toEqual({ enabled: true, percent: 12 });
+    expect(normalizeGst({ enabled: true, percent: 0 }).percent).toBe(18);
+    expect(normalizeGst({ enabled: true, percent: -5 }).percent).toBe(18);
+    expect(normalizeGst({ enabled: true, percent: 500 }).percent).toBe(100);
   });
 });

@@ -179,6 +179,26 @@ export const isPrepaymentEnrollment = (
 ): boolean =>
   enrollment.paymentPlan === "manual" && enrollment.studentStatus === "new" && enrollment.feeType !== "term";
 
+/**
+ * The recurring monthly charge, GST-inclusive when the student is GST-billed.
+ * Server mirror: api/_lib/fee-store.ts monthlyGross — keep in sync.
+ */
+export const monthlyGross = (
+  enrollment: Pick<EnrollmentDoc, "monthlyFeeInPaise" | "className" | "gstPercent">,
+): { totalInPaise: number; breakdown: Array<{ label: string; amountInPaise: number }> } => {
+  const base = Math.max(0, Math.round(enrollment.monthlyFeeInPaise || 0));
+  const percent = Math.max(0, Number(enrollment.gstPercent) || 0);
+  const gstInPaise = percent > 0 ? Math.round((base * percent) / 100) : 0;
+  const className = enrollment.className || "Class";
+  return {
+    totalInPaise: base + gstInPaise,
+    breakdown: [
+      { label: `Monthly class fee — ${className}`, amountInPaise: base },
+      ...(gstInPaise > 0 ? [{ label: `GST @ ${percent}%`, amountInPaise: gstInPaise }] : []),
+    ],
+  };
+};
+
 export const ensureMonthlyDueFee = async (
   enrollment: Pick<
     EnrollmentDoc,
@@ -215,13 +235,10 @@ export const ensureMonthlyDueFee = async (
     billingStartMonth: billing.startMonthKey,
     billingEndMonth: billing.endMonthKey,
     nextChargeDate: dueDateFor(billing.nextChargeMonthKey, billingDay),
-    amountInPaise: Math.max(0, Math.round(enrollment.monthlyFeeInPaise || 0)),
-    // Every fee is itemised (req: transparent pricing). Server mirror:
-    // api/_lib/fee-store.ts buildFeePaymentSeed — keep in sync.
-    breakdown: [{
-      label: `Monthly class fee — ${enrollment.className || "Class"}`,
-      amountInPaise: Math.max(0, Math.round(enrollment.monthlyFeeInPaise || 0)),
-    }],
+    amountInPaise: monthlyGross(enrollment).totalInPaise,
+    // Every fee is itemised (req) — class fee plus a GST line when billed.
+    // Server mirror: api/_lib/fee-store.ts buildFeePaymentSeed — keep in sync.
+    breakdown: monthlyGross(enrollment).breakdown,
     dueDate: dueDateFor(monthKey, billingDay),
     status: "pending",
     createdAt: serverTimestamp(),

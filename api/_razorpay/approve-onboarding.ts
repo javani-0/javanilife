@@ -54,7 +54,19 @@ const formatStudentId = (sequence: number): string => `STU${String(Math.max(1, M
  * doc so the parent's payment history shows the same itemized split the admin
  * saw (req), not just one total.
  */
-const buildOnboardingBreakdown = (fees: Record<string, unknown>): { rows: Array<{ label: string; amountInPaise: number }>; totalInPaise: number } => {
+interface ServerGst { enabled: boolean; percent: number }
+
+/** Mirror of src/lib/students/feeBreakdown.ts normalizeGst — keep in sync. */
+const readGst = (raw: unknown): ServerGst => {
+  const data = (raw || {}) as Record<string, unknown>;
+  const percent = toNumber(data.percent);
+  return {
+    enabled: data.enabled === true,
+    percent: percent > 0 ? Math.min(100, percent) : 18,
+  };
+};
+
+const buildOnboardingBreakdown = (fees: Record<string, unknown>, gst?: ServerGst): { rows: Array<{ label: string; amountInPaise: number }>; totalInPaise: number } => {
   const studentType = getString(fees.studentType, "new");
   const track = getString(fees.track, "monthly");
   const rows: Array<{ label: string; amountInPaise: number }> = [];
@@ -69,7 +81,12 @@ const buildOnboardingBreakdown = (fees: Record<string, unknown>): { rows: Array<
   const subtotal = rows.reduce((sum, row) => sum + row.amountInPaise, 0);
   const discount = Math.min(clampPaise(fees.discountInPaise), subtotal);
   if (discount > 0) rows.push({ label: "Discount", amountInPaise: -discount });
-  return { rows, totalInPaise: Math.max(0, subtotal - discount) };
+  const taxable = Math.max(0, subtotal - discount);
+  // GST on the POST-DISCOUNT amount (req) — mirrors the client's gstOn(). The
+  // parent's link and this fee doc MUST agree, so this runs before the total.
+  const gstInPaise = gst?.enabled && gst.percent > 0 ? Math.round((taxable * gst.percent) / 100) : 0;
+  if (gstInPaise > 0) rows.push({ label: `GST @ ${gst!.percent}%`, amountInPaise: gstInPaise });
+  return { rows, totalInPaise: taxable + gstInPaise };
 };
 
 const ordinal = (n: number): string => {
@@ -250,6 +267,8 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     const phone = getString(student.phone).replace(/\D/g, "").slice(-15);
 
     const courses = readCourses(student);
+    // GST is per STUDENT (req) and applies to every class they take.
+    const studentGst = readGst(student.gst);
     if (courses.length === 0) {
       sendError(response, 400, "The student has no class selected — edit the profile first.");
       return;
@@ -411,7 +430,7 @@ export default async function handler(request: ApiRequest, response: ApiResponse
         // Term with EMI selected → the installment plan; else full. Monthly → manual.
         const paymentPlan = isTerm ? (methods.emi === true ? "emi" : "full") : "manual";
 
-        const { rows: breakdownRows, totalInPaise } = buildOnboardingBreakdown(fees);
+        const { rows: breakdownRows, totalInPaise } = buildOnboardingBreakdown(fees, studentGst);
         // EMI is only real when the admin enabled it on a TERM course AND the
         // split yields more than one part. Then the parent paid installment 1
         // only (req) and installments 2..n become pending dues.
@@ -445,6 +464,8 @@ export default async function handler(request: ApiRequest, response: ApiResponse
           paymentPlan,
           feeType: isTerm ? "term" : "monthly",
           studentStatus: courseStudentType,
+          // Recurring monthly dues gross up by this rate (0 = no GST).
+          gstPercent: studentGst.enabled ? studentGst.percent : 0,
           // The admin enabled the Razorpay option → invite the parent to complete
           // the autopay mandate from their portal (mandates need the payer).
           ...(methods.razorpay === true && !isTerm ? { autopayInvited: true } : {}),

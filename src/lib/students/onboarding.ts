@@ -41,6 +41,11 @@ const toSections = (value: unknown): CourseBreakdown[] | undefined => {
       rows: toFeeRows(section?.rows),
       subtotalInPaise: Math.max(0, Math.round(toNumber(section?.subtotalInPaise))),
       discountInPaise: Math.max(0, Math.round(toNumber(section?.discountInPaise))),
+      // GST (req). Links written before GST have none — fall back to the total
+      // being fully taxable-free rather than inventing a tax line.
+      taxableInPaise: Math.max(0, Math.round(toNumber(section?.taxableInPaise, totalInPaise))),
+      gstInPaise: Math.max(0, Math.round(toNumber(section?.gstInPaise))),
+      gstPercent: Math.max(0, toNumber(section?.gstPercent)),
       totalInPaise,
       dueNowInPaise: Math.max(0, Math.round(toNumber(section?.dueNowInPaise, totalInPaise))),
       ...(emi.length > 1 ? { emiInstallments: emi } : {}),

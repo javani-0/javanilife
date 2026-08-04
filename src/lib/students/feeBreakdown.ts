@@ -13,6 +13,33 @@ import type { FeeBreakdownRow, StudentCourse, StudentFeeSetup } from "./types";
 // api/_razorpay/approve-onboarding.ts (buildOnboardingBreakdown) — keep in sync.
 // ---------------------------------------------------------------------------
 
+/**
+ * GST is opt-in PER STUDENT (req: "for few students"). Default 18%, admin
+ * editable. It is charged on the post-discount amount of each class, so every
+ * fee document and every bill line stays internally consistent.
+ */
+export interface GstConfig {
+  enabled: boolean;
+  percent: number;
+}
+
+export const DEFAULT_GST_PERCENT = 18;
+
+export const normalizeGst = (raw: unknown): GstConfig => {
+  const data = (raw || {}) as Record<string, unknown>;
+  const percent = Number(data.percent);
+  return {
+    enabled: data.enabled === true,
+    percent: Number.isFinite(percent) && percent > 0 ? Math.min(100, percent) : DEFAULT_GST_PERCENT,
+  };
+};
+
+/** GST payable on a taxable amount, rounded to the nearest paisa. */
+export const gstOn = (taxableInPaise: number, gst?: GstConfig): number => {
+  if (!gst?.enabled || !(gst.percent > 0) || taxableInPaise <= 0) return 0;
+  return Math.round((taxableInPaise * gst.percent) / 100);
+};
+
 export interface CourseBreakdown {
   key: string;
   classId: string;
@@ -21,6 +48,10 @@ export interface CourseBreakdown {
   rows: FeeBreakdownRow[];
   subtotalInPaise: number;
   discountInPaise: number;
+  /** Post-discount, pre-GST — the taxable value shown on the bill. */
+  taxableInPaise: number;
+  gstInPaise: number;
+  gstPercent: number;
   totalInPaise: number;
   /** What must be paid NOW: the whole total, or installment 1 on an EMI course. */
   dueNowInPaise: number;
@@ -33,6 +64,9 @@ export interface StudentBreakdown {
   sections: CourseBreakdown[];
   grandTotalInPaise: number;
   dueNowInPaise: number;
+  /** Combined GST across every class — the bill's tax line. */
+  gstInPaise: number;
+  taxableInPaise: number;
 }
 
 const clampPaise = (value: number): number => Math.max(0, Math.round(Number(value) || 0));
@@ -96,11 +130,21 @@ export const buildEmiRows = (
   return rows.length > 1 ? rows : undefined;
 };
 
-/** One class's full transparent breakdown. */
-export const buildCourseBreakdown = (course: StudentCourse): CourseBreakdown => {
-  const { rows, subtotalInPaise, discountInPaise, totalInPaise } = buildCourseRows(course.fees);
+/** One class's full transparent breakdown, GST included when the student pays it. */
+export const buildCourseBreakdown = (course: StudentCourse, gst?: GstConfig): CourseBreakdown => {
+  const { rows: baseRows, subtotalInPaise, discountInPaise, totalInPaise: taxableInPaise } = buildCourseRows(course.fees);
+  // GST applies to the POST-DISCOUNT amount, and the EMI split is computed on
+  // the GST-inclusive total so the installments still sum to what's owed.
+  const gstInPaise = gstOn(taxableInPaise, gst);
+  const rows = gstInPaise > 0
+    ? [...baseRows, { label: `GST @ ${gst!.percent}%`, amountInPaise: gstInPaise }]
+    : baseRows;
+  const totalInPaise = taxableInPaise + gstInPaise;
   const emiInstallments = buildEmiRows(course.fees, course.methods, totalInPaise);
   return {
+    taxableInPaise,
+    gstInPaise,
+    gstPercent: gstInPaise > 0 ? gst!.percent : 0,
     key: course.key,
     classId: course.classId,
     className: course.className,
@@ -120,13 +164,17 @@ export const buildCourseBreakdown = (course: StudentCourse): CourseBreakdown => 
 };
 
 /** Every class the student takes, sectioned, plus the one grand total. */
-export const buildStudentBreakdown = (courses: StudentCourse[]): StudentBreakdown => {
+export const buildStudentBreakdown = (courses: StudentCourse[], gst?: GstConfig): StudentBreakdown => {
   // Filter inline rather than importing activeCourses() — see the cycle note above.
-  const sections = (courses || []).filter((course) => course.status !== "dropped").map(buildCourseBreakdown);
+  const sections = (courses || [])
+    .filter((course) => course.status !== "dropped")
+    .map((course) => buildCourseBreakdown(course, gst));
   return {
     sections,
     grandTotalInPaise: sections.reduce((sum, section) => sum + section.totalInPaise, 0),
     dueNowInPaise: sections.reduce((sum, section) => sum + section.dueNowInPaise, 0),
+    gstInPaise: sections.reduce((sum, section) => sum + section.gstInPaise, 0),
+    taxableInPaise: sections.reduce((sum, section) => sum + section.taxableInPaise, 0),
   };
 };
 

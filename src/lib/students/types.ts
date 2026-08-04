@@ -1,6 +1,6 @@
 import type { Timestamp } from "firebase/firestore";
 import type { Gender } from "@/lib/classes";
-import { buildCourseRows, buildEmiRows, type CourseBreakdown } from "./feeBreakdown";
+import { buildCourseRows, buildEmiRows, type CourseBreakdown, type GstConfig } from "./feeBreakdown";
 
 // ---------------------------------------------------------------------------
 // Student Manager (req): the admin creates and manages every student profile.
@@ -143,6 +143,9 @@ export interface StudentDoc {
   // write mirrors courses[0] back, so no backfill migration is needed.
   courses: StudentCourse[];
   enrollmentIds: string[];
+  // GST is opt-in per student (req: only a few students are billed it).
+  // Default 18%, admin-editable. Applied to every class's post-discount total.
+  gst: GstConfig;
   // Admin override: force portal access unlocked through this date (YYYY-MM-DD)
   // even when a fee is overdue. Consumed from P1; stored from P0 on.
   accessOverrideUntil?: string;

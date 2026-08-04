@@ -57,6 +57,8 @@ export interface EnrollmentRecord {
   // "YYYY-MM" the student joined — the prepayment structure bills their first
   // monthly fee the month AFTER this one.
   startMonthKey?: string;
+  // GST rate for this student (req). 0 / undefined = not GST-billed.
+  gstPercent?: number;
 }
 
 /**
@@ -153,6 +155,24 @@ const slotAndPlanFields = (enrollment: EnrollmentRecord) => ({
   slotLabel: getString(enrollment.slotLabel),
 });
 
+/**
+ * The recurring monthly charge, GST-inclusive when the student is GST-billed.
+ * Client mirror: src/lib/classes/fees.ts monthlyGross — keep in sync.
+ */
+export const monthlyGross = (enrollment: EnrollmentRecord) => {
+  const base = Math.max(0, Math.round(toNumber(enrollment.monthlyFeeInPaise)));
+  const percent = Math.max(0, toNumber(enrollment.gstPercent));
+  const gstInPaise = percent > 0 ? Math.round((base * percent) / 100) : 0;
+  const className = getString(enrollment.className) || "Class";
+  return {
+    totalInPaise: base + gstInPaise,
+    breakdown: [
+      { label: `Monthly class fee — ${className}`, amountInPaise: base },
+      ...(gstInPaise > 0 ? [{ label: `GST @ ${percent}%`, amountInPaise: gstInPaise }] : []),
+    ],
+  };
+};
+
 /** Denormalized base fields for a monthly fee doc derived from an enrollment + month. */
 export const buildFeePaymentSeed = (enrollment: EnrollmentRecord, monthKey: string) => {
   const billingDay = clampBillingDay(toNumber(enrollment.billingDayOfMonth, 5));
@@ -178,15 +198,11 @@ export const buildFeePaymentSeed = (enrollment: EnrollmentRecord, monthKey: stri
     billingStartMonth: billing.startMonthKey,
     billingEndMonth: billing.endMonthKey,
     nextChargeDate: dueDateFor(billing.nextChargeMonthKey, billingDay),
-    amountInPaise: Math.max(0, Math.round(toNumber(enrollment.monthlyFeeInPaise))),
-    // Every fee is itemised (req: transparent pricing). A recurring monthly fee
-    // is one line naming the class, so the parent's history and the admin
-    // ledger always render a breakdown table rather than a bare number.
+    amountInPaise: monthlyGross(enrollment).totalInPaise,
+    // Every fee is itemised (req: transparent pricing) — the class fee line plus
+    // a GST line when the student is GST-billed, so history/ledger/bill agree.
     // Client mirror: src/lib/classes/fees.ts — keep in sync.
-    breakdown: [{
-      label: `Monthly class fee — ${getString(enrollment.className) || "Class"}`,
-      amountInPaise: Math.max(0, Math.round(toNumber(enrollment.monthlyFeeInPaise))),
-    }],
+    breakdown: monthlyGross(enrollment).breakdown,
     // dueDate stays the *collection* month (when payment is expected).
     dueDate: dueDateFor(monthKey, billingDay),
   };

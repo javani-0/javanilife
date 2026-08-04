@@ -202,6 +202,8 @@ export interface EnrollmentDoc {
   // UPI/RBI mandate can only be authorized by the payer, not set up on their
   // behalf), so it surfaces an "Enable autopay" CTA in My Classes.
   autopayInvited?: boolean;
+  // GST rate billed on this enrolment's recurring fees (req). 0 = not GST-billed.
+  gstPercent?: number;
   // Admin-set metadata surfaced to the parent (Student Manager).
   joiningDate?: string;   // YYYY-MM-DD
   trainerName?: string;   // the class trainer/faculty

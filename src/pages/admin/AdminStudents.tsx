@@ -29,6 +29,7 @@ import {
   buildCourseBreakdown,
   buildPayLinkUrl,
   buildStudentBreakdown,
+  DEFAULT_GST_PERCENT,
   deleteStudentCompletely,
   buildPaymentLinkWhatsAppUrl,
   buildStudentCredentialsWhatsAppUrl,
@@ -77,6 +78,8 @@ interface StudentFormState {
   mode: StudentMode;
   photoUrl: string;
   rollNumber: string;
+  gstEnabled: boolean;
+  gstPercent: string;
   // Every class this student takes (req). Each carries its own slot, fees,
   // inventory, payment methods and dates.
   courses: StudentCourse[];
@@ -117,6 +120,7 @@ const makeCourse = (cls?: ClassDoc, overrides: Partial<StudentCourse> = {}): Stu
 const defaultForm: StudentFormState = {
   name: "", age: "", gender: "male", email: "", phone: "",
   parentName: "", parentRelation: "father", address: "", mode: "offline", photoUrl: "", rollNumber: "",
+  gstEnabled: false, gstPercent: String(DEFAULT_GST_PERCENT),
   courses: [],
 };
 
@@ -170,7 +174,10 @@ const AdminStudents = () => {
 
   // The transparent price the admin sees — and exactly what the parent's link
   // will show: one section per class, then the one grand total (req).
-  const previewFees = useMemo(() => buildStudentBreakdown(form.courses), [form.courses]);
+  const previewFees = useMemo(
+    () => buildStudentBreakdown(form.courses, { enabled: form.gstEnabled, percent: Number(form.gstPercent) || DEFAULT_GST_PERCENT }),
+    [form.courses, form.gstEnabled, form.gstPercent],
+  );
   const paymentFree = previewFees.grandTotalInPaise <= 0;
   const firstMonthFreeNotes = useMemo(() => {
     const active = form.courses.filter((course) => course.status !== "dropped");
@@ -272,6 +279,8 @@ const AdminStudents = () => {
       mode: student.mode,
       photoUrl: student.photoUrl || "",
       rollNumber: student.studentId || student.desiredStudentId || "",
+      gstEnabled: student.gst.enabled,
+      gstPercent: String(student.gst.percent),
       // Every class the student takes — legacy single-class docs normalise to
       // a one-entry array, so old students open exactly as before.
       courses: student.courses.map((course) => ({ ...course })),
@@ -320,6 +329,7 @@ const AdminStudents = () => {
       address: form.address,
       mode: form.mode,
       photoUrl: form.photoUrl,
+      gst: { enabled: form.gstEnabled, percent: Number(form.gstPercent) || DEFAULT_GST_PERCENT },
       desiredStudentId: rollNumber,
       courses: form.courses.map((course) => ({
         ...course,
@@ -679,7 +689,7 @@ const AdminStudents = () => {
             const credential = credentials[student.id];
             const payUrl = student.linkToken ? buildPayLinkUrl(student.linkToken) : "";
             // The combined price across EVERY class this student takes (req).
-            const studentBreakdown = buildStudentBreakdown(student.courses);
+            const studentBreakdown = buildStudentBreakdown(student.courses, student.gst);
             const totalInPaise = studentBreakdown.grandTotalInPaise;
             // EMI onboarding → the link (and the WhatsApp message) ask for the
             // FIRST installment only; the rest become dues after approval. EMI
@@ -1021,6 +1031,36 @@ const AdminStudents = () => {
                   onRemove={() => { void removeCourse(course.key); }}
                 />
               ))}
+            </div>
+
+            {/* GST — off by default; only some students are billed it (req). */}
+            <div className="mt-4 rounded-lg border border-border/70 bg-background/50 p-3">
+              <label className="flex items-center gap-2 font-body text-[0.85rem] font-semibold text-foreground">
+                <input
+                  type="checkbox"
+                  checked={form.gstEnabled}
+                  onChange={(e) => setForm({ ...form, gstEnabled: e.target.checked })}
+                />
+                Charge GST on this student's fees
+              </label>
+              {form.gstEnabled && (
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <label className="font-body text-[0.78rem] text-muted-foreground">GST rate</label>
+                  <div className="relative w-28">
+                    <input
+                      value={form.gstPercent}
+                      onChange={(e) => setForm({ ...form, gstPercent: e.target.value.replace(/[^0-9.]/g, "") })}
+                      className={`${inputClass} pr-7`}
+                      inputMode="decimal"
+                      placeholder={String(DEFAULT_GST_PERCENT)}
+                    />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 font-body text-xs text-muted-foreground">%</span>
+                  </div>
+                  <span className="font-body text-[0.72rem] text-muted-foreground">
+                    Applied to each class's amount after discount. Default {DEFAULT_GST_PERCENT}%.
+                  </span>
+                </div>
+              )}
             </div>
 
             <StudentFeeSummary breakdown={previewFees} firstMonthFreeNotes={firstMonthFreeNotes} />
