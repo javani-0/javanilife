@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { BadgeIndianRupee, CalendarPlus, Loader2, RefreshCw, Trash2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAdminLog } from "@/hooks/useAdminLog";
@@ -23,7 +23,7 @@ import {
   type FeePaymentMethod,
   type FeeStatus,
 } from "@/lib/classes";
-import type { StudentDoc } from "@/lib/students";
+import { enrollmentIdsOf, summarizeStudentFees, type StudentDoc } from "@/lib/students";
 
 // ---------------------------------------------------------------------------
 // Per-student fee collection tab inside the Student Manager (req): the admin
@@ -62,7 +62,10 @@ const StudentFeePanel = ({ student, adminUid }: StudentFeePanelProps) => {
   const { toast } = useToast();
   const logAction = useAdminLog();
   const studentLabel = `${student.name}${student.studentId ? ` (${student.studentId})` : ""}`;
-  const [enrollment, setEnrollment] = useState<EnrollmentDoc | null>(null);
+  // Every class the student takes; `activeEnrollmentId` is the one a new fee
+  // entry gets attached to (the admin picks when there is more than one).
+  const [allEnrollments, setAllEnrollments] = useState<EnrollmentDoc[]>([]);
+  const [activeEnrollmentId, setActiveEnrollmentId] = useState<string>("");
   const [fees, setFees] = useState<FeePaymentDoc[]>([]);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -80,24 +83,49 @@ const StudentFeePanel = ({ student, adminUid }: StudentFeePanelProps) => {
   const [payDate, setPayDate] = useState(todayIso());
   const [payMethod, setPayMethod] = useState<FeePaymentMethod>("cash");
 
+  // Every class the student takes gets loaded — the ledger and the totals must
+  // cover all of them, not just the first one (req: multi-class students).
+  const enrollmentIds = useMemo(() => enrollmentIdsOf(student), [student]);
+  const enrollmentKey = enrollmentIds.join(",");
+
   const refresh = useCallback(async () => {
-    if (!student.enrollmentId) { setLoading(false); return; }
+    if (enrollmentIds.length === 0) { setLoading(false); return; }
     setLoading(true);
     try {
-      const [enr, feeList] = await Promise.all([
-        getEnrollment(student.enrollmentId),
-        listFeesForEnrollment(student.enrollmentId),
-      ]);
-      setEnrollment(enr);
-      setFees(sortFeesByMonthDesc(feeList));
+      const loaded = await Promise.all(enrollmentIds.map(async (id) => {
+        const [enr, feeList] = await Promise.all([
+          getEnrollment(id),
+          listFeesForEnrollment(id).catch(() => [] as FeePaymentDoc[]),
+        ]);
+        return { enr, feeList };
+      }));
+      const enrollments = loaded.map((item) => item.enr).filter(Boolean) as EnrollmentDoc[];
+      setAllEnrollments(enrollments);
+      // Keep the previously selected class if it's still there, else the first.
+      setActiveEnrollmentId((current) =>
+        (current && enrollments.some((e) => e.id === current) ? current : enrollments[0]?.id || ""));
+      setFees(sortFeesByMonthDesc(loaded.flatMap((item) => item.feeList)));
     } catch (error) {
       toast({ title: "Could not load the fee history", description: error instanceof Error ? error.message : undefined, variant: "destructive" });
     } finally {
       setLoading(false);
     }
-  }, [student.enrollmentId, toast]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enrollmentKey, toast]);
 
   useEffect(() => { refresh(); }, [refresh]);
+
+  // The class a new fee entry attaches to. Every other consumer below reads
+  // this, so the whole add/record flow follows the class picker.
+  const enrollment = useMemo(
+    () => allEnrollments.find((item) => item.id === activeEnrollmentId) || null,
+    [allEnrollments, activeEnrollmentId],
+  );
+
+  // What the family still owes across EVERY class — never derived from whichever
+  // fee was touched most recently (that's what hid a pending month behind a
+  // freshly-paid admission fee).
+  const outstanding = useMemo(() => summarizeStudentFees(fees), [fees]);
 
   const handleAddEntry = async () => {
     if (!enrollment) return;
@@ -186,18 +214,42 @@ const StudentFeePanel = ({ student, adminUid }: StudentFeePanelProps) => {
     }
   };
 
-  if (!student.enrollmentId) {
+  if (enrollmentIds.length === 0) {
     return <p className="mt-2 rounded-lg border border-dashed border-border p-4 font-body text-xs text-muted-foreground">Fees appear here after the student is approved.</p>;
   }
 
   return (
     <div className="mt-3 rounded-lg border border-border/60 bg-background/60 p-3 sm:p-4">
       <div className="flex items-center justify-between gap-2">
-        <p className="font-body text-sm font-semibold text-foreground">Fee collections</p>
+        <p className="font-body text-sm font-semibold text-foreground">
+          Fee collections
+          {outstanding.hasOutstanding && (
+            <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 font-body text-[0.65rem] font-semibold text-amber-700">
+              {outstanding.outstanding.length} due · {formatPaiseAsRupees(outstanding.outstandingInPaise)}
+            </span>
+          )}
+        </p>
         <button onClick={refresh} disabled={loading} className="flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 font-body text-[0.72rem] font-semibold text-muted-foreground hover:bg-muted disabled:opacity-50">
           <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} /> Refresh
         </button>
       </div>
+
+      {/* Which class a new entry attaches to — only when there is a choice. */}
+      {allEnrollments.length > 1 && (
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <span className="font-body text-[0.72rem] text-muted-foreground">Record against:</span>
+          {allEnrollments.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => setActiveEnrollmentId(item.id)}
+              className={`rounded-md border px-2.5 py-1 font-body text-[0.72rem] font-semibold transition-colors ${activeEnrollmentId === item.id ? "border-gold bg-gold/10 text-gold" : "border-border text-muted-foreground hover:border-gold/40"}`}
+            >
+              {item.className}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Add fee entry: month | ₹ | date (default today, editable) | method */}
       {student.fees.track === "monthly" && (

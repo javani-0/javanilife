@@ -38,7 +38,14 @@ const interpretWhatsApp = (result: unknown): { status: string; message: string }
   if (value?.status === "failed") return { status: "failed", message: value.errorMessage || "WhatsApp send failed." };
   return { status: "unknown", message: parent?.reason || "Could not read the WhatsApp result." };
 };
-import type { StudentDoc } from "@/lib/students";
+import {
+  enrollmentIdsOf,
+  matchesFeeFilter,
+  summarizeStudentFees,
+  type FeeFilter,
+  type StudentDoc,
+  type StudentFeeSummary,
+} from "@/lib/students";
 
 // ---------------------------------------------------------------------------
 // The "Fee Collections" view of the Student Manager (req): month summary cards,
@@ -76,8 +83,6 @@ const toMillis = (value: unknown): number => {
 // "Most recent activity" on a fee: paid date wins, else created/updated.
 const feeActivityMillis = (fee: FeePaymentDoc): number =>
   Math.max(toMillis(fee.paidAt), toMillis(fee.upiSubmittedAt), toMillis(fee.updatedAt), toMillis(fee.createdAt));
-const latestOf = (fees: FeePaymentDoc[]): FeePaymentDoc | undefined =>
-  fees.length === 0 ? undefined : fees.reduce((a, b) => (feeActivityMillis(b) >= feeActivityMillis(a) ? b : a));
 
 type SortMode = "latest" | "new" | "old" | "az";
 
@@ -114,7 +119,8 @@ const StudentFeeCollections = ({ students, adminUid }: StudentFeeCollectionsProp
   const [reminding, setReminding] = useState(false);
   const [bulkReminding, setBulkReminding] = useState(false);
   const [monthKey, setMonthKey] = useState(monthKeyFor(new Date()));
-  const [feesByEnrollment, setFeesByEnrollment] = useState<Map<string, FeePaymentDoc[]>>(new Map());
+  // Keyed by STUDENT id (every class's ledger merged), not by enrollment.
+  const [feesByStudent, setFeesByStudent] = useState<Map<string, FeePaymentDoc[]>>(new Map());
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [classFilter, setClassFilter] = useState("all");
@@ -130,33 +136,46 @@ const StudentFeeCollections = ({ students, adminUid }: StudentFeeCollectionsProp
   useEffect(() => () => { if (proofPreview) URL.revokeObjectURL(proofPreview); }, [proofPreview]);
 
   const approvedStudents = useMemo(
-    () => students.filter((student) => student.onboardingStatus === "approved" && student.enrollmentId),
+    () => students.filter((student) => student.onboardingStatus === "approved" && enrollmentIdsOf(student).length > 0),
     [students],
   );
-  // Stable key so the loader only refires when the actual set of students changes.
+  // Stable key so the loader only refires when the actual set of enrolments
+  // changes — every class, not just the first.
   const enrollmentKey = useMemo(
-    () => approvedStudents.map((s) => s.enrollmentId).sort().join(","),
+    () => approvedStudents.flatMap(enrollmentIdsOf).sort().join(","),
     [approvedStudents],
   );
 
+  // Keyed by STUDENT id, holding the fees of EVERY class they take — a student
+  // with two classes has two ledgers and both count towards what they owe.
   const loadFees = useCallback(async () => {
     setLoading(true);
     const map = new Map<string, FeePaymentDoc[]>();
     await Promise.all(approvedStudents.map(async (student) => {
-      if (!student.enrollmentId) return;
+      const ids = enrollmentIdsOf(student);
+      if (ids.length === 0) return;
       try {
-        const fees = await listFeesForEnrollment(student.enrollmentId);
-        map.set(student.enrollmentId, fees);
+        const perClass = await Promise.all(ids.map((id) => listFeesForEnrollment(id).catch(() => [])));
+        map.set(student.id, perClass.flat());
       } catch {
-        map.set(student.enrollmentId, []);
+        map.set(student.id, []);
       }
     }));
-    setFeesByEnrollment(map);
+    setFeesByStudent(map);
     setLoading(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enrollmentKey]);
 
   useEffect(() => { loadFees(); }, [loadFees]);
+
+  /** What each student owes right now, across every class. */
+  const summaryByStudent = useMemo(() => {
+    const map = new Map<string, StudentFeeSummary>();
+    for (const student of approvedStudents) {
+      map.set(student.id, summarizeStudentFees(feesByStudent.get(student.id) || []));
+    }
+    return map;
+  }, [approvedStudents, feesByStudent]);
 
   const classOptions = useMemo(() => {
     const seen = new Map<string, string>();
@@ -166,48 +185,52 @@ const StudentFeeCollections = ({ students, adminUid }: StudentFeeCollectionsProp
     return Array.from(seen.entries());
   }, [approvedStudents]);
 
-  const latestByEnrollment = useMemo(() => {
-    const map = new Map<string, FeePaymentDoc | undefined>();
-    for (const [id, fees] of feesByEnrollment) map.set(id, latestOf(fees));
-    return map;
-  }, [feesByEnrollment]);
-
-  // Summary cards are month-scoped: a student counts in a bucket if any of
-  // their fee docs for the picked month is in that state.
+  /**
+   * PAID is month-scoped ("what came in during July"). PENDING and OVERDUE are
+   * NOT — they are live states, and scoping them to the picked month is what
+   * used to hide a due dated next month behind a "no fee pending" reading.
+   */
   const summary = useMemo(() => {
     let paid = 0; let paidInPaise = 0; let pending = 0; let pendingInPaise = 0; let overdue = 0; let overdueInPaise = 0;
     for (const student of approvedStudents) {
-      const monthDocs = ((student.enrollmentId && feesByEnrollment.get(student.enrollmentId)) || []).filter((fee) => fee.monthKey === monthKey);
-      let hasPaid = false; let hasPending = false; let hasOverdue = false;
-      for (const fee of monthDocs) {
-        const status = deriveDisplayFeeStatus(fee);
-        if (status === "paid") { hasPaid = true; paidInPaise += fee.amountInPaise; }
-        else if (status === "overdue") { hasOverdue = true; overdueInPaise += fee.amountInPaise; }
-        else if (status === "pending" || status === "processing") { hasPending = true; pendingInPaise += fee.amountInPaise; }
+      const fees = feesByStudent.get(student.id) || [];
+      const studentSummary = summaryByStudent.get(student.id);
+
+      const monthPaid = fees.filter((fee) => fee.monthKey === monthKey && deriveDisplayFeeStatus(fee) === "paid");
+      if (monthPaid.length > 0) {
+        paid += 1;
+        paidInPaise += monthPaid.reduce((sum, fee) => sum + fee.amountInPaise, 0);
       }
-      if (hasPaid) paid += 1;
-      if (hasPending) pending += 1;
-      if (hasOverdue) overdue += 1;
+
+      if (studentSummary?.hasOutstanding) {
+        pending += 1;
+        pendingInPaise += studentSummary.outstandingInPaise;
+        if (studentSummary.overdueCount > 0) {
+          overdue += 1;
+          overdueInPaise += studentSummary.outstanding
+            .filter((fee) => deriveDisplayFeeStatus(fee) === "overdue")
+            .reduce((sum, fee) => sum + fee.amountInPaise, 0);
+        }
+      }
     }
     return { paid, paidInPaise, pending, pendingInPaise, overdue, overdueInPaise };
-  }, [approvedStudents, feesByEnrollment, monthKey]);
+  }, [approvedStudents, feesByStudent, summaryByStudent, monthKey]);
 
   const rows = useMemo(() => {
     const q = search.trim().toLowerCase();
     const filtered = approvedStudents.filter((student) => {
       if (classFilter !== "all" && student.classId !== classFilter) return false;
       if (q && ![student.name, student.studentId, student.className, student.parentName, student.email].some((v) => (v || "").toLowerCase().includes(q))) return false;
-      const latest = student.enrollmentId ? latestByEnrollment.get(student.enrollmentId) : undefined;
-      if (statusFilter !== "all") {
-        if (statusFilter === "none") { if (latest) return false; }
-        else if (!latest || deriveDisplayFeeStatus(latest) !== statusFilter) return false;
-      }
-      if (methodFilter !== "all" && (!latest || latest.paymentMethod !== methodFilter)) return false;
+      const studentSummary = summaryByStudent.get(student.id);
+      // Match if ANY fee is in the chosen state — comparing only the latest doc
+      // made the "Pending" filter hide the students who actually owed money.
+      if (studentSummary && !matchesFeeFilter(studentSummary, statusFilter as FeeFilter)) return false;
+      if (methodFilter !== "all" && !(studentSummary?.all || []).some((fee) => fee.paymentMethod === methodFilter)) return false;
       return true;
     });
     const nameOf = (s: StudentDoc) => (s.name || "").toLowerCase();
     const latestMillis = (s: StudentDoc) => {
-      const latest = s.enrollmentId ? latestByEnrollment.get(s.enrollmentId) : undefined;
+      const latest = summaryByStudent.get(s.id)?.latest;
       return latest ? feeActivityMillis(latest) : 0;
     };
     const createdMillis = (s: StudentDoc) => toMillis(s.createdAt);
@@ -217,7 +240,7 @@ const StudentFeeCollections = ({ students, adminUid }: StudentFeeCollectionsProp
       if (sortMode === "old") return createdMillis(a) - createdMillis(b) || nameOf(a).localeCompare(nameOf(b));
       return latestMillis(b) - latestMillis(a) || nameOf(a).localeCompare(nameOf(b)); // latest (default)
     });
-  }, [approvedStudents, latestByEnrollment, search, classFilter, statusFilter, methodFilter, sortMode]);
+  }, [approvedStudents, summaryByStudent, search, classFilter, statusFilter, methodFilter, sortMode]);
 
   // Load (or reload) the enrollment the fee entry hangs off. Any failure is
   // recorded as a message so the dialog can explain a disabled Save button.
@@ -261,7 +284,8 @@ const StudentFeeCollections = ({ students, adminUid }: StudentFeeCollectionsProp
     await loadEntryEnrollment(student);
   };
 
-  const entryHistory = entry?.student.enrollmentId ? sortFeesByMonthDesc(feesByEnrollment.get(entry.student.enrollmentId) || []) : [];
+  // Full history across EVERY class the student takes.
+  const entryHistory = entry ? sortFeesByMonthDesc(feesByStudent.get(entry.student.id) || []) : [];
 
   // Already-settled record for the picked month → drives the live guard.
   const monthConflict = useMemo(() => {
@@ -273,7 +297,7 @@ const StudentFeeCollections = ({ students, adminUid }: StudentFeeCollectionsProp
     if (existing.status === "waived") return { fee: existing, kind: "waived" as const };
     return null;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [entry, feesByEnrollment]);
+  }, [entry, feesByStudent]);
 
   const saveEntry = async () => {
     if (!entry?.enrollment) return;
@@ -330,9 +354,9 @@ const StudentFeeCollections = ({ students, adminUid }: StudentFeeCollectionsProp
   // every student based on the admin's due date, from 5 days before).
   const dueForReminder = useMemo(() => {
     const all: FeePaymentDoc[] = [];
-    for (const fees of feesByEnrollment.values()) all.push(...fees);
+    for (const fees of feesByStudent.values()) all.push(...fees);
     return collectDueReminders(all, new Date(), DEFAULT_REMINDER_DAYS);
-  }, [feesByEnrollment]);
+  }, [feesByStudent]);
 
   const sendDueReminders = async () => {
     if (!user) return;
@@ -363,9 +387,17 @@ const StudentFeeCollections = ({ students, adminUid }: StudentFeeCollectionsProp
   };
 
   const captionFor = (student: StudentDoc) => {
-    const latest = student.enrollmentId ? latestByEnrollment.get(student.enrollmentId) : undefined;
-    if (!latest) return null;
-    return { latest, status: deriveDisplayFeeStatus(latest), paidLine: feePaidStatement(latest), count: (student.enrollmentId && feesByEnrollment.get(student.enrollmentId)?.length) || 0 };
+    const studentSummary = summaryByStudent.get(student.id);
+    if (!studentSummary?.latest) return null;
+    // The chip leads with what's OUTSTANDING; only an all-clear student is
+    // described by their most recent settled payment.
+    return {
+      latest: studentSummary.latest,
+      status: studentSummary.status || deriveDisplayFeeStatus(studentSummary.latest),
+      paidLine: studentSummary.hasOutstanding ? null : feePaidStatement(studentSummary.latest),
+      count: studentSummary.all.length,
+      summary: studentSummary,
+    };
   };
 
   return (
@@ -467,8 +499,22 @@ const StudentFeeCollections = ({ students, adminUid }: StudentFeeCollectionsProp
                     <>
                       <div className="flex items-center gap-1.5">
                         <span className={`rounded-full px-2 py-0.5 font-body text-[0.65rem] font-semibold ${statusStyles[cap.status]}`}>{FEE_STATUS_LABELS[cap.status]}</span>
-                        <span className="truncate font-body text-[0.7rem] text-muted-foreground">{cap.latest.periodLabel} · {formatPaiseAsRupees(cap.latest.amountInPaise)}</span>
+                        {/* Lead with what's OWED, across every class — not with
+                            whichever fee happened to be touched most recently. */}
+                        {cap.summary.hasOutstanding ? (
+                          <span className="truncate font-body text-[0.7rem] font-semibold text-foreground">
+                            {cap.summary.outstanding.length} due · {formatPaiseAsRupees(cap.summary.outstandingInPaise)}
+                          </span>
+                        ) : (
+                          <span className="truncate font-body text-[0.7rem] text-muted-foreground">{cap.latest.periodLabel} · {formatPaiseAsRupees(cap.latest.amountInPaise)}</span>
+                        )}
                       </div>
+                      {cap.summary.hasOutstanding && (
+                        <p className="mt-0.5 truncate font-body text-[0.68rem] text-amber-700">
+                          {cap.summary.nextDue?.periodLabel} due {niceDate(cap.summary.nextDue?.dueDate)}
+                          {cap.summary.classesWithDues.length > 1 ? ` · ${cap.summary.classesWithDues.join(", ")}` : ""}
+                        </p>
+                      )}
                       {cap.paidLine && <p className="mt-0.5 truncate font-body text-[0.68rem] text-green-700">{cap.paidLine}</p>}
                     </>
                   ) : (
@@ -502,7 +548,15 @@ const StudentFeeCollections = ({ students, adminUid }: StudentFeeCollectionsProp
                     <p className="truncate font-body text-xs text-muted-foreground">{student.className}</p>
                     {cap ? (
                       <p className="truncate font-body text-[0.7rem] text-muted-foreground">
-                        Latest: {cap.latest.periodLabel} · {formatPaiseAsRupees(cap.latest.amountInPaise)}{cap.latest.paymentMethod ? ` · ${cap.latest.paymentMethod}` : ""}
+                        {cap.summary.hasOutstanding ? (
+                          <span className="font-semibold text-amber-700">
+                            {cap.summary.outstanding.length} due · {formatPaiseAsRupees(cap.summary.outstandingInPaise)}
+                            {` — ${cap.summary.nextDue?.periodLabel} by ${niceDate(cap.summary.nextDue?.dueDate)}`}
+                            {cap.summary.classesWithDues.length > 1 ? ` (${cap.summary.classesWithDues.join(", ")})` : ""}
+                          </span>
+                        ) : (
+                          <>Latest: {cap.latest.periodLabel} · {formatPaiseAsRupees(cap.latest.amountInPaise)}{cap.latest.paymentMethod ? ` · ${cap.latest.paymentMethod}` : ""}</>
+                        )}
                         {cap.paidLine ? <span className="text-green-700"> — {cap.paidLine}</span> : ""}
                         {cap.count > 1 ? <span className="text-gold"> · {cap.count} entries</span> : ""}
                       </p>
