@@ -1,4 +1,8 @@
 import type { Config } from "tailwindcss";
+// ESM import, not require(): this file is an ES module (import/export above),
+// and `require` is undefined in that context for TypeScript. It only appeared
+// to work because no tsconfig covered this file — see tsconfig.node.json.
+import tailwindcssAnimate from "tailwindcss-animate";
 
 export default {
   darkMode: ["class"],
@@ -158,5 +162,5 @@ export default {
       },
     },
   },
-  plugins: [require("tailwindcss-animate")],
+  plugins: [tailwindcssAnimate],
 } satisfies Config;
