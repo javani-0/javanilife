@@ -49,6 +49,7 @@ import ProductDetail from "./pages/ProductDetail";
 import CourseDetail from "./pages/CourseDetail";
 import TermsAndConditions from "./pages/TermsAndConditions";
 import OnboardingPay from "./pages/OnboardingPay";
+import Bill from "./pages/Bill";
 
 /**
  * `lazy()` that survives a failed chunk fetch.
@@ -136,6 +137,7 @@ const PublicFloatingButtons = () => {
     pathname === "/login" ||
     pathname === "/signup" ||
     pathname.startsWith("/pay/") ||
+    pathname.startsWith("/bill/") ||
     pathname.startsWith("/partner")
   ) return null;
   return <FloatingButtons />;
@@ -143,13 +145,13 @@ const PublicFloatingButtons = () => {
 
 const PublicScrollProgress = () => {
   const { pathname } = useLocation();
-  if (pathname.startsWith("/admin") || pathname.startsWith("/partner") || pathname.startsWith("/pay/")) return null;
+  if (pathname.startsWith("/admin") || pathname.startsWith("/partner") || pathname.startsWith("/pay/") || pathname.startsWith("/bill/")) return null;
   return <ScrollProgressBar />;
 };
 
 const PublicNavbar = () => {
   const { pathname } = useLocation();
-  if (pathname.startsWith("/admin") || pathname.startsWith("/partner") || pathname.startsWith("/pay/") || pathname === "/login" || pathname === "/signup") return null;
+  if (pathname.startsWith("/admin") || pathname.startsWith("/partner") || pathname.startsWith("/pay/") || pathname.startsWith("/bill/") || pathname === "/login" || pathname === "/signup") return null;
   return <Navbar />;
 };
 
@@ -229,6 +231,7 @@ const App = () => {
                     <Route path="/login" element={<Login />} />
                     <Route path="/signup" element={<Signup />} />
                     <Route path="/pay/:token" element={<OnboardingPay />} />
+                    <Route path="/bill/:token" element={<Bill />} />
                     <Route path="/admin/login" element={<AdminLogin />} />
                     <Route path="/admin" element={<ProtectedRoute><AdminLayout /></ProtectedRoute>}>
                       <Route index element={<AdminDashboard />} />

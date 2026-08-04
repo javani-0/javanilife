@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { BadgeIndianRupee, CalendarPlus, Loader2, RefreshCw, Trash2 } from "lucide-react";
+import { BadgeIndianRupee, CalendarPlus, FileText, Loader2, RefreshCw, Trash2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAdminLog } from "@/hooks/useAdminLog";
 import { confirmDialog } from "@/components/ConfirmDialogHost";
@@ -23,7 +23,7 @@ import {
   type FeePaymentMethod,
   type FeeStatus,
 } from "@/lib/classes";
-import { enrollmentIdsOf, summarizeStudentFees, type StudentDoc } from "@/lib/students";
+import { buildBillUrl, enrollmentIdsOf, issueBillForFee, summarizeStudentFees, type StudentDoc } from "@/lib/students";
 
 // ---------------------------------------------------------------------------
 // Per-student fee collection tab inside the Student Manager (req): the admin
@@ -82,6 +82,7 @@ const StudentFeePanel = ({ student, adminUid }: StudentFeePanelProps) => {
   const [payAmount, setPayAmount] = useState("");
   const [payDate, setPayDate] = useState(todayIso());
   const [payMethod, setPayMethod] = useState<FeePaymentMethod>("cash");
+  const [billingId, setBillingId] = useState<string | null>(null);
 
   // Every class the student takes gets loaded — the ledger and the totals must
   // cover all of them, not just the first one (req: multi-class students).
@@ -192,6 +193,23 @@ const StudentFeePanel = ({ student, adminUid }: StudentFeePanelProps) => {
       toast({ title: "Could not waive", description: error instanceof Error ? error.message : undefined, variant: "destructive" });
     } finally {
       setBusyId(null);
+    }
+  };
+
+  /**
+   * Issue (or re-open) this fee's bill and open it in a new tab. Idempotent —
+   * re-issuing keeps the same token so a link already shared stays alive.
+   */
+  const handleBill = async (fee: FeePaymentDoc) => {
+    setBillingId(fee.id);
+    try {
+      const bill = await issueBillForFee({ fee, student, adminUid });
+      logAction("Issued bill", `${studentLabel} · ${fee.periodLabel} · ${bill.billNumber}`);
+      window.open(buildBillUrl(bill.token), "_blank", "noopener");
+    } catch (error) {
+      toast({ title: "Could not create the bill", description: error instanceof Error ? error.message : undefined, variant: "destructive" });
+    } finally {
+      setBillingId(null);
     }
   };
 
@@ -341,6 +359,15 @@ const StudentFeePanel = ({ student, adminUid }: StudentFeePanelProps) => {
                         Waive
                       </button>
                     )}
+                    {/* Bill (req): printable, downloadable, shareable URL. */}
+                    <button
+                      onClick={() => handleBill(fee)}
+                      disabled={billingId === fee.id}
+                      className="flex items-center gap-1 rounded-md border border-border px-2.5 py-1 font-body text-[0.7rem] font-semibold text-muted-foreground hover:bg-muted disabled:opacity-50"
+                      title="Issue / open the bill for this fee"
+                    >
+                      {billingId === fee.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileText className="h-3.5 w-3.5" />} Bill
+                    </button>
                     <button onClick={() => handleDelete(fee)} disabled={busyId === fee.id} className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50" title="Delete record">
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>

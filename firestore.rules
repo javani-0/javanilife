@@ -166,6 +166,15 @@ service cloud.firestore {
       allow write: if staffAny(['students']);
     }
 
+    // Bills / receipts (req: shareable URL). Read by DIRECT token only (never
+    // listable by the public) so a parent can open their own bill without
+    // logging in; staff issue and re-issue them. Amounts are a frozen snapshot.
+    match /bills/{token} {
+      allow get: if true;
+      allow list: if staffAny(['students', 'fee-collections']);
+      allow write: if staffAny(['students', 'fee-collections']);
+    }
+
     // Server-only counters (e.g. counters/studentIds → next STU id). No client
     // access; the Admin SDK bypasses these rules.
     match /counters/{id} {
