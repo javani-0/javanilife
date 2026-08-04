@@ -35,6 +35,8 @@ import approveOnboarding from "./_razorpay/approve-onboarding.js";
 import deleteStudent from "./_razorpay/delete-student.js";
 // @ts-ignore
 import manageUser from "./_razorpay/manage-user.js";
+// @ts-ignore
+import classJoinLink from "./_razorpay/class-join-link.js";
 // Folded into this router (not a separate function) to stay within the Hobby
 // plan's 12-serverless-function limit. Reached via /api/partner/summary (see
 // vercel.json rewrite). Not razorpay-related, but this is the project's shared
@@ -47,6 +49,9 @@ export default async function handler(request: ApiRequest, response: ApiResponse
 
   if (action === "partner-summary" || url.includes("/partner/summary")) {
     return partnerSummary(request, response);
+  }
+  if (action === "class-join-link" || url.includes("/class-join-link")) {
+    return classJoinLink(request, response);
   }
   if (action === "cancel-subscription" || url.includes("/cancel-subscription")) {
     return cancelSubscription(request, response);

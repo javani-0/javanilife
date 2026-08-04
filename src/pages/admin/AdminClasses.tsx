@@ -27,6 +27,8 @@ import {
   hasTermPayFullOffer,
   monthsBetween,
   subscribeToClasses,
+  getClassContent,
+  saveClassContent,
   upsertClass,
   WEEKDAYS,
   type ClassContentLink,
@@ -265,12 +267,23 @@ const AdminClasses = () => {
         end: slot.end || "",
         seats: slot.seatsTotal != null ? String(slot.seatsTotal) : "",
       })),
+      // Filled in below from the PRIVATE classContent doc (falls back to the
+      // legacy public fields for classes not re-saved since the migration).
       liveClassUrl: classDoc.liveClassUrl || "",
       recordings: (classDoc.recordings || []).map((link) => ({ ...link })),
       materials: (classDoc.materials || []).map((link) => ({ ...link })),
     });
     setEditing(classDoc.id);
     setShowModal(true);
+
+    getClassContent(classDoc.id, classDoc)
+      .then((content) => setForm((current) => ({
+        ...current,
+        liveClassUrl: content.liveClassUrl,
+        recordings: content.recordings.map((link) => ({ ...link })),
+        materials: content.materials.map((link) => ({ ...link })),
+      })))
+      .catch(() => undefined); // keep the legacy values already in the form
   };
 
   const addSlot = () => setForm((current) => ({ ...current, timeSlots: [...current.timeSlots, newSlot()] }));
@@ -391,7 +404,7 @@ const AdminClasses = () => {
 
     setSaving(true);
     try {
-      await upsertClass(editing, {
+      const savedClassId = await upsertClass(editing, {
         name: form.name,
         description: form.description,
         image: form.image,
@@ -427,6 +440,16 @@ const AdminClasses = () => {
         },
         emi: offersTerm && form.payEmi ? emiParsed.config : null,
         timeSlots,
+        // The public class doc is BLANKED of content (req P1b): the live link
+        // and files now live in the private classContent doc below, so an
+        // anonymous visitor can no longer scrape them from the catalog.
+        liveClassUrl: "",
+        recordings: [],
+        materials: [],
+      });
+
+      await saveClassContent({
+        classId: savedClassId,
         liveClassUrl: form.liveClassUrl,
         recordings: form.recordings.filter((link) => link.url.trim()),
         materials: form.materials.filter((link) => link.url.trim()),

@@ -166,6 +166,16 @@ service cloud.firestore {
       allow write: if staffAny(['students']);
     }
 
+    // Private class content (req): the live join URL, recorded classes and
+    // study materials. Moved OFF the public `classes` doc so an anonymous
+    // visitor can no longer scrape the meet link from the catalog. Any signed-in
+    // user may read; the per-student fee lock is enforced by the join-link
+    // endpoint (api/_razorpay/class-join-link.ts), not by these rules.
+    match /classContent/{classId} {
+      allow read: if signedIn();
+      allow write: if staffAny(['classes']);
+    }
+
     // Bills / receipts (req: shareable URL). Read by DIRECT token only (never
     // listable by the public) so a parent can open their own bill without
     // logging in; staff issue and re-issue them. Amounts are a frozen snapshot.

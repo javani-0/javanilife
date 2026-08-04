@@ -135,9 +135,11 @@ const StudentDashboard = () => {
           ) : (
             <div className="mt-3 space-y-2">
               {week.map((session, index) => {
-                const cls = classes[enrollments.find((e) => e.id === session.enrollmentId)?.classId || ""];
-                const status = joinStatusFor([session], new Date(), Boolean(cls?.liveClassUrl));
-                const canJoin = status.open && !session.locked && Boolean(cls?.liveClassUrl);
+                // The live URL is no longer on the public class doc (req P1b) —
+                // the dashboard sends the student into the class room, where the
+                // server hands out the link after re-checking their fees.
+                const status = joinStatusFor([session], new Date());
+                const canJoin = status.open && !session.locked;
                 return (
                   <div key={`${session.enrollmentId}-${index}`} className="flex flex-col gap-2 rounded-lg border border-border/60 bg-background/70 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
                     <div className="min-w-0">
@@ -149,9 +151,9 @@ const StudentDashboard = () => {
                         <Lock className="h-3.5 w-3.5" /> Locked
                       </span>
                     ) : canJoin ? (
-                      <a href={cls!.liveClassUrl} target="_blank" rel="noreferrer" className="flex min-h-9 shrink-0 items-center justify-center gap-1.5 rounded-md bg-gradient-primary px-4 font-body text-xs font-semibold text-primary-foreground hover:brightness-110">
+                      <Link to={`/account/classes/${session.enrollmentId}`} className="flex min-h-9 shrink-0 items-center justify-center gap-1.5 rounded-md bg-gradient-primary px-4 font-body text-xs font-semibold text-primary-foreground hover:brightness-110">
                         <Radio className="h-3.5 w-3.5" /> Join now
-                      </a>
+                      </Link>
                     ) : (
                       <span className="shrink-0 rounded-md border border-border px-3 py-1.5 font-body text-xs text-muted-foreground">{status.message}</span>
                     )}

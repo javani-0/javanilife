@@ -10,11 +10,14 @@ import { computeClassAccess } from "@/lib/portal/access";
 import { joinStatusFor, nextSessionsFor } from "@/lib/portal/schedule";
 import {
   deriveDisplayFeeStatus,
+  fetchJoinLink,
   formatFeeAmount,
   getClass,
+  getClassContent,
   getEnrollment,
   isFeePayable,
   listFeesForEnrollment,
+  type ClassContent,
   type ClassDoc,
   type EnrollmentDoc,
   type FeePaymentDoc,
@@ -28,6 +31,9 @@ const ClassRoom = () => {
   const [fees, setFees] = useState<FeePaymentDoc[]>([]);
   const [loading, setLoading] = useState(true);
   const [denied, setDenied] = useState(false);
+  // Private class content (req P1b) — no longer on the public class doc.
+  const [content, setContent] = useState<ClassContent | null>(null);
+  const [joinError, setJoinError] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -46,6 +52,7 @@ const ClassRoom = () => {
         if (cancelled) return;
         setClassDoc(cls);
         setFees(feeList);
+        setContent(await getClassContent(enr.classId, cls));
       } catch {
         if (!cancelled) setDenied(true);
       } finally {
@@ -72,14 +79,35 @@ const ClassRoom = () => {
     () => nextSessionsFor(classDoc, enrollment?.slotId, new Date(), 3),
     [classDoc, enrollment?.slotId],
   );
+  const [joining, setJoining] = useState(false);
+
+  /**
+   * Ask the SERVER for the live URL. It re-checks ownership and the fee lock,
+   * so the link never reaches a student who shouldn't have it — the client-side
+   * lock above is the UX, this is the enforcement.
+   */
+  const handleJoin = async () => {
+    setJoining(true);
+    setJoinError("");
+    try {
+      const url = await fetchJoinLink(enrollmentId);
+      window.open(url, "_blank", "noopener");
+    } catch (error) {
+      setJoinError(error instanceof Error ? error.message : "Could not get the join link.");
+    } finally {
+      setJoining(false);
+    }
+  };
+
+  const recordings = content?.recordings || [];
+  const materials = content?.materials || [];
+  const liveUrl = content?.liveClassUrl || "";
+
   const joinStatus = useMemo(
-    () => joinStatusFor(sessions, new Date(), Boolean(classDoc?.liveClassUrl)),
-    [sessions, classDoc?.liveClassUrl],
+    () => joinStatusFor(sessions, new Date(), Boolean(liveUrl)),
+    [sessions, liveUrl],
   );
 
-  const recordings = classDoc?.recordings || [];
-  const materials = classDoc?.materials || [];
-  const liveUrl = classDoc?.liveClassUrl || "";
 
   if (loading) {
     return (
@@ -163,15 +191,24 @@ const ClassRoom = () => {
                 </div>
               </div>
               {joinStatus.open && liveUrl ? (
-                <a href={liveUrl} target="_blank" rel="noreferrer" className="flex min-h-11 items-center justify-center gap-2 rounded-md bg-gradient-primary px-5 font-body text-sm font-semibold text-primary-foreground hover:brightness-110">
-                  <PlayCircle className="h-4 w-4" /> Join Live Class
-                </a>
+                <button
+                  type="button"
+                  onClick={handleJoin}
+                  disabled={joining}
+                  className="flex min-h-11 items-center justify-center gap-2 rounded-md bg-gradient-primary px-5 font-body text-sm font-semibold text-primary-foreground hover:brightness-110 disabled:opacity-60"
+                >
+                  {joining ? <Loader2 className="h-4 w-4 animate-spin" /> : <PlayCircle className="h-4 w-4" />} Join Live Class
+                </button>
               ) : (
                 <span className="shrink-0 rounded-md border border-border px-4 py-2 font-body text-sm text-muted-foreground">
                   {liveUrl ? "Not live yet" : "Link not set"}
                 </span>
               )}
             </div>
+
+            {joinError && (
+              <p className="mt-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 font-body text-xs text-red-700">{joinError}</p>
+            )}
 
             {/* Upcoming sessions so the student knows when to come back. */}
             {sessions.length > 0 && (
