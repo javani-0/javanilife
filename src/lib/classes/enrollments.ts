@@ -241,6 +241,19 @@ export const listMyEnrollments = async (uid: string): Promise<EnrollmentDoc[]> =
   return snapshot.docs.map((enrollmentDoc) => normalizeEnrollment(enrollmentDoc.id, enrollmentDoc.data()));
 };
 
+/**
+ * Staff: the roster of one class — every student enrolled in it, whatever
+ * their status. Used by the Attendance Manager (req P2); callers filter to the
+ * statuses they care about.
+ */
+export const listEnrollmentsForClass = async (classId: string): Promise<EnrollmentDoc[]> => {
+  if (!classId) return [];
+  const snapshot = await getDocs(query(collection(db, ENROLLMENTS_COLLECTION), where("classId", "==", classId)));
+  return snapshot.docs
+    .map((enrollmentDoc) => normalizeEnrollment(enrollmentDoc.id, enrollmentDoc.data()))
+    .sort((a, b) => (a.student.name || "").localeCompare(b.student.name || ""));
+};
+
 export const setEnrollmentStatus = async (id: string, status: EnrollmentStatus): Promise<void> => {
   await updateDoc(doc(db, ENROLLMENTS_COLLECTION, id), { status, updatedAt: serverTimestamp() });
 };

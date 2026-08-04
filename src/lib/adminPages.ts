@@ -16,6 +16,7 @@ export const MANAGER_PAGES: ManagerPage[] = [
   { key: "courses", label: "Courses Manager", path: "/admin/courses" },
   { key: "classes", label: "Classes Manager", path: "/admin/classes" },
   { key: "students", label: "Student Manager", path: "/admin/students" },
+  { key: "attendance", label: "Attendance", path: "/admin/attendance" },
   { key: "enrollments", label: "Sign Up", path: "/admin/enrollments" },
   { key: "fee-collections", label: "Fee Collections", path: "/admin/fee-collections" },
   { key: "payment-settings", label: "Payment Settings", path: "/admin/payment-settings" },

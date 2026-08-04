@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { Link, NavLink } from "react-router-dom";
-import { ArrowLeft, GraduationCap, Heart, LayoutDashboard, MapPin, PackageCheck, UserRound, CalendarDays } from "lucide-react";
+import { ArrowLeft, CalendarCheck, GraduationCap, Heart, LayoutDashboard, MapPin, PackageCheck, UserRound, CalendarDays } from "lucide-react";
 import { useStudentPortal } from "@/contexts/StudentPortalContext";
 import Footer from "@/components/Footer";
 import PageHero from "@/components/PageHero";
@@ -20,6 +20,7 @@ const shopLinks = [
 // parent may still buy products from the same account.
 const studentLinks = [
   { label: "Dashboard", path: "/account/dashboard", Icon: LayoutDashboard },
+  { label: "Attendance", path: "/account/attendance", Icon: CalendarCheck },
 ];
 
 interface AccountLayoutProps {

@@ -3,6 +3,7 @@ import { NavLink, useLocation, useNavigate, Outlet } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { pageKeyForPath } from "@/lib/adminPages";
 import {
+  CalendarCheck,
   LayoutDashboard, ClipboardList, BookOpen, Image, ShoppingBag, Users, Users2,
   Handshake, SlidersHorizontal, LogOut, Menu, X, PackageCheck,
   ChevronLeft, ChevronRight, TicketPercent, Truck,
@@ -16,6 +17,7 @@ const allNavItems = [
   { label: "Courses Manager", icon: BookOpen, path: "/admin/courses" },
   { label: "Classes Manager", icon: GraduationCap, path: "/admin/classes" },
   { label: "Student Manager", icon: UserPlus, path: "/admin/students" },
+  { label: "Attendance", icon: CalendarCheck, path: "/admin/attendance" },
   { label: "Users", icon: Users2, path: "/admin/users" },
   // NOTE: "Sign Up & Customers" (/admin/enrollments) and "Fee Collections"
   // (/admin/fee-collections) are temporarily HIDDEN from the nav (req) — the

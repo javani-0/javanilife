@@ -166,6 +166,22 @@ service cloud.firestore {
       allow write: if staffAny(['students']);
     }
 
+    // Attendance (req P2). Staff with the `attendance` page mark it; a student
+    // reads only their OWN rows. Doc ids are `${enrollmentId}_${date}`, so
+    // re-marking a date edits rather than duplicates.
+    match /attendance/{id} {
+      allow read: if staffAny(['attendance', 'academics', 'students'])
+        || (signedIn() && resource.data.studentUid == request.auth.uid);
+      allow write: if staffAny(['attendance']);
+    }
+
+    // Periodic progress reports (req P2) — grade, skill ratings, remarks.
+    match /progressReports/{id} {
+      allow read: if staffAny(['attendance', 'academics', 'students'])
+        || (signedIn() && resource.data.studentUid == request.auth.uid);
+      allow write: if staffAny(['attendance', 'academics']);
+    }
+
     // Private class content (req): the live join URL, recorded classes and
     // study materials. Moved OFF the public `classes` doc so an anonymous
     // visitor can no longer scrape the meet link from the catalog. Any signed-in
