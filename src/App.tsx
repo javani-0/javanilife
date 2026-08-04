@@ -32,6 +32,9 @@ import AccountClasses from "./pages/account/Classes";
 import StudentDashboard from "./pages/account/StudentDashboard";
 import AccountAttendance from "./pages/account/Attendance";
 import AccountAssignments from "./pages/account/Assignments";
+import AccountExams from "./pages/account/Exams";
+import AccountHallTicket from "./pages/account/HallTicket";
+import AccountCertificates from "./pages/account/Certificates";
 import AccountClassRoom from "./pages/account/ClassRoom";
 import Grading from "./pages/Grading";
 import Gallery from "./pages/Gallery";
@@ -144,6 +147,7 @@ const PublicFloatingButtons = () => {
     pathname === "/signup" ||
     pathname.startsWith("/pay/") ||
     pathname.startsWith("/bill/") ||
+    pathname.includes("/hall-ticket") ||
     pathname.startsWith("/partner")
   ) return null;
   return <FloatingButtons />;
@@ -151,13 +155,14 @@ const PublicFloatingButtons = () => {
 
 const PublicScrollProgress = () => {
   const { pathname } = useLocation();
-  if (pathname.startsWith("/admin") || pathname.startsWith("/partner") || pathname.startsWith("/pay/") || pathname.startsWith("/bill/")) return null;
+  if (pathname.startsWith("/admin") || pathname.startsWith("/partner") || pathname.startsWith("/pay/") || pathname.startsWith("/bill/") || pathname.includes("/hall-ticket")) return null;
   return <ScrollProgressBar />;
 };
 
 const PublicNavbar = () => {
   const { pathname } = useLocation();
-  if (pathname.startsWith("/admin") || pathname.startsWith("/partner") || pathname.startsWith("/pay/") || pathname.startsWith("/bill/") || pathname === "/login" || pathname === "/signup") return null;
+  if (pathname.startsWith("/admin") || pathname.startsWith("/partner") || pathname.startsWith("/pay/") || pathname.startsWith("/bill/") ||
+    pathname.includes("/hall-ticket") || pathname === "/login" || pathname === "/signup") return null;
   return <Navbar />;
 };
 
@@ -225,6 +230,9 @@ const App = () => {
                     <Route path="/account/dashboard" element={<AccountRoute><StudentDashboard /></AccountRoute>} />
                     <Route path="/account/attendance" element={<AccountRoute><AccountAttendance /></AccountRoute>} />
                     <Route path="/account/assignments" element={<AccountRoute><AccountAssignments /></AccountRoute>} />
+                    <Route path="/account/exams" element={<AccountRoute><AccountExams /></AccountRoute>} />
+                    <Route path="/account/exams/:examId/hall-ticket" element={<AccountRoute><AccountHallTicket /></AccountRoute>} />
+                    <Route path="/account/certificates" element={<AccountRoute><AccountCertificates /></AccountRoute>} />
                     <Route path="/account/classes" element={<AccountRoute><AccountClasses /></AccountRoute>} />
                     <Route path="/account/classes/:enrollmentId" element={<AccountRoute><AccountClassRoom /></AccountRoute>} />
                     <Route path="/account/emi" element={<AccountRoute><AccountEmiDashboard /></AccountRoute>} />

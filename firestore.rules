@@ -209,6 +209,22 @@ service cloud.firestore {
       allow delete: if staffAny(['academics']);
     }
 
+    // Exams (req P4). Signed-in read — the schedule is not sensitive and the
+    // student page filters to their enrolled classes. Hall-ticket eligibility is
+    // derived client-side from `hallTicketEnabled` + the fee lock.
+    match /exams/{id} {
+      allow read: if signedIn();
+      allow write: if staffAny(['academics']);
+    }
+
+    // Certificates (req P4). A student sees only their OWN, and only staff can
+    // issue or revoke one.
+    match /certificates/{id} {
+      allow read: if staffAny(['academics', 'students'])
+        || (signedIn() && resource.data.studentUid == request.auth.uid);
+      allow write: if staffAny(['academics']);
+    }
+
     // Private class content (req): the live join URL, recorded classes and
     // study materials. Moved OFF the public `classes` doc so an anonymous
     // visitor can no longer scrape the meet link from the catalog. Any signed-in

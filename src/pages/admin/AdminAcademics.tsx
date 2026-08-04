@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ClipboardList, FileText, Loader2, Plus, Save, Trash2 } from "lucide-react";
+import { Award, ClipboardList, FileText, Loader2, Plus, Save, Ticket, Trash2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import { useAdminLog } from "@/hooks/useAdminLog";
 import { confirmDialog } from "@/components/ConfirmDialogHost";
 import { subscribeToClasses, type ClassDoc } from "@/lib/classes";
+import AdminExamsPanel from "@/components/admin/AdminExamsPanel";
+import AdminCertificatesPanel from "@/components/admin/AdminCertificatesPanel";
 import {
   deleteAssignment,
   listAssignmentsForClass,
@@ -48,6 +50,7 @@ const AdminAcademics = () => {
   const [loadingSubs, setLoadingSubs] = useState(false);
   const [reviewDraft, setReviewDraft] = useState<Record<string, { marks: string; feedback: string }>>({});
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [tab, setTab] = useState<"assignments" | "exams" | "certificates">("assignments");
 
   useEffect(() => subscribeToClasses(setClasses, () => undefined), []);
 
@@ -149,9 +152,25 @@ const AdminAcademics = () => {
       <div>
         <p className="font-body text-sm font-semibold uppercase tracking-[0.2em] text-gold">Academics</p>
         <h1 className="mt-2 flex items-center gap-2 font-display text-3xl text-foreground">
-          <ClipboardList className="h-7 w-7 text-gold" /> Assignments
+          <ClipboardList className="h-7 w-7 text-gold" /> Academics
         </h1>
-        <p className="mt-1 font-body text-sm text-muted-foreground">Set practice work per class and review the PDFs students submit.</p>
+        <p className="mt-1 font-body text-sm text-muted-foreground">Assignments, examinations and certificates — per class.</p>
+      </div>
+
+      <div className="inline-flex flex-wrap rounded-lg border border-border bg-card p-1 shadow-card">
+        {([
+          ["assignments", "Assignments", ClipboardList],
+          ["exams", "Exams", Ticket],
+          ["certificates", "Certificates", Award],
+        ] as const).map(([key, label, Icon]) => (
+          <button
+            key={key}
+            onClick={() => setTab(key)}
+            className={`flex items-center gap-1.5 rounded-md px-4 py-2 font-body text-[0.82rem] font-semibold transition-colors ${tab === key ? "bg-gradient-primary text-primary-foreground" : "text-muted-foreground hover:text-gold"}`}
+          >
+            <Icon className="h-4 w-4" /> {label}
+          </button>
+        ))}
       </div>
 
       <div className="rounded-xl border border-border/60 bg-card p-4 shadow-card">
@@ -162,7 +181,10 @@ const AdminAcademics = () => {
         </select>
       </div>
 
-      {classId && (
+      {tab === "exams" && <AdminExamsPanel selectedClass={selectedClass} />}
+      {tab === "certificates" && <AdminCertificatesPanel selectedClass={selectedClass} />}
+
+      {tab === "assignments" && classId && (
         <div className="rounded-xl border border-gold/25 bg-gold/5 p-4">
           <p className="flex items-center gap-1.5 font-body text-sm font-semibold text-foreground"><Plus className="h-4 w-4 text-gold" /> New assignment</p>
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
@@ -189,7 +211,7 @@ const AdminAcademics = () => {
         </div>
       )}
 
-      {loading ? (
+      {tab === "assignments" && (loading ? (
         <div className="flex items-center justify-center rounded-xl border border-border/60 bg-card p-10"><Loader2 className="h-6 w-6 animate-spin text-gold" /></div>
       ) : classId && assignments.length === 0 ? (
         <p className="rounded-xl border border-dashed border-border p-10 text-center font-body text-sm text-muted-foreground">No assignments for this class yet.</p>
@@ -267,7 +289,7 @@ const AdminAcademics = () => {
             </div>
           ))}
         </div>
-      )}
+      ))}
     </div>
   );
 };

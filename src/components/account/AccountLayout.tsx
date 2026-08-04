@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { Link, NavLink } from "react-router-dom";
-import { ArrowLeft, CalendarCheck, ClipboardList, GraduationCap, Heart, LayoutDashboard, MapPin, PackageCheck, UserRound, CalendarDays } from "lucide-react";
+import { ArrowLeft, Award, CalendarCheck, ClipboardList, GraduationCap, Ticket, Heart, LayoutDashboard, MapPin, PackageCheck, UserRound, CalendarDays } from "lucide-react";
 import { useStudentPortal } from "@/contexts/StudentPortalContext";
 import Footer from "@/components/Footer";
 import PageHero from "@/components/PageHero";
@@ -22,6 +22,8 @@ const studentLinks = [
   { label: "Dashboard", path: "/account/dashboard", Icon: LayoutDashboard },
   { label: "Attendance", path: "/account/attendance", Icon: CalendarCheck },
   { label: "Assignments", path: "/account/assignments", Icon: ClipboardList },
+  { label: "Exams", path: "/account/exams", Icon: Ticket },
+  { label: "Certificates", path: "/account/certificates", Icon: Award },
 ];
 
 interface AccountLayoutProps {
