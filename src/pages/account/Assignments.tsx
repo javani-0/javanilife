@@ -97,7 +97,7 @@ const Assignments = () => {
         enrollmentId: enrollment.id,
         studentUid: user.uid,
         studentName: enrollment.student.name,
-        studentId: "",
+        studentId: enrollment.studentRollNo || "",
         fileUrl,
         fileName: file.name,
         sizeBytes: file.size,

@@ -101,7 +101,7 @@ const AdminAttendance = () => {
         className: item.className,
         studentUid: item.parentUserId,
         studentName: item.student.name,
-        studentId: "",
+        studentId: item.studentRollNo || "",
         status: marks[item.id] || "present",
       }));
       await saveAttendanceForDate(date, selectedClass?.schedule || "", payload, user.uid);

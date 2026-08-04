@@ -438,10 +438,10 @@ const AdminSiteSettings = () => {
               <button onClick={() => addFeeRow("jgpRows")} className="flex items-center gap-1 px-3 py-1.5 rounded-md bg-gradient-primary text-primary-foreground font-body text-[0.8rem]"><Plus className="w-4 h-4" /> Add Row</button>
             </div>
             {gradingSettings.jgpRows.map((row, index) => (
-              <div key={index} className="grid gap-2 md:grid-cols-[0.7fr_1.3fr_1fr_auto] items-center">
-                <input value={row.level} onChange={(e) => updateFeeRow("jgpRows", index, "level", e.target.value)} placeholder="Grade" className="px-3 py-2 rounded-md border border-border font-body text-[0.85rem] outline-none focus:border-gold" />
-                <input value={row.eligibility} onChange={(e) => updateFeeRow("jgpRows", index, "eligibility", e.target.value)} placeholder="Eligibility" className="px-3 py-2 rounded-md border border-border font-body text-[0.85rem] outline-none focus:border-gold" />
-                <input value={row.fee} onChange={(e) => updateFeeRow("jgpRows", index, "fee", e.target.value)} placeholder="Fee" className="px-3 py-2 rounded-md border border-border font-body text-[0.85rem] outline-none focus:border-gold" />
+              <div key={index} className="grid min-w-0 gap-2 md:grid-cols-[0.7fr_1.3fr_1fr_auto] items-center">
+                <input value={row.level} onChange={(e) => updateFeeRow("jgpRows", index, "level", e.target.value)} placeholder="Grade" className="w-full min-w-0 px-3 py-2 rounded-md border border-border font-body text-[0.85rem] outline-none focus:border-gold" />
+                <input value={row.eligibility} onChange={(e) => updateFeeRow("jgpRows", index, "eligibility", e.target.value)} placeholder="Eligibility" className="w-full min-w-0 px-3 py-2 rounded-md border border-border font-body text-[0.85rem] outline-none focus:border-gold" />
+                <input value={row.fee} onChange={(e) => updateFeeRow("jgpRows", index, "fee", e.target.value)} placeholder="Fee" className="w-full min-w-0 px-3 py-2 rounded-md border border-border font-body text-[0.85rem] outline-none focus:border-gold" />
                 <button onClick={() => removeFeeRow("jgpRows", index)} className="p-2 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive"><Trash2 className="w-4 h-4" /></button>
               </div>
             ))}
@@ -469,10 +469,10 @@ const AdminSiteSettings = () => {
               <button onClick={() => addFeeRow("jdpRows")} className="flex items-center gap-1 px-3 py-1.5 rounded-md bg-gradient-primary text-primary-foreground font-body text-[0.8rem]"><Plus className="w-4 h-4" /> Add Row</button>
             </div>
             {gradingSettings.jdpRows.map((row, index) => (
-              <div key={index} className="grid gap-2 md:grid-cols-[0.7fr_1.3fr_1fr_auto] items-center">
-                <input value={row.level} onChange={(e) => updateFeeRow("jdpRows", index, "level", e.target.value)} placeholder="Program Level" className="px-3 py-2 rounded-md border border-border font-body text-[0.85rem] outline-none focus:border-gold" />
-                <input value={row.eligibility} onChange={(e) => updateFeeRow("jdpRows", index, "eligibility", e.target.value)} placeholder="Eligibility" className="px-3 py-2 rounded-md border border-border font-body text-[0.85rem] outline-none focus:border-gold" />
-                <input value={row.fee} onChange={(e) => updateFeeRow("jdpRows", index, "fee", e.target.value)} placeholder="Fee" className="px-3 py-2 rounded-md border border-border font-body text-[0.85rem] outline-none focus:border-gold" />
+              <div key={index} className="grid min-w-0 gap-2 md:grid-cols-[0.7fr_1.3fr_1fr_auto] items-center">
+                <input value={row.level} onChange={(e) => updateFeeRow("jdpRows", index, "level", e.target.value)} placeholder="Program Level" className="w-full min-w-0 px-3 py-2 rounded-md border border-border font-body text-[0.85rem] outline-none focus:border-gold" />
+                <input value={row.eligibility} onChange={(e) => updateFeeRow("jdpRows", index, "eligibility", e.target.value)} placeholder="Eligibility" className="w-full min-w-0 px-3 py-2 rounded-md border border-border font-body text-[0.85rem] outline-none focus:border-gold" />
+                <input value={row.fee} onChange={(e) => updateFeeRow("jdpRows", index, "fee", e.target.value)} placeholder="Fee" className="w-full min-w-0 px-3 py-2 rounded-md border border-border font-body text-[0.85rem] outline-none focus:border-gold" />
                 <button onClick={() => removeFeeRow("jdpRows", index)} className="p-2 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive"><Trash2 className="w-4 h-4" /></button>
               </div>
             ))}
@@ -509,11 +509,14 @@ const AdminSiteSettings = () => {
       {/* About Images */}
       <Section title="About Section Images" icon={Image}>
         <p className="font-body text-[0.8rem] text-muted-foreground">Replace the 3 images in the OUR LEGACY section. Leave empty to use defaults.</p>
+        {/* min-w-0 everywhere: a flex child defaults to min-width:auto, so an
+            input keeps its intrinsic size=20 width and pushes the row past the
+            viewport on a phone. The alt field also wraps below on mobile. */}
         {aboutImages.map((img, i) => (
-          <div key={i} className="flex gap-2 items-center">
-            <span className="font-body text-[0.8rem] text-muted-foreground w-6">{i + 1}.</span>
-            <input value={img.src} onChange={(e) => updateAboutImage(i, "src", e.target.value)} placeholder="Image URL" className="flex-1 px-3 py-2 rounded-md border border-border font-body text-[0.85rem] outline-none focus:border-gold" />
-            <input value={img.alt} onChange={(e) => updateAboutImage(i, "alt", e.target.value)} placeholder="Alt text" className="w-40 px-3 py-2 rounded-md border border-border font-body text-[0.85rem] outline-none focus:border-gold" />
+          <div key={i} className="flex min-w-0 flex-wrap gap-2 items-center sm:flex-nowrap">
+            <span className="font-body text-[0.8rem] text-muted-foreground w-6 shrink-0">{i + 1}.</span>
+            <input value={img.src} onChange={(e) => updateAboutImage(i, "src", e.target.value)} placeholder="Image URL" size={1} className="min-w-0 flex-1 px-3 py-2 rounded-md border border-border font-body text-[0.85rem] outline-none focus:border-gold" />
+            <input value={img.alt} onChange={(e) => updateAboutImage(i, "alt", e.target.value)} placeholder="Alt text" size={1} className="w-full min-w-0 px-3 py-2 rounded-md border border-border font-body text-[0.85rem] outline-none focus:border-gold sm:w-40" />
           </div>
         ))}
         <button onClick={() => saveAboutImages(aboutImages)} className="px-4 py-2 rounded-md bg-gold text-gold-foreground font-body text-[0.85rem] font-medium hover:brightness-110">Save About Images</button>

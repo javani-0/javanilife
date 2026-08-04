@@ -464,6 +464,8 @@ export default async function handler(request: ApiRequest, response: ApiResponse
           paymentPlan,
           feeType: isTerm ? "term" : "monthly",
           studentStatus: courseStudentType,
+          // Roll number on the enrolment so the portal can show it.
+          studentRollNo: studentId,
           // Recurring monthly dues gross up by this rate (0 = no GST).
           gstPercent: studentGst.enabled ? studentGst.percent : 0,
           // The admin enabled the Razorpay option → invite the parent to complete

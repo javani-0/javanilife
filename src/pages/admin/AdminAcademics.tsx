@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Award, ClipboardList, FileText, Loader2, Plus, Save, Ticket, Trash2 } from "lucide-react";
+import { Award, ClipboardList, FileText, Loader2, Plus, Save, Ticket, Trash2, TrendingUp } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import { useAdminLog } from "@/hooks/useAdminLog";
@@ -7,6 +7,7 @@ import { confirmDialog } from "@/components/ConfirmDialogHost";
 import { subscribeToClasses, type ClassDoc } from "@/lib/classes";
 import AdminExamsPanel from "@/components/admin/AdminExamsPanel";
 import AdminCertificatesPanel from "@/components/admin/AdminCertificatesPanel";
+import AdminProgressPanel from "@/components/admin/AdminProgressPanel";
 import {
   deleteAssignment,
   listAssignmentsForClass,
@@ -50,7 +51,7 @@ const AdminAcademics = () => {
   const [loadingSubs, setLoadingSubs] = useState(false);
   const [reviewDraft, setReviewDraft] = useState<Record<string, { marks: string; feedback: string }>>({});
   const [busyId, setBusyId] = useState<string | null>(null);
-  const [tab, setTab] = useState<"assignments" | "exams" | "certificates">("assignments");
+  const [tab, setTab] = useState<"assignments" | "progress" | "exams" | "certificates">("assignments");
 
   useEffect(() => subscribeToClasses(setClasses, () => undefined), []);
 
@@ -160,6 +161,7 @@ const AdminAcademics = () => {
       <div className="inline-flex flex-wrap rounded-lg border border-border bg-card p-1 shadow-card">
         {([
           ["assignments", "Assignments", ClipboardList],
+          ["progress", "Progress", TrendingUp],
           ["exams", "Exams", Ticket],
           ["certificates", "Certificates", Award],
         ] as const).map(([key, label, Icon]) => (
@@ -181,6 +183,7 @@ const AdminAcademics = () => {
         </select>
       </div>
 
+      {tab === "progress" && <AdminProgressPanel selectedClass={selectedClass} />}
       {tab === "exams" && <AdminExamsPanel selectedClass={selectedClass} />}
       {tab === "certificates" && <AdminCertificatesPanel selectedClass={selectedClass} />}
 

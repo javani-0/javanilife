@@ -60,7 +60,9 @@ const HallTicket = () => {
     );
   }
 
-  const ticketNumber = buildHallTicketNumber(exam.id, enrollment.student.name ? enrollment.id.slice(-6).toUpperCase() : "");
+  // Prefer the real roll number; fall back to the enrolment id so a student
+  // approved before roll numbers were stamped still gets a stable ticket.
+  const ticketNumber = buildHallTicketNumber(exam.id, enrollment.studentRollNo || enrollment.id.slice(-6).toUpperCase());
 
   return (
     <div className="min-h-screen bg-muted/30 py-6 print:bg-white print:py-0">
@@ -98,6 +100,7 @@ const HallTicket = () => {
           <div className="grid gap-5 py-5 sm:grid-cols-[1fr_auto]">
             <div className="min-w-0 space-y-2">
               <Field label="Student" value={enrollment.student.name} strong />
+              {enrollment.studentRollNo && <Field label="Roll no." value={enrollment.studentRollNo} />}
               <Field label="Class" value={exam.className} />
               {enrollment.slotLabel && <Field label="Batch" value={enrollment.slotLabel} />}
               <Field label="Examination" value={exam.title} strong />

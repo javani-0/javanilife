@@ -204,6 +204,10 @@ export interface EnrollmentDoc {
   autopayInvited?: boolean;
   // GST rate billed on this enrolment's recurring fees (req). 0 = not GST-billed.
   gstPercent?: number;
+  // The student's roll number (STU id), copied at approval so attendance,
+  // certificates and hall tickets can show it without reading `students`
+  // (which is staff-only, so the portal could never read it).
+  studentRollNo?: string;
   // Admin-set metadata surfaced to the parent (Student Manager).
   joiningDate?: string;   // YYYY-MM-DD
   trainerName?: string;   // the class trainer/faculty

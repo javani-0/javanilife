@@ -92,7 +92,7 @@ const AdminCertificatesPanel = ({ selectedClass }: { selectedClass: ClassDoc | u
         classId: selectedClass.id,
         className: selectedClass.name,
         studentName: enrollment.student.name,
-        studentId: "",
+        studentId: enrollment.studentRollNo || "",
         title: title.trim(),
         issuedOn,
         certificateNumber: `JAV-CERT-${issuedOn.replace(/-/g, "")}-${enrollment.id.slice(-4).toUpperCase()}`,
@@ -136,7 +136,7 @@ const AdminCertificatesPanel = ({ selectedClass }: { selectedClass: ClassDoc | u
             <label className={labelClass}>Student *</label>
             <select value={enrollmentId} onChange={(e) => setEnrollmentId(e.target.value)} className={inputClass}>
               <option value="">Select a student…</option>
-              {roster.map((item) => <option key={item.id} value={item.id}>{item.student.name}</option>)}
+              {roster.map((item) => <option key={item.id} value={item.id}>{item.student.name}{item.studentRollNo ? ` (${item.studentRollNo})` : ""}</option>)}
             </select>
           </div>
           <div className="min-w-0">
