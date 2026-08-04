@@ -18,6 +18,7 @@ const allNavItems = [
   { label: "Classes Manager", icon: GraduationCap, path: "/admin/classes" },
   { label: "Student Manager", icon: UserPlus, path: "/admin/students" },
   { label: "Attendance", icon: CalendarCheck, path: "/admin/attendance" },
+  { label: "Academics", icon: ClipboardList, path: "/admin/academics" },
   { label: "Users", icon: Users2, path: "/admin/users" },
   // NOTE: "Sign Up & Customers" (/admin/enrollments) and "Fee Collections"
   // (/admin/fee-collections) are temporarily HIDDEN from the nav (req) — the

@@ -31,6 +31,7 @@ import ClassDetail from "./pages/ClassDetail";
 import AccountClasses from "./pages/account/Classes";
 import StudentDashboard from "./pages/account/StudentDashboard";
 import AccountAttendance from "./pages/account/Attendance";
+import AccountAssignments from "./pages/account/Assignments";
 import AccountClassRoom from "./pages/account/ClassRoom";
 import Grading from "./pages/Grading";
 import Gallery from "./pages/Gallery";
@@ -97,6 +98,7 @@ const AdminClasses = lazyWithRetry(() => import("./pages/admin/AdminClasses"));
 const AdminPeople = lazyWithRetry(() => import("./pages/admin/AdminPeople"));
 const AdminStudents = lazyWithRetry(() => import("./pages/admin/AdminStudents"));
 const AdminAttendance = lazyWithRetry(() => import("./pages/admin/AdminAttendance"));
+const AdminAcademics = lazyWithRetry(() => import("./pages/admin/AdminAcademics"));
 const AdminFeeCollections = lazyWithRetry(() => import("./pages/admin/AdminFeeCollections"));
 const AdminGallery = lazyWithRetry(() => import("./pages/admin/AdminGallery"));
 const AdminProducts = lazyWithRetry(() => import("./pages/admin/AdminProducts"));
@@ -222,6 +224,7 @@ const App = () => {
                     <Route path="/account/orders" element={<AccountRoute><AccountOrders /></AccountRoute>} />
                     <Route path="/account/dashboard" element={<AccountRoute><StudentDashboard /></AccountRoute>} />
                     <Route path="/account/attendance" element={<AccountRoute><AccountAttendance /></AccountRoute>} />
+                    <Route path="/account/assignments" element={<AccountRoute><AccountAssignments /></AccountRoute>} />
                     <Route path="/account/classes" element={<AccountRoute><AccountClasses /></AccountRoute>} />
                     <Route path="/account/classes/:enrollmentId" element={<AccountRoute><AccountClassRoom /></AccountRoute>} />
                     <Route path="/account/emi" element={<AccountRoute><AccountEmiDashboard /></AccountRoute>} />
@@ -250,6 +253,7 @@ const App = () => {
                       <Route path="enrollments" element={<AdminPeople />} />
                       <Route path="students" element={<AdminStudents />} />
                       <Route path="attendance" element={<AdminAttendance />} />
+                      <Route path="academics" element={<AdminAcademics />} />
                       <Route path="fee-collections" element={<AdminFeeCollections />} />
                       <Route path="payment-settings" element={<AdminPaymentSettings />} />
                       <Route path="gallery" element={<AdminGallery />} />

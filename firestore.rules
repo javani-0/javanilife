@@ -182,6 +182,33 @@ service cloud.firestore {
       allow write: if staffAny(['attendance', 'academics']);
     }
 
+    // Assignments (req P3). Any signed-in user may read the brief (it is not
+    // sensitive); the student page filters to their enrolled classes.
+    match /assignments/{id} {
+      allow read: if signedIn();
+      allow write: if staffAny(['academics']);
+    }
+
+    // Assignment submissions. A student may create/replace ONLY their own row
+    // and ONLY the submission fields — marks, feedback and the reviewed status
+    // are staff-only, so nobody can grade themselves.
+    match /assignmentSubmissions/{id} {
+      allow read: if staffAny(['academics', 'attendance', 'students'])
+        || (signedIn() && resource.data.studentUid == request.auth.uid);
+      allow create: if staffAny(['academics'])
+        || (signedIn()
+            && request.resource.data.studentUid == request.auth.uid
+            && request.resource.data.status == 'submitted'
+            && !request.resource.data.keys().hasAny(['marks', 'feedback', 'reviewedBy', 'reviewedAt']));
+      allow update: if staffAny(['academics'])
+        || (signedIn()
+            && resource.data.studentUid == request.auth.uid
+            && request.resource.data.status == 'submitted'
+            && request.resource.data.diff(resource.data).affectedKeys()
+                 .hasOnly(['fileUrl', 'fileName', 'sizeBytes', 'submittedAt', 'status', 'updatedAt']));
+      allow delete: if staffAny(['academics']);
+    }
+
     // Private class content (req): the live join URL, recorded classes and
     // study materials. Moved OFF the public `classes` doc so an anonymous
     // visitor can no longer scrape the meet link from the catalog. Any signed-in
