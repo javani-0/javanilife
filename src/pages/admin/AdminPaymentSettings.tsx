@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import { Loader2, Lock, QrCode, Save, Upload, Trash2, Smartphone } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import InvoiceSettingsPanel from "@/components/admin/InvoiceSettingsPanel";
 import {
   DEFAULT_PORTAL_SETTINGS,
   savePortalSettings,
@@ -84,6 +85,8 @@ const AdminPaymentSettings = () => {
         <h1 className="mt-2 flex items-center gap-2 font-display text-3xl text-foreground"><QrCode className="h-7 w-7 text-gold" /> Payment Settings</h1>
         <p className="mt-1 font-body text-sm text-muted-foreground">Set the UPI ID and QR that students pay to for manual online payments. They upload a receipt screenshot, which you approve in Fee Collections. (Razorpay is only used for autopay & EMI.)</p>
       </div>
+
+      <InvoiceSettingsPanel />
 
       {/* Automatic fee lock — OFF by default, on purpose. */}
       <div className="rounded-xl border border-border/60 bg-card p-5 shadow-card">
