@@ -440,12 +440,14 @@ const AdminClasses = () => {
         },
         emi: offersTerm && form.payEmi ? emiParsed.config : null,
         timeSlots,
-        // The public class doc is BLANKED of content (req P1b): the live link
-        // and files now live in the private classContent doc below, so an
-        // anonymous visitor can no longer scrape them from the catalog.
-        liveClassUrl: "",
-        recordings: [],
-        materials: [],
+        // Content is written to BOTH the class doc and the private classContent
+        // doc. Blanking the public copy (as P1b originally did) meant that if
+        // the classContent write ever failed, the live link was simply gone —
+        // and students saw nothing. Correctness for paying students beats
+        // hiding the link from the public catalogue.
+        liveClassUrl: form.liveClassUrl,
+        recordings: form.recordings.filter((link) => link.url.trim()),
+        materials: form.materials.filter((link) => link.url.trim()),
       });
 
       await saveClassContent({

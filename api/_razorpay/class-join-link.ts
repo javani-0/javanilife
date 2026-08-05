@@ -16,6 +16,7 @@ const ENROLLMENTS = "enrollments";
 const FEE_PAYMENTS = "feePayments";
 const CLASS_CONTENT = "classContent";
 const CLASSES = "classes";
+const SITE_SETTINGS = "siteSettings";
 
 /** Days past the due date before a class locks. Mirrors DEFAULT_ACCESS_GRACE_DAYS. */
 const GRACE_DAYS = 3;
@@ -66,18 +67,30 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     const status = getString(enrollment.status);
     if (status === "cancelled") { sendError(response, 403, "This enrolment has been cancelled."); return; }
 
-    // 3. Fee lock — the same rule the portal shows, enforced here.
+    // 3. Fee lock — the same rule the portal shows, enforced here. It is OPT-IN
+    //    (siteSettings/portal.accessLockEnabled): it shipped on by default and
+    //    locked paying families out of content they had bought, so it must now
+    //    be switched on deliberately. Mirrors src/lib/portal/access.ts.
+    const settingsSnap = await db.collection(SITE_SETTINGS).doc("portal").get();
+    const settings = settingsSnap.data() || {};
+    const lockEnabled = settings.accessLockEnabled === true;
+    const graceDays = Number.isFinite(Number(settings.accessGraceDays))
+      ? Math.max(0, Math.round(Number(settings.accessGraceDays)))
+      : GRACE_DAYS;
+
     const today = todayIso();
     const feesSnap = await db.collection(FEE_PAYMENTS).where("enrollmentId", "==", enrollmentId).get();
     let worstLate = 0;
     let worstLabel = "";
-    for (const feeDoc of feesSnap.docs) {
+    for (const feeDoc of lockEnabled ? feesSnap.docs : []) {
       const fee = feeDoc.data() || {};
       if (!OWES.has(getString(fee.status))) continue;
       const dueDate = getString(fee.dueDate);
       if (!dueDate) continue;
+      // A zero-rupee due is a bookkeeping artefact, never a lock reason.
+      if (!(Number(fee.amountInPaise) > 0)) continue;
       const late = daysLate(dueDate, today);
-      if (late > GRACE_DAYS && late > worstLate) {
+      if (late > graceDays && late > worstLate) {
         worstLate = late;
         worstLabel = getString(fee.periodLabel) || dueDate;
       }

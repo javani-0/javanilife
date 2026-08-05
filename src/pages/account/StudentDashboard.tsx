@@ -146,8 +146,11 @@ const StudentDashboard = () => {
                 // The live URL is no longer on the public class doc (req P1b) —
                 // the dashboard sends the student into the class room, where the
                 // server hands out the link after re-checking their fees.
+                // Timing is shown as information; only the fee lock hides the
+                // way in. Gating on the session window meant students whose slot
+                // data had drifted could never reach their class at all.
                 const status = joinStatusFor([session], new Date());
-                const canJoin = status.open && !session.locked;
+                const canJoin = !session.locked;
                 return (
                   <div key={`${session.enrollmentId}-${index}`} className="flex flex-col gap-2 rounded-lg border border-border/60 bg-background/70 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
                     <div className="min-w-0">

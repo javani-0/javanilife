@@ -1,0 +1,104 @@
+========================================================
+MESSAGE 1 of 2  —  What's new
+========================================================
+
+*JAVANI STUDENT PORTAL — What's new* 🎉
+
+Namaste! The new Student Portal is ready. Here's what you can now do.
+
+*🧑‍🎓 In your admin panel*
+
+1. *One student, many classes*
+Add a student to two or three classes at once — no need to create them again for each class.
+
+2. *Clear fee details*
+Kit fee, book fee, uniform fee — each one is shown separately, so parents can see exactly what they are paying for.
+
+3. *GST option*
+You can switch GST on for a student. It is 18% by default and you can change it.
+
+4. *Bills* 🧾
+Every payment can become a proper bill. Print it, save it as PDF, or send it to the parent on WhatsApp.
+
+5. *Attendance* ✅
+Choose a class and date, tap Present or Absent, and save.
+
+6. *Homework* 📚
+Give homework, see the PDFs students send, and give marks and comments.
+
+7. *Progress reports* ⭐
+Write a report about the student's progress that the parent can read.
+
+8. *Exams & hall tickets* 🎫
+Announce an exam and release hall tickets the student can print.
+
+9. *Certificates* 🏅
+Give a certificate to a student when they finish a course.
+
+*👨‍👩‍👧 What parents and students see*
+
+Their own page showing:
+• Their classes and this week's class timings
+• How much fee is pending
+• Attendance and progress
+• Homework to submit
+• Exam details and hall ticket
+• Their certificates
+
+*⚠️ One automatic thing to know*
+
+If a fee is more than 3 days late, that class's videos and study materials are hidden automatically. They come back immediately once you record the payment.
+
+Don't worry — the parent can ALWAYS still pay, and if they have already sent you a payment screenshot they are not blocked while you check it.
+
+
+========================================================
+MESSAGE 2 of 2  —  How to check it (15 minutes)
+========================================================
+
+*How to check everything* (about 15 minutes)
+
+Please try it on your *phone* as well as computer. Nothing here can spoil anything — you are only looking. 🙂
+
+*A. Add a student with 2 classes* (5 min)
+1. Student Manager → Add Student
+2. Fill the details, choose Class 1
+3. Click *"+ Add another class"* and choose Class 2
+✅ Both classes should show separately with their own prices, and one total at the bottom
+4. Tick *"Charge GST"*
+✅ A GST line should appear and the total should increase
+5. Save and open the payment link
+✅ The parent should see the same 2 classes and the same total
+
+*B. Mark attendance* (2 min)
+1. Attendance → choose a class and today's date
+✅ Students should appear, all marked Present already
+2. Tap Absent for one student → Save
+3. Open the same date again
+✅ It should remember, and show "Already marked — editing"
+
+*C. Write a progress report* (3 min)
+1. Academics → choose a class → Progress tab
+2. Choose a student
+✅ Their attendance % should show under their name
+3. Add grade, rate a skill, write a remark → Publish
+✅ It should appear in the list below
+
+*D. Make a bill* (2 min)
+1. Student Manager → open a student → Fees → click *Bill*
+✅ A proper bill should open with items listed and GST shown separately
+2. Try Print, Download PDF and Share
+
+*E. See what a parent sees* (3 min)
+1. Copy a student's User ID and Password from their card
+2. Open a *private/incognito* window and login as them
+✅ You should see their classes and pending fees
+✅ If they owe money, a red message "Some class content is paused" should appear — this is correct, it is the automatic lock
+
+*🔍 Two things I could not test yet*
+
+1. The *Join Live Class* button — it only appears when the student has no pending fee AND it is within 15 minutes of class time. Please check this during a real class.
+
+2. Sending a real homework or certificate to a real family — I did not do this because it would appear in a real parent's account. The screens work; the first real one should be yours.
+
+If anything looks different from what I wrote, just tell me *which step* and *what you saw*, and I will fix it. 🙏

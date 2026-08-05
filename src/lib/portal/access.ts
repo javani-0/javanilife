@@ -14,6 +14,18 @@ import { deriveDisplayFeeStatus, type EnrollmentStatus, type FeePaymentDoc } fro
 /** Days after the due date before content locks. Admin-configurable. */
 export const DEFAULT_ACCESS_GRACE_DAYS = 3;
 
+/**
+ * The automatic lock is OFF unless the office switches it on.
+ *
+ * INCIDENT 2026-08-05: it shipped ON with a 3-day grace and immediately locked
+ * 38% of active enrolments out of their recordings and materials — every one of
+ * them on an auto-generated monthly "pending" row that was 30+ days old because
+ * the ledger lags real (often cash) payments. Locking paying families out of
+ * content they bought is far worse than not locking a defaulter, so this now
+ * has to be turned on deliberately, once the ledger is trusted.
+ */
+export const ACCESS_LOCK_ENABLED_BY_DEFAULT = false;
+
 /** Statuses that still count as "money owed" for locking purposes. */
 const OWES = new Set(["pending", "overdue", "failed"]);
 
@@ -57,6 +69,8 @@ export interface ClassAccessInput {
   today?: string;
   /** Admin override: access stays open through this date. */
   overrideUntil?: string;
+  /** Master switch. When false NOTHING is ever locked. Default: off. */
+  lockEnabled?: boolean;
 }
 
 /**
@@ -74,7 +88,10 @@ export const computeClassAccess = ({
   graceDays = DEFAULT_ACCESS_GRACE_DAYS,
   today = new Date().toISOString().slice(0, 10),
   overrideUntil,
+  lockEnabled = ACCESS_LOCK_ENABLED_BY_DEFAULT,
 }: ClassAccessInput): ClassAccess => {
+  // Master switch off → never lock anyone, whatever the ledger says.
+  if (!lockEnabled) return OPEN;
   if (overrideUntil && overrideUntil >= today) {
     return { ...OPEN, reason: `Access extended by the office until ${overrideUntil}.` };
   }
@@ -88,6 +105,9 @@ export const computeClassAccess = ({
   for (const fee of fees || []) {
     if (!OWES.has(deriveDisplayFeeStatus(fee, new Date(`${today}T12:00:00`)))) continue;
     if (!fee.dueDate) continue;
+    // A zero-rupee due is a bookkeeping artefact, never a reason to lock a
+    // student out (one real student was locked over a ₹0 row).
+    if (!(fee.amountInPaise > 0)) continue;
 
     const lateBy = daysBetween(fee.dueDate, today);
     if (lateBy > grace) {

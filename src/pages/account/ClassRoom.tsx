@@ -155,6 +155,19 @@ const ClassRoom = () => {
           )}
         </div>
 
+        {/* The enrolment points at a class document that no longer exists —
+            the student would otherwise just see empty sections forever. */}
+        {!classDoc && (
+          <div className="rounded-2xl border border-amber-300 bg-amber-50 p-5">
+            <h3 className="font-display text-lg text-amber-900">This class needs attention</h3>
+            <p className="mt-1 font-body text-sm text-amber-800">
+              Your enrolment is linked to a class that is no longer set up, so its recordings and
+              materials can't be shown. Please contact the office and mention
+              "{enrollment.className}" — they can re-link it for you.
+            </p>
+          </div>
+        )}
+
         {/* Access restriction (req): this class's content is paused while a fee
             is overdue. Paying is always still reachable. */}
         {locked && (
@@ -187,10 +200,18 @@ const ClassRoom = () => {
                 <div className="flex h-11 w-11 items-center justify-center rounded-full bg-red-100"><Radio className="h-5 w-5 text-red-600" /></div>
                 <div className="min-w-0">
                   <h3 className="font-display text-lg text-foreground">Live Class</h3>
-                  <p className="font-body text-xs text-muted-foreground">{joinStatus.message}</p>
+                  <p className="font-body text-xs text-muted-foreground">
+                    {liveUrl ? joinStatus.message : "The live link will appear here when the class sets it up."}
+                  </p>
                 </div>
               </div>
-              {joinStatus.open && liveUrl ? (
+              {/* The link is ALWAYS available when one is set. It used to be
+                  gated to 15 min around the session, computed from the enrolled
+                  slot — but slots drift (4 real students had a slotId that no
+                  longer existed on their class), so the button could never
+                  appear at all. The requirement is "join instantly"; the timing
+                  below is information, not a gate. */}
+              {liveUrl ? (
                 <button
                   type="button"
                   onClick={handleJoin}

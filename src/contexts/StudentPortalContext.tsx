@@ -8,7 +8,8 @@ import {
   type EnrollmentDoc,
   type FeePaymentDoc,
 } from "@/lib/classes";
-import { computeClassAccess, DEFAULT_ACCESS_GRACE_DAYS, type ClassAccess } from "@/lib/portal/access";
+import { computeClassAccess, type ClassAccess } from "@/lib/portal/access";
+import { DEFAULT_PORTAL_SETTINGS, subscribeToPortalSettings, type PortalSettings } from "@/lib/settings/portalSettings";
 
 // ---------------------------------------------------------------------------
 // One load for the whole student portal (req P1). Six pages need the same
@@ -49,6 +50,10 @@ export const StudentPortalProvider = ({ children }: { children: ReactNode }) => 
   const [enrollments, setEnrollments] = useState<EnrollmentDoc[]>([]);
   const [classes, setClasses] = useState<Record<string, ClassDoc>>({});
   const [fees, setFees] = useState<FeePaymentDoc[]>([]);
+  // The fee lock is opt-in; until the office switches it on nothing locks.
+  const [portalSettings, setPortalSettings] = useState<PortalSettings>(DEFAULT_PORTAL_SETTINGS);
+
+  useEffect(() => subscribeToPortalSettings(setPortalSettings, () => undefined), []);
 
   const load = useCallback(async () => {
     if (!user) {
@@ -93,12 +98,13 @@ export const StudentPortalProvider = ({ children }: { children: ReactNode }) => 
       map[enrollment.id] = computeClassAccess({
         fees: feesByEnrollment[enrollment.id] || [],
         enrollmentStatus: enrollment.status,
-        graceDays: DEFAULT_ACCESS_GRACE_DAYS,
+        graceDays: portalSettings.accessGraceDays,
+        lockEnabled: portalSettings.accessLockEnabled,
         today,
       });
     }
     return map;
-  }, [enrollments, feesByEnrollment]);
+  }, [enrollments, feesByEnrollment, portalSettings]);
 
   const value = useMemo<StudentPortalState>(() => ({
     loading,

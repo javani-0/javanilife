@@ -1,7 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
-import { Loader2, QrCode, Save, Upload, Trash2, Smartphone } from "lucide-react";
+import { Loader2, Lock, QrCode, Save, Upload, Trash2, Smartphone } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import {
+  DEFAULT_PORTAL_SETTINGS,
+  savePortalSettings,
+  subscribeToPortalSettings,
+  type PortalSettings,
+} from "@/lib/settings/portalSettings";
 import { CLOUDINARY_CLOUD_NAME, CLOUDINARY_UPLOAD_PRESET } from "@/lib/cloudinary";
 import {
   buildUpiIntentUrl,
@@ -15,6 +21,10 @@ const inputClass = "h-10 w-full rounded-md border border-border bg-background px
 const labelClass = "mb-1 block font-body text-xs font-medium text-foreground";
 
 const AdminPaymentSettings = () => {
+  // Student-portal fee lock (siteSettings/portal). Deliberately opt-in.
+  const [portal, setPortal] = useState<PortalSettings>(DEFAULT_PORTAL_SETTINGS);
+  const [savingPortal, setSavingPortal] = useState(false);
+  useEffect(() => subscribeToPortalSettings(setPortal, () => undefined), []);
   const { toast } = useToast();
   const [form, setForm] = useState<PaymentSettings>(defaultPaymentSettings);
   const [loading, setLoading] = useState(true);
@@ -73,6 +83,66 @@ const AdminPaymentSettings = () => {
         <p className="font-body text-sm font-semibold uppercase tracking-[0.2em] text-gold">Payments</p>
         <h1 className="mt-2 flex items-center gap-2 font-display text-3xl text-foreground"><QrCode className="h-7 w-7 text-gold" /> Payment Settings</h1>
         <p className="mt-1 font-body text-sm text-muted-foreground">Set the UPI ID and QR that students pay to for manual online payments. They upload a receipt screenshot, which you approve in Fee Collections. (Razorpay is only used for autopay & EMI.)</p>
+      </div>
+
+      {/* Automatic fee lock — OFF by default, on purpose. */}
+      <div className="rounded-xl border border-border/60 bg-card p-5 shadow-card">
+        <h2 className="flex items-center gap-2 font-display text-lg text-foreground">
+          <Lock className="h-5 w-5 text-gold" /> Student portal — automatic fee lock
+        </h2>
+        <p className="mt-1 font-body text-sm text-muted-foreground">
+          When this is ON, a student whose fee is overdue stops seeing that class's recordings,
+          study materials and join link until you record the payment. Paying, the dashboard and
+          their other classes always stay open.
+        </p>
+        <p className="mt-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 font-body text-[0.78rem] text-amber-800">
+          Only switch this on once your fee records are up to date. If a family has paid in cash and
+          it hasn't been recorded yet, the system will treat them as unpaid and hide their content.
+        </p>
+
+        <label className="mt-3 flex items-center gap-2 font-body text-sm font-semibold text-foreground">
+          <input
+            type="checkbox"
+            checked={portal.accessLockEnabled}
+            onChange={(e) => setPortal({ ...portal, accessLockEnabled: e.target.checked })}
+          />
+          Lock class content when a fee is overdue
+        </label>
+
+        {portal.accessLockEnabled && (
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <label className="font-body text-[0.8rem] text-muted-foreground">Allow this many days after the due date:</label>
+            <input
+              value={String(portal.accessGraceDays)}
+              onChange={(e) => setPortal({ ...portal, accessGraceDays: Number(e.target.value.replace(/[^0-9]/g, "")) || 0 })}
+              className="w-20 rounded-md border border-border bg-background px-3 py-2 font-body text-[0.85rem] outline-none focus:border-gold"
+              inputMode="numeric"
+            />
+          </div>
+        )}
+
+        <button
+          onClick={async () => {
+            setSavingPortal(true);
+            try {
+              await savePortalSettings(portal);
+              toast({
+                title: portal.accessLockEnabled ? "Fee lock is ON" : "Fee lock is OFF",
+                description: portal.accessLockEnabled
+                  ? `Content hides ${portal.accessGraceDays} day(s) after a missed due date.`
+                  : "Every student can see all their class content.",
+              });
+            } catch (error) {
+              toast({ title: "Could not save", description: error instanceof Error ? error.message : undefined, variant: "destructive" });
+            } finally {
+              setSavingPortal(false);
+            }
+          }}
+          disabled={savingPortal}
+          className="mt-3 flex min-h-10 items-center gap-2 rounded-md bg-gradient-primary px-4 font-body text-sm font-semibold text-primary-foreground hover:brightness-110 disabled:opacity-60"
+        >
+          {savingPortal ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Save lock setting
+        </button>
       </div>
 
       {loading ? (
