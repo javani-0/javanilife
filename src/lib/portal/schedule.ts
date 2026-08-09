@@ -59,6 +59,34 @@ export const resolveSchedule = (cls: ClassDoc | null | undefined, slotId?: strin
   return null;
 };
 
+/**
+ * A human weekly timing for a class — "Mon, Wed & Fri · 6:00 AM – 7:00 AM".
+ *
+ * The portal used to print `enrollment.slotLabel` and nothing else, so an
+ * enrolment saved without a slot (or whose slot has since been removed from the
+ * class) showed no timing at all. This falls back to the class's own schedule.
+ */
+export const scheduleLabelFor = (cls: ClassDoc | null | undefined, slotId?: string): string => {
+  const schedule = resolveSchedule(cls, slotId);
+  if (!schedule) return "";
+  const days = schedule.days.length > 1
+    ? `${schedule.days.slice(0, -1).join(", ")} & ${schedule.days[schedule.days.length - 1]}`
+    : schedule.days[0];
+  return `${days} · ${formatClockTime(schedule.start)} – ${formatClockTime(schedule.end)}`;
+};
+
+/**
+ * "18:00" → "6:00 PM". Formatted by hand rather than via toLocaleTimeString:
+ * `en-IN` renders the meridiem lower-case in Node and upper-case in some
+ * browsers, and a label the student reads shouldn't depend on that.
+ */
+const formatClockTime = (time: string): string => {
+  const [hours, minutes] = time.split(":").map(Number);
+  const meridiem = hours >= 12 ? "PM" : "AM";
+  const hour12 = hours % 12 === 0 ? 12 : hours % 12;
+  return `${hour12}:${String(minutes).padStart(2, "0")} ${meridiem}`;
+};
+
 const atTime = (day: Date, time: string): Date => {
   const [hours, minutes] = time.split(":").map(Number);
   const result = new Date(day);

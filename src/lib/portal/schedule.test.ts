@@ -5,6 +5,7 @@ import {
   joinStatusFor,
   nextSessionsFor,
   resolveSchedule,
+  scheduleLabelFor,
   type SessionOccurrence,
 } from "./schedule";
 
@@ -141,5 +142,39 @@ describe("joinStatusFor", () => {
 
   it("handles a class with no sessions at all", () => {
     expect(joinStatusFor([], MONDAY_9AM).message).toBe("No sessions scheduled yet.");
+  });
+});
+
+describe("scheduleLabelFor", () => {
+  it("renders the class weekly timing when the enrolment has no slot", () => {
+    expect(scheduleLabelFor(cls())).toBe("Mon & Wed · 6:00 PM – 7:00 PM");
+  });
+
+  it("joins three or more days with commas and a final ampersand", () => {
+    expect(scheduleLabelFor(cls({ scheduleDays: ["Mon", "Wed", "Fri"] })))
+      .toBe("Mon, Wed & Fri · 6:00 PM – 7:00 PM");
+  });
+
+  it("uses a single day without a separator", () => {
+    expect(scheduleLabelFor(cls({ scheduleDays: ["Sat"] }))).toBe("Sat · 6:00 PM – 7:00 PM");
+  });
+
+  it("prefers the enrolled slot over the class schedule", () => {
+    const withSlots = cls({
+      timeSlots: [{ id: "s1", label: "Morning", days: ["Tue"], start: "07:00", end: "08:00", seatsTotal: 10, seatsTaken: 0 }],
+    } as Partial<ClassDoc>);
+    expect(scheduleLabelFor(withSlots, "s1")).toBe("Tue · 7:00 AM – 8:00 AM");
+  });
+
+  // The real failure this fixes: 4 live students hold a slotId that no longer
+  // exists on their class, so slot-only rendering showed no timing at all.
+  it("falls back to the class schedule when the enrolled slot has gone", () => {
+    expect(scheduleLabelFor(cls(), "slot-that-no-longer-exists"))
+      .toBe("Mon & Wed · 6:00 PM – 7:00 PM");
+  });
+
+  it("is empty when the class has no usable timing", () => {
+    expect(scheduleLabelFor(cls({ scheduleDays: [], scheduleStart: "", scheduleEnd: "" }))).toBe("");
+    expect(scheduleLabelFor(null)).toBe("");
   });
 });
