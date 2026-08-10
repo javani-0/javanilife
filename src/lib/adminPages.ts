@@ -46,3 +46,39 @@ export const managerCanAccessPath = (pages: string[] | undefined, pathname: stri
 /** Where a manager lands: their first allowed page (nav order), or null. */
 export const firstAllowedPath = (pages: string[] | undefined): string | null =>
   MANAGER_PAGES.find((item) => (pages || []).includes(item.key))?.path || null;
+
+// ---------------------------------------------------------------------------
+// Teachers (req 1). A teacher is NOT a manager with extra keys: they get a
+// fixed, two-page console and are scoped to the classes assigned to them. They
+// never see fees, student records, finance or credentials.
+// ---------------------------------------------------------------------------
+
+/** The only pages a teacher may open. Fixed — not admin-configurable. */
+export const TEACHER_PAGE_KEYS = ["attendance", "academics"] as const;
+
+export const TEACHER_PAGES: ManagerPage[] = MANAGER_PAGES.filter(
+  (page) => (TEACHER_PAGE_KEYS as readonly string[]).includes(page.key),
+);
+
+/** Where a teacher lands after signing in. */
+export const TEACHER_LANDING_PATH = "/admin/attendance";
+
+/** Can a teacher open this /admin path? */
+export const teacherCanAccessPath = (pathname: string): boolean => {
+  const key = pageKeyForPath(pathname);
+  return Boolean(key && (TEACHER_PAGE_KEYS as readonly string[]).includes(key));
+};
+
+/**
+ * The classes a teacher may work with. An EMPTY assignment list means the
+ * teacher has not been given any class yet, so they see none — never all.
+ * Deliberately fail-closed: the opposite would hand a new teacher the whole
+ * school on their first login.
+ */
+export const classesForTeacher = <T extends { id: string }>(
+  classes: T[],
+  teacherClassIds: string[] | undefined,
+): T[] => {
+  const allowed = new Set(teacherClassIds || []);
+  return (classes || []).filter((item) => allowed.has(item.id));
+};

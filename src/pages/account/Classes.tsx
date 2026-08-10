@@ -1,9 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { CalendarClock, Clock, DoorOpen, GraduationCap, Loader2, Repeat, Wallet, XCircle, Zap } from "lucide-react";
+import {
+  CalendarClock, Clock, DoorOpen, FileText, GraduationCap, Loader2, PlayCircle,
+  Radio, Repeat, User, Video, Wallet, XCircle, Zap,
+} from "lucide-react";
 import AccountLayout from "@/components/account/AccountLayout";
 import UpiPaymentDialog from "@/components/classes/UpiPaymentDialog";
 import { useAuth } from "@/contexts/AuthContext";
+import { useStudentPortal } from "@/contexts/StudentPortalContext";
+import { scheduleLabelFor } from "@/lib/portal/schedule";
+import { hasEmiPlan, isEmiFee, isEmiInstallment, summarizeEmiPlan } from "@/lib/portal/emi";
 import { useToast } from "@/hooks/use-toast";
 import { useScrollHighlight } from "@/hooks/useScrollHighlight";
 import { confirmDialog } from "@/components/ConfirmDialogHost";
@@ -49,6 +55,10 @@ const feeStatusStyles: Record<FeeStatus, string> = {
 const Classes = () => {
   const { user } = useAuth();
   const { toast } = useToast();
+  // Class docs + private content (live link / recordings / materials) are
+  // already loaded once for the whole portal — reuse them so this page can show
+  // the course's schedule and resources inline (req 6).
+  const { classes: classDocs, content: classContent, access } = useStudentPortal();
   const [enrollments, setEnrollments] = useState<EnrollmentDoc[]>([]);
   const [fees, setFees] = useState<FeePaymentDoc[]>([]);
   const [loadingEnrollments, setLoadingEnrollments] = useState(true);
@@ -73,25 +83,11 @@ const Classes = () => {
     return map;
   }, [fees]);
 
-  // EMI installments stay on Razorpay (auto-pay); everything else (monthly
-  // pre-payment, term "pay full") uses the low-commission manual UPI flow.
-  const isEmiFee = (fee: FeePaymentDoc): boolean => fee.paymentPlan === "emi" || /_emi-\d+$/.test(fee.id);
-
-  // Every EMI installment doc for an enrolment, in schedule order. Admin-created
-  // (Student Manager) EMI students get one `${enrollmentId}_emi-N` doc per
-  // installment at approval: #1 paid, the rest pending.
-  const emiInstallmentsOf = (enrollmentId: string): FeePaymentDoc[] =>
-    (feesByEnrollment.get(enrollmentId) || [])
-      .filter((fee) => /_emi-\d+$/.test(fee.id))
-      .sort((a, b) => Number(/_emi-(\d+)$/.exec(a.id)?.[1] || 0) - Number(/_emi-(\d+)$/.exec(b.id)?.[1] || 0));
-
-  // Razorpay is only the rail when the admin actually offered it (autopayInvited).
-  // Student-Manager EMI students pay their installments on the manual UPI rail,
-  // the same way they paid the first one on the admission link.
-  const emiUsesRazorpay = (enrollment: EnrollmentDoc): boolean => enrollment.autopayInvited === true;
-
   const handlePayNow = async (fee: FeePaymentDoc, viaRazorpay = true) => {
     if (!user) return;
+    // EMI installments may stay on Razorpay (when the admin offered it);
+    // everything else — monthly pre-payment, term "pay full" — uses the
+    // low-commission manual UPI flow.
     if (!viaRazorpay || !isEmiFee(fee)) { setUpiDialog({ target: { feePaymentId: fee.id }, amount: fee.amountInPaise, title: `${fee.className} — ${fee.periodLabel}` }); return; }
     setBusyId(fee.id);
     try {
@@ -218,11 +214,11 @@ const Classes = () => {
         ) : (
           enrollments.map((enrollment) => {
             const enrollmentFees = feesByEnrollment.get(enrollment.id) || [];
-            // When the EMI card below owns the installments, keep them out of
-            // the "upcoming" banner and out of the history Pay buttons so the
-            // parent has exactly one place to pay each one.
-            const emiOwned = emiInstallmentsOf(enrollment.id).length >= 2;
-            const isOwnedByEmiCard = (fee: FeePaymentDoc) => emiOwned && /_emi-\d+$/.test(fee.id);
+            // Installments belong to the EMI Payments tab, so keep them out of
+            // the "upcoming" banner and the history Pay buttons here — exactly
+            // one screen can pay each one.
+            const emiOwned = hasEmiPlan(enrollmentFees);
+            const isOwnedByEmiCard = (fee: FeePaymentDoc) => emiOwned && isEmiInstallment(fee);
             const upcoming = enrollmentFees.find((fee) => !isOwnedByEmiCard(fee) && isFeePayable({ status: deriveDisplayFeeStatus(fee) }));
             const autopayOn = enrollment.autopay.enabled;
             // Whether autopay is even OFFERED for this enrolment: on already,
@@ -233,11 +229,17 @@ const Classes = () => {
               <div key={enrollment.id} className="rounded-2xl border border-border/60 bg-card p-5 shadow-card sm:p-6">
                 <div className="flex flex-col gap-3 border-b border-border/50 pb-4 sm:flex-row sm:items-start sm:justify-between">
                   <div>
+                    {/* The COURSE is the headline (req 5): the parent needs to
+                        see which class this card is for at a glance. The
+                        student's name is secondary — one login can hold several
+                        enrolments for the same child. */}
                     <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="font-display text-xl text-foreground">{enrollment.student.name}</h3>
-                      <span className="rounded-full bg-gold/10 px-2.5 py-1 font-body text-xs font-semibold text-gold">{enrollment.className}</span>
+                      <h3 className="font-display text-xl text-foreground">{enrollment.className}</h3>
                       <span className="rounded-full bg-muted px-2.5 py-1 font-body text-xs text-muted-foreground">{ENROLLMENT_STATUS_LABELS[enrollment.status]}</span>
                     </div>
+                    <p className="mt-1 flex items-center gap-1.5 font-body text-sm text-muted-foreground">
+                      <User className="h-3.5 w-3.5 text-gold" /> {enrollment.student.name}
+                    </p>
                     <p className="mt-1 font-body text-sm text-muted-foreground">{getClassFeeLabel({ monthlyFeeInPaise: enrollment.monthlyFeeInPaise, feeType: enrollment.feeType, termFeeInPaise: enrollment.termFeeInPaise })}</p>
                   </div>
                   <div className="flex flex-col items-start gap-2 sm:items-end">
@@ -260,21 +262,94 @@ const Classes = () => {
                   </div>
                 </div>
 
-                {/* Batch (class timing) + billed period + next charge date */}
+                {/* Batch (class timing) + trainer + billed period + next charge */}
                 {(() => {
-                  const batch = enrollment.slotLabel || "";
+                  // Timing ALWAYS renders now: the enrolled slot when it still
+                  // exists, otherwise the class's own weekly schedule. Slots
+                  // drift — several live enrolments hold a slotId their class
+                  // no longer defines, and those showed no timing at all.
+                  const batch = enrollment.slotLabel
+                    || scheduleLabelFor(classDocs[enrollment.classId], enrollment.slotId);
+                  const trainer = enrollment.trainerName || classDocs[enrollment.classId]?.facultyName || "";
                   // Show the fixed course range only for terms; monthly cycles
                   // change each month, so those are read from the history below.
                   const billingPeriod = enrollment.feeType === "term"
                     ? (enrollment.billingPeriodLabel || formatMonthRange(enrollment.billingStartMonth || enrollment.termStartDate, enrollment.billingEndMonth || enrollment.termEndDate))
                     : "";
                   const nextCharge = enrollment.nextChargeDate ? formatNiceDate(enrollment.nextChargeDate) : "";
-                  if (!batch && !billingPeriod && !nextCharge) return null;
+                  if (!batch && !trainer && !billingPeriod && !nextCharge) return null;
                   return (
                     <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1.5 font-body text-xs text-muted-foreground">
                       {batch && <span className="flex items-center gap-1.5"><Clock className="h-3.5 w-3.5 text-gold" /> Class timing: <span className="font-semibold text-foreground">{batch}</span></span>}
+                      {trainer && <span className="flex items-center gap-1.5"><GraduationCap className="h-3.5 w-3.5 text-gold" /> Trainer: <span className="font-semibold text-foreground">{trainer}</span></span>}
                       {billingPeriod && <span className="flex items-center gap-1.5"><CalendarClock className="h-3.5 w-3.5 text-gold" /> Billing period: <span className="font-semibold text-foreground">{billingPeriod}</span></span>}
                       {nextCharge && <span className="flex items-center gap-1.5"><CalendarClock className="h-3.5 w-3.5 text-gold" /> Next charge: <span className="font-semibold text-foreground">{nextCharge}</span></span>}
+                    </div>
+                  );
+                })()}
+
+                {/* Class resources (req 6): the live link, recordings and
+                    materials are visible right here. They used to be reachable
+                    only after clicking into the class room, which is why the
+                    client reported them as missing. */}
+                {(() => {
+                  const content = classContent[enrollment.classId];
+                  const missingClass = !classDocs[enrollment.classId];
+                  const recordings = content?.recordings || [];
+                  const materials = content?.materials || [];
+                  const hasLive = Boolean(content?.liveClassUrl);
+                  const locked = access[enrollment.id]?.locked === true;
+
+                  if (missingClass) {
+                    return (
+                      <div className="mt-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3">
+                        <p className="font-body text-xs text-amber-800">
+                          This enrolment is linked to a class that is no longer set up, so its live link,
+                          recordings and materials can't be shown. Please contact the office and mention
+                          "{enrollment.className}".
+                        </p>
+                      </div>
+                    );
+                  }
+                  if (locked) return null;
+
+                  return (
+                    <div className="mt-3 rounded-xl border border-border/60 bg-background/60 p-3">
+                      <p className="mb-2 font-body text-[0.7rem] font-semibold uppercase tracking-wider text-muted-foreground">Class resources</p>
+                      {!hasLive && recordings.length === 0 && materials.length === 0 ? (
+                        <p className="font-body text-xs text-muted-foreground">
+                          Your teacher hasn't shared a live link, recordings or materials for this class yet.
+                        </p>
+                      ) : (
+                        <div className="flex flex-wrap items-center gap-2">
+                          {hasLive && (
+                            <Link to={`/account/classes/${enrollment.id}`} className="flex items-center gap-1.5 rounded-md bg-red-50 px-3 py-1.5 font-body text-xs font-semibold text-red-700 transition-colors hover:bg-red-100">
+                              <Radio className="h-3.5 w-3.5" /> Join live class
+                            </Link>
+                          )}
+                          {recordings.slice(0, 2).map((rec, index) => (
+                            <a key={rec.id} href={rec.url} target="_blank" rel="noreferrer" className="flex max-w-[15rem] items-center gap-1.5 rounded-md border border-border px-3 py-1.5 font-body text-xs font-semibold text-muted-foreground transition-colors hover:border-gold/40 hover:text-gold">
+                              <PlayCircle className="h-3.5 w-3.5 shrink-0 text-gold" />
+                              <span className="truncate">{rec.title || `Recording ${index + 1}`}</span>
+                            </a>
+                          ))}
+                          {materials.slice(0, 2).map((mat, index) => (
+                            <a key={mat.id} href={mat.url} target="_blank" rel="noreferrer" className="flex max-w-[15rem] items-center gap-1.5 rounded-md border border-border px-3 py-1.5 font-body text-xs font-semibold text-muted-foreground transition-colors hover:border-gold/40 hover:text-gold">
+                              <FileText className="h-3.5 w-3.5 shrink-0 text-gold" />
+                              <span className="truncate">{mat.title || `Material ${index + 1}`}</span>
+                            </a>
+                          ))}
+                          {(recordings.length > 2 || materials.length > 2) && (
+                            <Link to={`/account/classes/${enrollment.id}`} className="font-body text-xs font-semibold text-gold hover:underline">
+                              +{recordings.length + materials.length - Math.min(recordings.length, 2) - Math.min(materials.length, 2)} more
+                            </Link>
+                          )}
+                          <span className="flex items-center gap-3 font-body text-[0.7rem] text-muted-foreground">
+                            <span className="flex items-center gap-1"><Video className="h-3 w-3" /> {recordings.length}</span>
+                            <span className="flex items-center gap-1"><FileText className="h-3 w-3" /> {materials.length}</span>
+                          </span>
+                        </div>
+                      )}
                     </div>
                   );
                 })()}
@@ -332,64 +407,37 @@ const Classes = () => {
                   )}
                 </div>
 
-                {/* EMI installments (req): the parent paid installment 1 on the
-                    admission link — the rest live here and are payable ANY TIME,
-                    not only when the due date arrives. */}
+                {/* EMI: a SUMMARY only (req 5). The installment schedule and
+                    its Pay buttons live on the EMI Payments tab, so there is
+                    exactly one screen that can take an installment payment. */}
                 {(() => {
-                  const installments = emiInstallmentsOf(enrollment.id);
-                  if (installments.length < 2) return null;
-                  const paidInPaise = installments
-                    .filter((fee) => deriveDisplayFeeStatus(fee) === "paid")
-                    .reduce((sum, fee) => sum + fee.amountInPaise, 0);
-                  const totalInPaise = installments.reduce((sum, fee) => sum + fee.amountInPaise, 0);
-                  const viaRazorpay = emiUsesRazorpay(enrollment);
+                  const installmentFees = feesByEnrollment.get(enrollment.id) || [];
+                  if (!hasEmiPlan(installmentFees)) return null;
+                  const summary = summarizeEmiPlan(installmentFees);
                   return (
-                    <div className="mt-4 rounded-xl border border-gold/25 bg-gold/[0.04] p-4">
-                      <div className="flex flex-wrap items-baseline justify-between gap-2">
-                        <p className="font-body text-xs font-semibold uppercase tracking-wider text-gold">EMI installments</p>
-                        <p className="font-body text-xs text-muted-foreground">
-                          Paid <span className="font-semibold text-green-700">{formatPaiseAsRupees(paidInPaise)}</span> of {formatPaiseAsRupees(totalInPaise)}
-                          {paidInPaise < totalInPaise && <> · <span className="font-semibold text-foreground">{formatPaiseAsRupees(totalInPaise - paidInPaise)}</span> remaining</>}
+                    <Link
+                      to="/account/emi"
+                      className="mt-4 flex flex-col gap-3 rounded-xl border border-gold/25 bg-gold/[0.04] p-4 transition-colors hover:border-gold/50 hover:bg-gold/[0.08] sm:flex-row sm:items-center sm:justify-between"
+                    >
+                      <div className="min-w-0">
+                        <p className="font-body text-xs font-semibold uppercase tracking-wider text-gold">EMI plan</p>
+                        <p className="mt-0.5 font-body text-sm text-muted-foreground">
+                          Paid <span className="font-semibold text-green-700">{formatPaiseAsRupees(summary.paidInPaise)}</span> of {formatPaiseAsRupees(summary.totalInPaise)}
+                          {" "}({summary.paidCount}/{summary.installments.length} installments)
+                          {summary.remainingInPaise > 0 && (
+                            <> · <span className="font-semibold text-foreground">{formatPaiseAsRupees(summary.remainingInPaise)}</span> remaining</>
+                          )}
                         </p>
+                        {summary.overdueCount > 0 && (
+                          <p className="mt-0.5 font-body text-xs font-semibold text-red-700">
+                            {summary.overdueCount} installment{summary.overdueCount === 1 ? " is" : "s are"} overdue
+                          </p>
+                        )}
                       </div>
-                      <div className="mt-2.5 space-y-2">
-                        {installments.map((fee) => {
-                          const displayStatus = deriveDisplayFeeStatus(fee);
-                          const payable = isFeePayable({ status: displayStatus });
-                          return (
-                            <div key={fee.id} id={`fee-${fee.id}`} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border/60 bg-card px-3 py-2 scroll-mt-28">
-                              <div className="min-w-0">
-                                <p className="font-body text-sm font-medium text-foreground">{fee.periodLabel} — {formatFeeAmount(fee)}</p>
-                                <p className="font-body text-xs text-muted-foreground">
-                                  {displayStatus === "paid" ? (feePaidStatement(fee) || "Paid") : `Due ${fee.dueDate ? formatNiceDate(fee.dueDate) : "soon"}`}
-                                </p>
-                                {displayStatus === "processing" && (
-                                  <p className="mt-0.5 font-body text-[0.7rem] text-blue-600">⏳ Awaiting admin approval</p>
-                                )}
-                                {fee.upiRejectedReason && payable && (
-                                  <p className="mt-0.5 font-body text-[0.7rem] text-destructive">Rejected: {fee.upiRejectedReason}</p>
-                                )}
-                              </div>
-                              <div className="flex shrink-0 items-center gap-2">
-                                <span className={`rounded-full px-2.5 py-1 font-body text-xs font-semibold ${feeStatusStyles[displayStatus]}`}>{FEE_STATUS_LABELS[displayStatus]}</span>
-                                {payable && (
-                                  <button
-                                    onClick={() => handlePayNow(fee, viaRazorpay)}
-                                    disabled={busyId === fee.id}
-                                    className="flex min-h-9 items-center gap-1.5 rounded-sm bg-gradient-primary px-3 py-1.5 font-body text-xs font-semibold text-primary-foreground hover:brightness-110 disabled:opacity-60"
-                                  >
-                                    {busyId === fee.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wallet className="h-3.5 w-3.5" />} Pay now
-                                  </button>
-                                )}
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                      <p className="mt-2 font-body text-[0.72rem] text-muted-foreground">
-                        You can pay any pending installment early — there's no need to wait for its due date.
-                      </p>
-                    </div>
+                      <span className="flex min-h-10 shrink-0 items-center justify-center gap-1.5 rounded-sm bg-gradient-primary px-4 font-body text-sm font-semibold text-primary-foreground">
+                        <Wallet className="h-4 w-4" /> {summary.complete ? "View EMI payments" : "Pay installments"}
+                      </span>
+                    </Link>
                   );
                 })()}
 

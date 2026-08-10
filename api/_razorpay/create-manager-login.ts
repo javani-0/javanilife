@@ -4,18 +4,29 @@ import { getBearerToken, readJsonBody, requirePost, sendError, sendJson, type Ap
 // ---------------------------------------------------------------------------
 // POST /api/razorpay/create-manager-login   (admin only)
 // ---------------------------------------------------------------------------
-// The admin creates (or resets) a MANAGER's sign-in (req): name, WhatsApp,
-// email + password, plus the list of admin pages they may open. We create the
-// Firebase Auth user (or update the password if the email exists), mark the
-// user doc role="manager" with managerPages, and stash the credentials in the
-// admin-only `managerCredentials/{uid}` doc for re-sharing on WhatsApp.
+// The admin creates (or resets) a staff sign-in (req): name, WhatsApp, email +
+// password. We create the Firebase Auth user (or update the password if the
+// email exists) and stash the credentials in the admin-only
+// `managerCredentials/{uid}` doc for re-sharing on WhatsApp.
+//
+// Two roles come through here:
+//   manager — role="manager" + managerPages[] (the admin pages they may open)
+//   teacher — role="teacher" + teacherClassIds[] (req 1). A teacher gets a
+//             FIXED two-page console (Attendance + Academics) scoped to their
+//             own classes, so there are no page keys to choose.
 // ---------------------------------------------------------------------------
 
 const VALID_PAGES = new Set([
   "enquiries", "courses", "classes", "students", "enrollments", "fee-collections",
+  // attendance + academics were missing here, so an admin could tick them in
+  // the Managers UI and the server would silently drop them — which is part of
+  // why nobody could reach the attendance and academics screens.
+  "attendance", "academics",
   "payment-settings", "gallery", "products", "coupons", "delivery-settings",
   "orders", "customers", "finance", "site-settings",
 ]);
+
+type StaffRole = "manager" | "teacher";
 
 interface Body {
   email?: string;
@@ -23,6 +34,9 @@ interface Body {
   name?: string;
   whatsapp?: string;
   pages?: string[];
+  role?: string;
+  /** Teacher only: the classes this teacher may work with. */
+  classIds?: string[];
 }
 
 const errorCode = (error: unknown): string =>
@@ -53,9 +67,15 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     const name = (body.name || "").trim();
     const whatsapp = (body.whatsapp || "").replace(/\D/g, "").slice(-15);
     const pages = (Array.isArray(body.pages) ? body.pages : []).filter((page) => VALID_PAGES.has(String(page)));
+    const role: StaffRole = body.role === "teacher" ? "teacher" : "manager";
+    const classIds = Array.from(new Set(
+      (Array.isArray(body.classIds) ? body.classIds : [])
+        .map((id) => String(id || "").trim())
+        .filter(Boolean),
+    ));
 
     if (!name) {
-      sendError(response, 400, "Manager name is required.");
+      sendError(response, 400, `${role === "teacher" ? "Teacher" : "Manager"} name is required.`);
       return;
     }
     if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
@@ -76,12 +96,18 @@ export default async function handler(request: ApiRequest, response: ApiResponse
       uid = existing.uid;
       // Never silently demote the admin's own account through this endpoint.
       if (uid === decoded.uid) {
-        sendError(response, 400, "You cannot turn your own admin account into a manager.");
+        sendError(response, 400, `You cannot turn your own admin account into a ${role}.`);
         return;
       }
       const existingRole = String((await db.doc(`users/${uid}`).get()).data()?.role || "");
       if (existingRole === "admin") {
         sendError(response, 400, "That email belongs to an admin account.");
+        return;
+      }
+      // A parent's login must not be converted into staff: they own enrolments
+      // and fee records, and the portal keys off role === "user".
+      if (existingRole === "user") {
+        sendError(response, 400, "That email belongs to a student/parent login. Use a different email.");
         return;
       }
       await auth.updateUser(uid, { password, displayName: name });
@@ -95,14 +121,18 @@ export default async function handler(request: ApiRequest, response: ApiResponse
       }
     }
 
+    // A teacher gets teacherClassIds and NO manager pages; a manager gets the
+    // reverse. Both keys are always written so switching an account between the
+    // two roles can't leave stale access behind.
     await db.doc(`users/${uid}`).set(
       {
         uid,
         email,
         username: name,
         ...(whatsapp ? { whatsappNumber: whatsapp } : {}),
-        role: "manager",
-        managerPages: pages,
+        role,
+        managerPages: role === "manager" ? pages : [],
+        teacherClassIds: role === "teacher" ? classIds : [],
         updatedAt: FieldValue.serverTimestamp(),
         ...(created ? { createdAt: FieldValue.serverTimestamp() } : {}),
       },
@@ -110,11 +140,11 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     );
 
     await db.doc(`managerCredentials/${uid}`).set(
-      { managerUid: uid, email, password, name, whatsapp, updatedAt: FieldValue.serverTimestamp() },
+      { managerUid: uid, email, password, name, whatsapp, role, updatedAt: FieldValue.serverTimestamp() },
       { merge: true },
     );
 
-    sendJson(response, 200, { ok: true, uid, created });
+    sendJson(response, 200, { ok: true, uid, created, role });
   } catch (error) {
     console.error("Unable to create manager login", error);
     const code = errorCode(error);

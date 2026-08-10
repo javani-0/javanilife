@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { NavLink, useLocation, useNavigate, Outlet } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
-import { pageKeyForPath } from "@/lib/adminPages";
+import { pageKeyForPath, TEACHER_PAGE_KEYS } from "@/lib/adminPages";
 import {
   CalendarCheck,
   LayoutDashboard, ClipboardList, BookOpen, Image, ShoppingBag, Users, Users2,
@@ -46,8 +46,16 @@ const AdminLayout = () => {
 
   // Managers see ONLY the pages the admin switched on (req); pages without a
   // manager key (Dashboard, Partners, Managers, Faculty) stay admin-only.
+  // Teachers get a fixed two-item nav — Attendance + Academics (req 1).
   const isManagerRole = userProfile?.role === "manager";
+  const isTeacherRole = userProfile?.role === "teacher";
   const navItems = useMemo(() => {
+    if (isTeacherRole) {
+      return allNavItems.filter((item) => {
+        const key = pageKeyForPath(item.path);
+        return key ? (TEACHER_PAGE_KEYS as readonly string[]).includes(key) : false;
+      });
+    }
     if (!isManagerRole) return allNavItems;
     const allowed = userProfile?.managerPages || [];
     return allNavItems
@@ -61,12 +69,12 @@ const AdminLayout = () => {
       .map((item) => (item.path === "/admin/enrollments" && !allowed.includes("enrollments")
         ? { ...item, path: "/admin/customers" }
         : item));
-  }, [isManagerRole, userProfile?.managerPages]);
+  }, [isManagerRole, isTeacherRole, userProfile?.managerPages]);
 
-  const roleBadge = isManagerRole ? "Manager" : "Admin";
+  const roleBadge = isTeacherRole ? "Teacher" : isManagerRole ? "Manager" : "Admin";
   const currentPage = navItems.find((n) => location.pathname.startsWith(n.path))?.label
     || (location.pathname.startsWith("/admin/customers") ? "Sign Up & Customers" : "")
-    || (isManagerRole ? "" : "Dashboard");
+    || (isManagerRole || isTeacherRole ? "" : "Dashboard");
 
   const handleLogout = async () => {
     await logout();

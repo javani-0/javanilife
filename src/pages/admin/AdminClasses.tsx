@@ -4,10 +4,12 @@ import { deleteDoc, doc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { CLOUDINARY_CLOUD_NAME, CLOUDINARY_UPLOAD_PRESET } from "@/lib/cloudinary";
 import { openSquareCropper } from "@/components/SquareImageCropper";
-import { Plus, Pencil, Trash2, X, Upload, BadgeIndianRupee, AlertTriangle, GraduationCap, CalendarRange, Repeat, Clock, Wallet, Video, FileText, MonitorPlay } from "lucide-react";
+import { Plus, Pencil, Trash2, X, Upload, BadgeIndianRupee, AlertTriangle, ClipboardList, GraduationCap, CalendarRange, Repeat, Clock, Wallet, Video, FileText, MonitorPlay } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAdminLog } from "@/hooks/useAdminLog";
 import { confirmDialog } from "@/components/ConfirmDialogHost";
+import ClassAcademicsTabs from "@/components/admin/ClassAcademicsTabs";
+import BrokenEnrollmentsBanner from "@/components/admin/BrokenEnrollmentsBanner";
 import { formatPaiseAsRupees, parsePriceToPaise } from "@/lib/ecommerce";
 import {
   AUTOPAY_AFA_CAP_IN_PAISE,
@@ -183,6 +185,15 @@ const TimePicker = ({ value, onChange }: { value: string; onChange: (val: string
   );
 };
 
+/**
+ * Whether a class has anything a student can actually open (req 6). Three of
+ * the school's five live classes had none of these, which is the real reason
+ * "materials aren't showing" — there was nothing to show. Content is written
+ * to BOTH the class doc and classContent, so the class doc is a safe proxy.
+ */
+const hasStudentContent = (classDoc: ClassDoc): boolean =>
+  Boolean(classDoc.liveClassUrl) || (classDoc.recordings?.length || 0) > 0 || (classDoc.materials?.length || 0) > 0;
+
 const AdminClasses = () => {
   const [classes, setClasses] = useState<ClassDoc[]>([]);
   const [showModal, setShowModal] = useState(false);
@@ -191,6 +202,8 @@ const AdminClasses = () => {
   const [imageUploading, setImageUploading] = useState(false);
   const [materialsUploading, setMaterialsUploading] = useState(false);
   const [saving, setSaving] = useState(false);
+  // The class whose academics workspace is open (req 2, 3, 4).
+  const [academicsClassId, setAcademicsClassId] = useState<string | null>(null);
   const imageRef = useRef<HTMLInputElement>(null);
   const materialsRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
@@ -492,6 +505,10 @@ const AdminClasses = () => {
         </button>
       </div>
 
+      {/* Deleting a class strands its enrolments — surface them here too, since
+          this is where a class gets deleted (req 6). */}
+      <BrokenEnrollmentsBanner />
+
       {sortedClasses.length === 0 ? (
         <div className="rounded-xl border border-gold/15 bg-card p-10 text-center shadow-card">
           <GraduationCap className="mx-auto mb-3 h-10 w-10 text-gold" />
@@ -543,9 +560,32 @@ const AdminClasses = () => {
                 {hasTermPayFullOffer(classDoc) && (
                   <p className="font-body text-[0.78rem] text-green-700 mb-3">🎁 {getTermPayFullOfferLabel(classDoc)} — pay <span className="font-semibold">{formatPaiseAsRupees(getTermPayFullPriceInPaise(classDoc))}</span></p>
                 )}
-                <div className="flex items-center justify-end gap-1 pt-3 border-t border-border/50">
-                  <button onClick={() => openEdit(classDoc)} className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-gold" aria-label={`Edit ${classDoc.name}`}><Pencil className="w-4 h-4" /></button>
-                  <button onClick={() => deleteClass(classDoc.id, classDoc.name)} className="p-1.5 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive" aria-label={`Delete ${classDoc.name}`}><Trash2 className="w-4 h-4" /></button>
+                {/* Students see nothing at all in their class room until one
+                    of these exists — say so here rather than letting the
+                    office believe the class is set up (req 6). */}
+                {!hasStudentContent(classDoc) && (
+                  <div className="mb-3 flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2">
+                    <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" />
+                    <p className="font-body text-[0.72rem] text-amber-800">
+                      Students can't see anything yet — no live link, recordings or materials.
+                      Add them under <span className="font-semibold">Edit</span>.
+                    </p>
+                  </div>
+                )}
+                <div className="flex items-center justify-between gap-1 pt-3 border-t border-border/50">
+                  {/* Academics for THIS class (req 2, 3, 4): attendance,
+                      assignments, exams and certificates, already scoped — no
+                      re-picking the class on another page. */}
+                  <button
+                    onClick={() => setAcademicsClassId(classDoc.id)}
+                    className="flex items-center gap-1.5 rounded-md border border-gold/40 px-2.5 py-1.5 font-body text-[0.75rem] font-semibold text-gold hover:bg-gold/10"
+                  >
+                    <ClipboardList className="h-3.5 w-3.5" /> Academics
+                  </button>
+                  <div className="flex items-center gap-1">
+                    <button onClick={() => openEdit(classDoc)} className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-gold" aria-label={`Edit ${classDoc.name}`}><Pencil className="w-4 h-4" /></button>
+                    <button onClick={() => deleteClass(classDoc.id, classDoc.name)} className="p-1.5 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive" aria-label={`Delete ${classDoc.name}`}><Trash2 className="w-4 h-4" /></button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -933,6 +973,34 @@ const AdminClasses = () => {
                   {saving ? "Saving..." : editing ? "Update Class" : "Add Class"}
                 </button>
               </div>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* Academics workspace for one class (req 2, 3, 4): attendance,
+          assignments, exams, certificates and progress, already scoped to the
+          class the user opened. Wider than the setup form because these are
+          rosters and lists rather than a handful of fields. */}
+      {academicsClassId && createPortal(
+        <div className="fixed inset-0 z-[9999] flex items-start justify-center overflow-y-auto p-4">
+          <div className="fixed inset-0 bg-black/40" onClick={() => setAcademicsClassId(null)} />
+          <div className="relative mx-4 my-6 flex max-h-[calc(100dvh-3rem)] w-full max-w-5xl flex-col overflow-hidden rounded-xl bg-card p-6 shadow-hero">
+            <div className="mb-4 flex shrink-0 items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="font-body text-xs font-semibold uppercase tracking-[0.2em] text-gold">Academics</p>
+                <h3 className="truncate font-display text-[1.3rem] font-semibold">
+                  {classes.find((cls) => cls.id === academicsClassId)?.name || "Class"}
+                </h3>
+                <p className="mt-0.5 font-body text-xs text-muted-foreground">
+                  Mark attendance, set assignments and exams, and issue certificates for this class.
+                </p>
+              </div>
+              <button onClick={() => setAcademicsClassId(null)} aria-label="Close academics"><X className="h-5 w-5" /></button>
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              <ClassAcademicsTabs selectedClass={classes.find((cls) => cls.id === academicsClassId)} />
             </div>
           </div>
         </div>,

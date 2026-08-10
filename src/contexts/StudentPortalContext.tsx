@@ -2,8 +2,10 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import { useAuth } from "@/contexts/AuthContext";
 import {
   getClass,
+  getClassContent,
   listMyFees,
   listMyEnrollments,
+  type ClassContent,
   type ClassDoc,
   type EnrollmentDoc,
   type FeePaymentDoc,
@@ -23,6 +25,9 @@ export interface StudentPortalState {
   isStudent: boolean;
   enrollments: EnrollmentDoc[];
   classes: Record<string, ClassDoc>;
+  /** Live link / recordings / materials per class id, so the Classes list can
+   *  show resources without opening each class room. */
+  content: Record<string, ClassContent>;
   feesByEnrollment: Record<string, FeePaymentDoc[]>;
   /** Per-class lock state, keyed by enrollment id. */
   access: Record<string, ClassAccess>;
@@ -36,6 +41,7 @@ const EMPTY: StudentPortalState = {
   isStudent: false,
   enrollments: [],
   classes: {},
+  content: {},
   feesByEnrollment: {},
   access: {},
   hasLockedClass: false,
@@ -49,6 +55,7 @@ export const StudentPortalProvider = ({ children }: { children: ReactNode }) => 
   const [loading, setLoading] = useState(true);
   const [enrollments, setEnrollments] = useState<EnrollmentDoc[]>([]);
   const [classes, setClasses] = useState<Record<string, ClassDoc>>({});
+  const [content, setContent] = useState<Record<string, ClassContent>>({});
   const [fees, setFees] = useState<FeePaymentDoc[]>([]);
   // The fee lock is opt-in; until the office switches it on nothing locks.
   const [portalSettings, setPortalSettings] = useState<PortalSettings>(DEFAULT_PORTAL_SETTINGS);
@@ -57,7 +64,7 @@ export const StudentPortalProvider = ({ children }: { children: ReactNode }) => 
 
   const load = useCallback(async () => {
     if (!user) {
-      setEnrollments([]); setClasses({}); setFees([]); setLoading(false);
+      setEnrollments([]); setClasses({}); setContent({}); setFees([]); setLoading(false);
       return;
     }
     setLoading(true);
@@ -75,6 +82,16 @@ export const StudentPortalProvider = ({ children }: { children: ReactNode }) => 
       const map: Record<string, ClassDoc> = {};
       loaded.forEach((cls) => { if (cls) map[cls.id] = cls; });
       setClasses(map);
+
+      // Private content (live link / recordings / materials) for the same
+      // classes, so every portal screen can show resources inline. Falls back
+      // to the legacy class-doc fields for classes not yet re-saved.
+      const contentList = await Promise.all(
+        classIds.map((id) => getClassContent(id, map[id] || null).catch(() => null)),
+      );
+      const contentMap: Record<string, ClassContent> = {};
+      contentList.forEach((item) => { if (item) contentMap[item.classId] = item; });
+      setContent(contentMap);
     } finally {
       setLoading(false);
     }
@@ -111,11 +128,12 @@ export const StudentPortalProvider = ({ children }: { children: ReactNode }) => 
     isStudent: enrollments.length > 0,
     enrollments,
     classes,
+    content,
     feesByEnrollment,
     access,
     hasLockedClass: Object.values(access).some((item) => item.locked),
     refresh: load,
-  }), [loading, enrollments, classes, feesByEnrollment, access, load]);
+  }), [loading, enrollments, classes, content, feesByEnrollment, access, load]);
 
   return <StudentPortalContext.Provider value={value}>{children}</StudentPortalContext.Provider>;
 };

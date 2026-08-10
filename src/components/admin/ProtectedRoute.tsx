@@ -1,6 +1,11 @@
 import { Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
-import { firstAllowedPath, managerCanAccessPath } from "@/lib/adminPages";
+import {
+  firstAllowedPath,
+  managerCanAccessPath,
+  TEACHER_LANDING_PATH,
+  teacherCanAccessPath,
+} from "@/lib/adminPages";
 
 const AccessDenied = ({ message }: { message: string }) => (
   <div className="min-h-screen flex items-center justify-center bg-background">
@@ -41,6 +46,16 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
     }
     if (!managerCanAccessPath(pages, location.pathname)) {
       return <Navigate to={landing} replace />;
+    }
+    return <>{children}</>;
+  }
+
+  // Teachers (req 1) get a fixed two-page console — Attendance + Academics —
+  // scoped to the classes assigned to them. Everything else is off limits, so
+  // a teacher can never reach fees, student records or finance.
+  if (userProfile && userProfile.role === "teacher") {
+    if (!teacherCanAccessPath(location.pathname)) {
+      return <Navigate to={TEACHER_LANDING_PATH} replace />;
     }
     return <>{children}</>;
   }
