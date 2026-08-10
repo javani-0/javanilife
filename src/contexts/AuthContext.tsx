@@ -31,9 +31,13 @@ export interface UserProfile {
   phone?: string;
   whatsappNumber?: string;
   callNumber?: string;
-  role: "admin" | "user" | "partner" | "manager";
+  role: "admin" | "user" | "partner" | "manager" | "teacher";
   // Manager-only: the admin pages this manager may open (see src/lib/adminPages.ts).
   managerPages?: string[];
+  // Teacher-only: the classes this teacher may mark attendance and set work
+  // for. A teacher sees Attendance + Academics and nothing else — no fees, no
+  // student records, no finance.
+  teacherClassIds?: string[];
   // Admin-created student logins are managed by the admin: the portal hides
   // self-editing (parents ask the admin for changes) so the Student Manager
   // record stays the source of truth.

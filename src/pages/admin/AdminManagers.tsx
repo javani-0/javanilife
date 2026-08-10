@@ -13,11 +13,16 @@ import {
   type ManagerCredential,
   type ManagerDoc,
 } from "@/lib/managers";
-import { Copy, Eye, EyeOff, KeyRound, Loader2, MessageCircle, Phone, Plus, ShieldCheck, Trash2, UserCog } from "lucide-react";
+import AdminTeachersPanel from "@/components/admin/AdminTeachersPanel";
+import { Copy, Eye, EyeOff, GraduationCap, KeyRound, Loader2, MessageCircle, Phone, Plus, ShieldCheck, Trash2, UserCog } from "lucide-react";
 
 const fieldClass = "h-10 w-full rounded-md border border-border bg-background px-3 font-body text-sm outline-none focus:border-gold focus:ring-2 focus:ring-gold/20";
 
 const AdminManagers = () => {
+  // Managers and TEACHERS are both staff logins created by the admin, but they
+  // are different things (req 1) — a manager gets admin pages, a teacher gets a
+  // fixed Attendance + Academics console scoped to their classes.
+  const [tab, setTab] = useState<"managers" | "teachers">("managers");
   const { user } = useAuth();
   const { toast } = useToast();
 
@@ -108,13 +113,34 @@ const AdminManagers = () => {
     <div className="space-y-6">
       <div>
         <p className="font-body text-sm font-semibold uppercase tracking-[0.2em] text-gold">Team</p>
-        <h1 className="mt-2 flex items-center gap-2 font-display text-3xl text-foreground"><UserCog className="h-7 w-7 text-gold" /> Managers</h1>
+        <h1 className="mt-2 flex items-center gap-2 font-display text-3xl text-foreground"><UserCog className="h-7 w-7 text-gold" /> Managers &amp; Teachers</h1>
         <p className="mt-1 font-body text-sm text-muted-foreground">
-          Create staff logins and switch each admin page on or off per manager. Managers sign in at{" "}
-          <a href={loginUrl} target="_blank" rel="noreferrer" className="font-semibold text-gold hover:underline">{loginUrl}</a>{" "}
-          and see only the pages you enable.
+          Create staff logins. Both sign in at{" "}
+          <a href={loginUrl} target="_blank" rel="noreferrer" className="font-semibold text-gold hover:underline">{loginUrl}</a>.
         </p>
       </div>
+
+      <div className="inline-flex flex-wrap rounded-lg border border-border bg-card p-1 shadow-card">
+        {([
+          ["managers", "Managers", UserCog],
+          ["teachers", "Teachers", GraduationCap],
+        ] as const).map(([key, label, Icon]) => (
+          <button
+            key={key}
+            onClick={() => setTab(key)}
+            className={`flex items-center gap-1.5 rounded-md px-4 py-2 font-body text-[0.82rem] font-semibold transition-colors ${tab === key ? "bg-gradient-primary text-primary-foreground" : "text-muted-foreground hover:text-gold"}`}
+          >
+            <Icon className="h-4 w-4" /> {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === "teachers" && <AdminTeachersPanel />}
+
+      {tab === "managers" && <>
+      <p className="font-body text-sm text-muted-foreground">
+        Switch each admin page on or off per manager — they see only what you enable.
+      </p>
 
       {/* Create manager */}
       <div className="rounded-xl border border-border/60 bg-card p-5 shadow-card">
@@ -214,6 +240,7 @@ const AdminManagers = () => {
           </div>
         )}
       </div>
+      </>}
     </div>
   );
 };

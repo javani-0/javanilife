@@ -27,6 +27,19 @@ export interface ManagerDoc {
   pages: string[];
 }
 
+/**
+ * A TEACHER login (req 1). Not a manager with extra page keys: a teacher has a
+ * fixed two-page console (Attendance + Academics) and is scoped to the classes
+ * assigned here, so there is nothing to toggle except the class list.
+ */
+export interface TeacherDoc {
+  uid: string;
+  name: string;
+  email: string;
+  whatsapp?: string;
+  classIds: string[];
+}
+
 export interface ManagerCredential {
   managerUid: string;
   email: string;
@@ -53,6 +66,37 @@ export const subscribeToManagers = (
   (error) => onError?.(error),
 );
 
+const normalizeTeacher = (id: string, data: DocumentData = {}): TeacherDoc => ({
+  uid: id,
+  name: typeof data.username === "string" ? data.username : "",
+  email: typeof data.email === "string" ? data.email : "",
+  whatsapp: typeof data.whatsappNumber === "string" ? data.whatsappNumber : "",
+  classIds: Array.isArray(data.teacherClassIds)
+    ? data.teacherClassIds.filter((id: unknown) => typeof id === "string")
+    : [],
+});
+
+/** Admin: live list of all teachers (users with role == "teacher"). */
+export const subscribeToTeachers = (
+  onChange: (teachers: TeacherDoc[]) => void,
+  onError?: (error: unknown) => void,
+) => onSnapshot(
+  query(collection(db, "users"), where("role", "==", "teacher")),
+  (snapshot) => onChange(snapshot.docs.map((docSnap) => normalizeTeacher(docSnap.id, docSnap.data()))),
+  (error) => onError?.(error),
+);
+
+/** Admin: change which classes a teacher may work with. */
+export const updateTeacherClasses = async (uid: string, classIds: string[]): Promise<void> => {
+  await updateDoc(doc(db, "users", uid), { teacherClassIds: classIds, updatedAt: serverTimestamp() });
+};
+
+/** Admin: remove teacher access — back to a normal user, credentials deleted. */
+export const revokeTeacher = async (uid: string): Promise<void> => {
+  await updateDoc(doc(db, "users", uid), { role: "user", teacherClassIds: deleteField(), updatedAt: serverTimestamp() });
+  try { await deleteDoc(doc(db, "managerCredentials", uid)); } catch { /* creds doc may not exist */ }
+};
+
 /** Admin: live map of stored manager credentials, keyed by uid. */
 export const subscribeToManagerCredentials = (
   onChange: (credentials: Record<string, ManagerCredential>) => void,
@@ -76,12 +120,23 @@ export const subscribeToManagerCredentials = (
   (error) => onError?.(error),
 );
 
-export interface CreateManagerLoginResult { ok: boolean; uid: string; created: boolean }
+export interface CreateManagerLoginResult { ok: boolean; uid: string; created: boolean; role?: string }
 
-/** Admin: create (or reset) a manager's sign-in via the server (Admin SDK). */
+/**
+ * Admin: create (or reset) a staff sign-in via the server (Admin SDK).
+ * `role: "teacher"` + `classIds` makes a teacher instead of a manager.
+ */
 export const createManagerLogin = async (
   idToken: string,
-  payload: { email: string; password: string; name: string; whatsapp?: string; pages: string[] },
+  payload: {
+    email: string;
+    password: string;
+    name: string;
+    whatsapp?: string;
+    pages?: string[];
+    role?: "manager" | "teacher";
+    classIds?: string[];
+  },
 ): Promise<CreateManagerLoginResult> => {
   const response = await fetch("/api/razorpay/create-manager-login", {
     method: "POST",
@@ -106,9 +161,21 @@ export const revokeManager = async (uid: string): Promise<void> => {
   try { await deleteDoc(doc(db, "managerCredentials", uid)); } catch { /* creds doc may not exist */ }
 };
 
-/** Build a wa.me link that shares the manager's login details on WhatsApp. */
-export const buildManagerLoginWhatsAppUrl = (credential: ManagerCredential, loginUrl: string): string => {
-  const lines = [
+/** Build a wa.me link that shares a staff login's details on WhatsApp. */
+export const buildManagerLoginWhatsAppUrl = (
+  credential: ManagerCredential,
+  loginUrl: string,
+  role: "manager" | "teacher" = "manager",
+): string => {
+  const lines = role === "teacher" ? [
+    "Hello! Here are your Javani teacher login details:",
+    "",
+    `Login: ${loginUrl}`,
+    `Email: ${credential.email}`,
+    `Password: ${credential.password}`,
+    "",
+    "Sign in to mark attendance and set assignments, exams and certificates for your classes. Please keep these details private.",
+  ] : [
     "Hello! Here are your Javani admin (manager) login details:",
     "",
     `Login: ${loginUrl}`,

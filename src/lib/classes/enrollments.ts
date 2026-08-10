@@ -213,6 +213,30 @@ export const updateEnrollment = async (id: string, patch: AdminEnrollmentPatch):
   await updateDoc(doc(db, ENROLLMENTS_COLLECTION, id), data);
 };
 
+/**
+ * Point an enrolment at a different class (req 6).
+ *
+ * Deleting a class leaves its enrolments orphaned: they keep a `classId`
+ * nothing answers to, so the student's class room can never show a live link,
+ * recordings or materials. This re-links one to a real class. The slot is
+ * cleared unless a new one is chosen, because slot ids are per-class and a
+ * stale one resolves to no schedule at all.
+ */
+export const relinkEnrollmentClass = async (
+  id: string,
+  target: { classId: string; className: string; slotId?: string; slotLabel?: string },
+): Promise<void> => {
+  await updateDoc(doc(db, ENROLLMENTS_COLLECTION, id), {
+    classId: target.classId,
+    className: target.className,
+    // Firestore rejects `undefined`, so write "" rather than omitting: the old
+    // slot MUST be cleared or the schedule stays unresolvable.
+    slotId: target.slotId || "",
+    slotLabel: target.slotLabel || "",
+    updatedAt: serverTimestamp(),
+  });
+};
+
 export const getEnrollment = async (id: string): Promise<EnrollmentDoc | null> => {
   const snapshot = await getDoc(doc(db, ENROLLMENTS_COLLECTION, id));
   return snapshot.exists() ? normalizeEnrollment(snapshot.id, snapshot.data()) : null;

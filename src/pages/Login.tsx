@@ -3,6 +3,7 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { signInWithEmailAndPassword } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
+import { TEACHER_LANDING_PATH } from "@/lib/adminPages";
 import { Eye, EyeOff, KeyRound, Mail } from "lucide-react";
 import AuthShell from "@/components/auth/AuthShell";
 import PrimaryButton from "@/components/PrimaryButton";
@@ -24,13 +25,15 @@ const Login = () => {
     try {
       const cred = await signInWithEmailAndPassword(auth, email, password);
       // Partners land on their read-only dashboard, managers on their first
-      // allowed admin page; everyone else honours the redirect param.
+      // allowed admin page, teachers straight on Attendance (their console has
+      // no dashboard); everyone else honours the redirect param.
       let destination = redirectPath.startsWith("/") ? redirectPath : "/";
       if (destination === "/") {
         try {
           const profile = await getDoc(doc(db, "users", cred.user.uid));
           const role = profile.exists() ? profile.data().role : "";
           if (role === "partner") destination = "/partner";
+          else if (role === "teacher") destination = TEACHER_LANDING_PATH;
           else if (role === "manager" || role === "admin") destination = "/admin";
         } catch { /* fall back to the default destination */ }
       }

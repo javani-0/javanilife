@@ -15,6 +15,7 @@ import StudentFeePanel from "@/components/admin/StudentFeePanel";
 import StudentFeeCollections from "@/components/admin/StudentFeeCollections";
 import StudentCourseEditor from "@/components/admin/StudentCourseEditor";
 import StudentFeeSummary from "@/components/admin/StudentFeeSummary";
+import BrokenEnrollmentsBanner from "@/components/admin/BrokenEnrollmentsBanner";
 import { formatPaiseAsRupees } from "@/lib/ecommerce";
 import {
   classOffersMonthly,
@@ -551,6 +552,11 @@ const AdminStudents = () => {
           <UserPlus className="h-4 w-4" /> Add Student
         </button>
       </div>
+
+      {/* Students attached to a class that has since been deleted can never
+          see its content — offer a re-link (req 6). Renders nothing when
+          there are none. */}
+      <BrokenEnrollmentsBanner />
 
       {/* Toggle: Student details · Fee collections · Enrolls (leads) (req) */}
       <div className="inline-flex flex-wrap rounded-lg border border-border bg-card p-1 shadow-card">

@@ -36,6 +36,38 @@ service cloud.firestore {
             && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('managerPages', []).hasAny(pages));
     }
 
+    // ── Teachers (req 1) ───────────────────────────────────────────────────
+    // A teacher has a fixed two-page console (Attendance + Academics) and is
+    // scoped to the classes assigned to them on users/{uid}.teacherClassIds.
+    // They get NO access to fees, students, finance or credentials — those
+    // collections only ever call staffAny(), never these helpers.
+    function isTeacher() {
+      return hasRole('teacher');
+    }
+
+    function teacherClassIds() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('teacherClassIds', []);
+    }
+
+    // Whether the signed-in teacher owns a class. An unassigned teacher owns
+    // nothing, so this fails closed.
+    function teachesClass(classId) {
+      return isTeacher() && teacherClassIds().hasAny([classId]);
+    }
+
+    // A teacher may write a doc only INTO one of their own classes, and (on an
+    // edit) only when the existing doc is already one of theirs — so a row
+    // cannot be dragged out of another teacher's class.
+    function teacherWritesOwnClass() {
+      return isTeacher()
+        && (!('classId' in request.resource.data) || teachesClass(request.resource.data.classId))
+        && (resource == null || teachesClass(resource.data.get('classId', '')));
+    }
+
+    function teacherDeletesOwnClass() {
+      return isTeacher() && resource != null && teachesClass(resource.data.get('classId', ''));
+    }
+
     function isSafeOwnUserProfileWrite(userId) {
       return isOwner(userId)
         && request.resource.data.uid == userId
@@ -171,22 +203,27 @@ service cloud.firestore {
     // re-marking a date edits rather than duplicates.
     match /attendance/{id} {
       allow read: if staffAny(['attendance', 'academics', 'students'])
+        || isTeacher()
         || (signedIn() && resource.data.studentUid == request.auth.uid);
-      allow write: if staffAny(['attendance']);
+      allow create, update: if staffAny(['attendance']) || teacherWritesOwnClass();
+      allow delete: if staffAny(['attendance']) || teacherDeletesOwnClass();
     }
 
     // Periodic progress reports (req P2) — grade, skill ratings, remarks.
     match /progressReports/{id} {
       allow read: if staffAny(['attendance', 'academics', 'students'])
+        || isTeacher()
         || (signedIn() && resource.data.studentUid == request.auth.uid);
-      allow write: if staffAny(['attendance', 'academics']);
+      allow create, update: if staffAny(['attendance', 'academics']) || teacherWritesOwnClass();
+      allow delete: if staffAny(['attendance', 'academics']) || teacherDeletesOwnClass();
     }
 
     // Assignments (req P3). Any signed-in user may read the brief (it is not
     // sensitive); the student page filters to their enrolled classes.
     match /assignments/{id} {
       allow read: if signedIn();
-      allow write: if staffAny(['academics']);
+      allow create, update: if staffAny(['academics']) || teacherWritesOwnClass();
+      allow delete: if staffAny(['academics']) || teacherDeletesOwnClass();
     }
 
     // Assignment submissions. A student may create/replace ONLY their own row
@@ -194,19 +231,22 @@ service cloud.firestore {
     // are staff-only, so nobody can grade themselves.
     match /assignmentSubmissions/{id} {
       allow read: if staffAny(['academics', 'attendance', 'students'])
+        || isTeacher()
         || (signedIn() && resource.data.studentUid == request.auth.uid);
       allow create: if staffAny(['academics'])
+        || teacherWritesOwnClass()
         || (signedIn()
             && request.resource.data.studentUid == request.auth.uid
             && request.resource.data.status == 'submitted'
             && !request.resource.data.keys().hasAny(['marks', 'feedback', 'reviewedBy', 'reviewedAt']));
       allow update: if staffAny(['academics'])
+        || teacherWritesOwnClass()
         || (signedIn()
             && resource.data.studentUid == request.auth.uid
             && request.resource.data.status == 'submitted'
             && request.resource.data.diff(resource.data).affectedKeys()
                  .hasOnly(['fileUrl', 'fileName', 'sizeBytes', 'submittedAt', 'status', 'updatedAt']));
-      allow delete: if staffAny(['academics']);
+      allow delete: if staffAny(['academics']) || teacherDeletesOwnClass();
     }
 
     // Exams (req P4). Signed-in read — the schedule is not sensitive and the
@@ -214,15 +254,18 @@ service cloud.firestore {
     // derived client-side from `hallTicketEnabled` + the fee lock.
     match /exams/{id} {
       allow read: if signedIn();
-      allow write: if staffAny(['academics']);
+      allow create, update: if staffAny(['academics']) || teacherWritesOwnClass();
+      allow delete: if staffAny(['academics']) || teacherDeletesOwnClass();
     }
 
     // Certificates (req P4). A student sees only their OWN, and only staff can
     // issue or revoke one.
     match /certificates/{id} {
       allow read: if staffAny(['academics', 'students'])
+        || isTeacher()
         || (signedIn() && resource.data.studentUid == request.auth.uid);
-      allow write: if staffAny(['academics']);
+      allow create, update: if staffAny(['academics']) || teacherWritesOwnClass();
+      allow delete: if staffAny(['academics']) || teacherDeletesOwnClass();
     }
 
     // Private class content (req): the live join URL, recorded classes and
@@ -254,7 +297,7 @@ service cloud.firestore {
     // actions. Staff write; only the admin reads; nothing is ever edited.
     match /adminLogs/{id} {
       allow read: if isAdmin();
-      allow create: if isAdmin() || isManager();
+      allow create: if isAdmin() || isManager() || isTeacher();
       allow update, delete: if false;
     }
 
@@ -346,6 +389,10 @@ service cloud.firestore {
     // an admin; a parent may only keep their own ownership on update.
     match /enrollments/{id} {
       allow read: if staffAny(['enrollments', 'fee-collections', 'classes', 'students'])
+        // A teacher needs the ROSTER to mark attendance — but only for their
+        // own classes, never the whole school. Queries are already filtered by
+        // classId, so every returned doc satisfies this.
+        || (isTeacher() && teachesClass(resource.data.get('classId', '')))
         || (signedIn() && resource.data.parentUserId == request.auth.uid);
       allow create: if signedIn()
         && request.resource.data.parentUserId == request.auth.uid;
