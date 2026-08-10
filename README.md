@@ -20,6 +20,8 @@ Website, shop and student portal for Javani Spiritual Hub.
 | **Student Manager** | Add one student to **several classes at once**. Every fee is itemised — kit, books, uniform — so nothing is hidden. Optional **GST** per student (18% by default, you can change it). |
 | **Student Manager → Fee Collections** | Shows exactly who owes money right now, across all their classes |
 | **Bill** button (on any fee) | Creates a proper bill you can print, save as PDF, or send by WhatsApp |
+| **Classes Manager → Academics** *(new)* | Open any class and get **everything for that class in one place** — attendance, assignments, exams, certificates and progress. No hunting for the class on another page. |
+| **Managers → Teachers** *(new)* | Create a **teacher login**. A teacher sees **only Attendance and Academics**, and only for the classes you assign them. They cannot see fees, student records or finance. |
 | **Attendance** | Pick a class and a date, tap Present / Absent, save |
 | **Academics → Assignments** | Set homework, read what students send in, give marks and feedback |
 | **Academics → Progress** | Write a progress report that parents can see |
@@ -30,11 +32,14 @@ Website, shop and student portal for Javani Spiritual Hub.
 
 A **Dashboard** showing their classes, what they owe, and this week's class times — plus **Attendance**, **Assignments**, **Exams** (with a printable hall ticket) and **Certificates** to view.
 
-### One important automatic behaviour
+- **My Classes** leads with the **course name**, its **timing** and the **trainer**, and shows that class's **live link, recordings and materials right on the card**.
+- **EMI Payments** shows **class fee installments** — how much is paid, what's left, and a Pay button on each pending one.
 
-If a fee is **more than 3 days late**, that class's videos and materials are **hidden automatically**, and come back the moment you record the payment.
+### Two automatic behaviours worth knowing
 
-Paying is never blocked, and a parent who has already sent a payment screenshot is **not** locked out while you check it.
+**The late-fee lock is currently OFF.** If you switch it on (Payment Settings), a class's videos and materials hide while that class's fee is overdue past the grace period, and come back the moment you record the payment. Paying is never blocked, and a parent who has already sent a payment screenshot is **not** locked out while you check it.
+
+**The Join Live Class button is always available** once you've added a live link to the class. Session times are shown as information, not as a gate.
 
 ## How to check it — about 15 minutes
 
@@ -50,10 +55,22 @@ Paying is never blocked, and a parent who has already sent a payment screenshot 
 
 ### B. Mark attendance *(2 min)*
 
-1. **Attendance** → pick a class and today's date
+Two ways in — use whichever suits you:
+
+- **Classes Manager** → the class → **Academics** → **Attendance** tab, or
+- **Attendance** in the sidebar → pick a class
+
+1. Pick today's date
 2. ✅ Your students appear, everyone already marked Present
 3. Tap **Absent** for one student, then **Save**
 4. Come back to the same date — ✅ it remembers, and shows *"Already marked — editing"*
+
+### B2. Create a teacher login *(3 min)* — new
+
+1. **Managers → Teachers** tab → fill in name, email and a password
+2. Tick the classes that teacher handles → **Create Teacher**
+3. **Share login** sends their details on WhatsApp
+4. Sign in as them in a **private / incognito** window — ✅ they see **only Attendance and Academics**, and only their classes. No fees, no student records, no finance.
 
 ### C. Write a progress report *(3 min)*
 
@@ -73,11 +90,20 @@ Paying is never blocked, and a parent who has already sent a payment screenshot 
 1. Copy a student's **User ID** and **Password** from their card in Student Manager
 2. Open a **private / incognito** window and sign in as them
 3. ✅ Their Dashboard shows their classes and what they owe
-4. If they owe money, ✅ a red *"Some class content is paused"* message appears — that is correct, it's the automatic lock
+4. **My Classes** — ✅ the **course name** is the heading, with the **timing** and **trainer** under it, and a **Class resources** strip showing the live link, recordings and materials
+5. **EMI Payments** — ✅ for a student on an installment plan, their **class fee installments** are listed with paid/remaining and a Pay button on each pending one
+
+### F. Fix a student who can't see their class *(2 min)*
+
+If a class was ever deleted, the students attached to it are stranded — they can't see a live link, recordings or materials because their class no longer exists.
+
+1. Open **Student Manager** (or **Classes Manager**)
+2. ✅ If any exist, an amber banner lists them: *"N enrolments point at a deleted class"*
+3. Pick the correct class (and batch) for each → **Re-link** — they have access immediately
 
 ## Two things that still need a real-world test
 
-1. **The "Join Live Class" button.** It only appears when a student is fully paid up **and** it is within 15 minutes of their class time. Please try it during an actual class with a paid-up student.
+1. **A live class join.** Please try the **Join Live Class** button during an actual class with a real student.
 2. **Sending something to a real family.** Uploading a real assignment or issuing a real certificate hasn't been done, because it would show up in a real parent's portal. The screens work — the first real one should be yours.
 
 If anything doesn't match what's written above, note **which step** and **what you saw**, and send that over.
@@ -121,16 +147,21 @@ npm run dev     # http://localhost:8080
 
 - **Vite + React 18 + TypeScript + Tailwind (shadcn/ui)**, Firebase (Firestore/Auth), Vercel serverless in `api/`.
 - `api/` is at Vercel's **12-function limit** — new server actions are routed through `api/razorpay.ts`, not added as new files.
-- Portal logic lives in `src/lib/portal/` (`schedule`, `access`, `attendance`, `assignments`, `exams`) and is pure + unit-tested.
+- Portal logic lives in `src/lib/portal/` (`schedule`, `access`, `attendance`, `assignments`, `exams`, `emi`) and is pure + unit-tested.
+- **Two unrelated EMI systems.** Class fee EMI is `feePayments/${enrollmentId}_emi-N` (see `src/lib/portal/emi.ts`); course order EMI is `orders/{id}.payment.installmentPlan`. `/account/emi` shows both. Reading only the second is what made the EMI tab look empty.
+- **Roles** are `admin | manager | partner | teacher | user` on `users/{uid}`. A **manager** gets page keys (`managerPages`, see `src/lib/adminPages.ts`); a **teacher** gets a fixed Attendance + Academics console scoped by `teacherClassIds`. Class pickers go through `useStaffClasses`, which fails closed.
+- **Academic panels are class-scoped components** (`AdminAttendancePanel`, `AdminAssignmentsPanel`, `AdminExamsPanel`, `AdminCertificatesPanel`, `AdminProgressPanel`) composed by `ClassAcademicsTabs`, mounted both in Classes Manager and on the standalone pages. Add new academic tools there once, not per page.
 - Design docs and implementation plans: `docs/superpowers/`.
 
 ## Deploying Firestore rules
 
-New collections are denied by default until the rules ship:
+New collections — and new **roles** — are denied by default until the rules ship:
 
 ```sh
 npx firebase deploy --only firestore:rules
 ```
+
+⚠️ **Pending deploy: the `teacher` role.** Teacher logins can be created and will sign in, but every write they attempt (attendance, assignments, exams, certificates) is denied until `firestore.rules` is deployed. Admins and managers are unaffected.
 
 ## Tech stack
 
