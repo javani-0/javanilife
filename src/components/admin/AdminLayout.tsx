@@ -3,7 +3,6 @@ import { NavLink, useLocation, useNavigate, Outlet } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { pageKeyForPath, TEACHER_PAGE_KEYS } from "@/lib/adminPages";
 import {
-  CalendarCheck,
   LayoutDashboard, ClipboardList, BookOpen, Image, ShoppingBag, Users, Users2,
   Handshake, SlidersHorizontal, LogOut, Menu, X, PackageCheck,
   ChevronLeft, ChevronRight, TicketPercent, Truck,
@@ -17,12 +16,14 @@ const allNavItems = [
   { label: "Courses Manager", icon: BookOpen, path: "/admin/courses" },
   { label: "Classes Manager", icon: GraduationCap, path: "/admin/classes" },
   { label: "Student Manager", icon: UserPlus, path: "/admin/students" },
-  { label: "Attendance", icon: CalendarCheck, path: "/admin/attendance" },
   { label: "Academics", icon: ClipboardList, path: "/admin/academics" },
   { label: "Users", icon: Users2, path: "/admin/users" },
-  // NOTE: "Sign Up & Customers" (/admin/enrollments) and "Fee Collections"
-  // (/admin/fee-collections) are temporarily HIDDEN from the nav (req) — the
-  // routes still work by direct URL. Restore them here to bring the tabs back.
+  // NOTE: "Attendance" (/admin/attendance) is HIDDEN from the nav (req) —
+  // attendance is a tab inside Academics, and two doors to one screen only
+  // confused staff. The route still works by direct URL.
+  // "Sign Up & Customers" (/admin/enrollments) and "Fee Collections"
+  // (/admin/fee-collections) are hidden the same way. Restore any of them by
+  // adding the item back here.
   { label: "Payment Settings", icon: QrCode, path: "/admin/payment-settings" },
   { label: "Gallery Manager", icon: Image, path: "/admin/gallery" },
   { label: "Products Manager", icon: ShoppingBag, path: "/admin/products" },

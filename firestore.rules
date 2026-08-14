@@ -198,15 +198,17 @@ service cloud.firestore {
       allow write: if staffAny(['students']);
     }
 
-    // Attendance (req P2). Staff with the `attendance` page mark it; a student
-    // reads only their OWN rows. Doc ids are `${enrollmentId}_${date}`, so
-    // re-marking a date edits rather than duplicates.
+    // Attendance (req P2). Staff with the `attendance` OR `academics` page mark
+    // it — the standalone Attendance page left the nav, so marking now happens
+    // on the Academics tab and an academics-only manager must be able to write.
+    // A student reads only their OWN rows. Doc ids are `${enrollmentId}_${date}`,
+    // so re-marking a date edits rather than duplicates.
     match /attendance/{id} {
       allow read: if staffAny(['attendance', 'academics', 'students'])
         || isTeacher()
         || (signedIn() && resource.data.studentUid == request.auth.uid);
-      allow create, update: if staffAny(['attendance']) || teacherWritesOwnClass();
-      allow delete: if staffAny(['attendance']) || teacherDeletesOwnClass();
+      allow create, update: if staffAny(['attendance', 'academics']) || teacherWritesOwnClass();
+      allow delete: if staffAny(['attendance', 'academics']) || teacherDeletesOwnClass();
     }
 
     // Periodic progress reports (req P2) — grade, skill ratings, remarks.

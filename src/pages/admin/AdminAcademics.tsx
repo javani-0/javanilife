@@ -39,8 +39,10 @@ const AdminAcademics = () => {
         awaitingAssignment={awaitingAssignment}
       />
 
+      {/* Opens on Attendance: the standalone Attendance page was removed from
+          the nav (req), so this tab is now the way in to marking a roster. */}
       {!awaitingAssignment && (
-        <ClassAcademicsTabs selectedClass={selectedClass} initialTab="assignments" />
+        <ClassAcademicsTabs selectedClass={selectedClass} initialTab="attendance" />
       )}
     </div>
   );

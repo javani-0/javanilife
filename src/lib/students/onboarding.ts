@@ -1,9 +1,13 @@
 import { doc, onSnapshot, type DocumentData } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { formatPaiseAsRupees } from "@/lib/ecommerce";
 import { ONBOARDING_LINKS_COLLECTION } from "./students";
 import type { CourseBreakdown } from "./feeBreakdown";
-import type { EmiSplitConfig, FeeBreakdownRow, OnboardingLinkDoc, OnboardingStatus, StudentCredential, StudentDoc } from "./types";
+import type { EmiSplitConfig, FeeBreakdownRow, OnboardingLinkDoc, OnboardingStatus, StudentCredential } from "./types";
+
+// The payment-link message (with its per-class split-up) lives in the PURE
+// paymentMessage module so its exact wording is unit-testable — re-exported
+// here so existing importers keep working.
+export { buildPaymentLinkWhatsAppUrl, buildPaymentSplitLines } from "./paymentMessage";
 
 // ---------------------------------------------------------------------------
 // The public onboarding payment link (req 2). Parents open /pay/:token from
@@ -208,55 +212,6 @@ const waUrl = (phone: string | undefined, lines: string[]): string => {
   const text = encodeURIComponent(lines.join("\n"));
   const number = (phone || "").replace(/\D/g, "");
   return number ? `https://wa.me/${number}?text=${text}` : `https://wa.me/?text=${text}`;
-};
-
-/**
- * The professional payment-link message for the parent (req 2).
- *
- * On an EMI onboarding the message asks for the FIRST INSTALLMENT only (req) —
- * `dueNowInPaise` is the amount to pay today and `emi` carries the full course
- * total plus the remaining schedule so the parent still sees the whole picture.
- */
-export const buildPaymentLinkWhatsAppUrl = (
-  student: Pick<StudentDoc, "name" | "parentName" | "className" | "slotLabel" | "trainerName" | "phone">,
-  dueNowInPaise: number,
-  payUrl: string,
-  emi?: { totalInPaise: number; installments: FeeBreakdownRow[] },
-): string => {
-  const askLines = emi
-    ? [
-        `The course fee is *${formatPaiseAsRupees(emi.totalInPaise)}*, payable in *${emi.installments.length} installments*.`,
-        "",
-        `To confirm the admission, please pay the *1st installment of ${formatPaiseAsRupees(dueNowInPaise)}* now using the secure link below:`,
-        payUrl,
-        "",
-        "Payment schedule:",
-        ...emi.installments.map((row, index) => `${index + 1}. ${row.label} — ${formatPaiseAsRupees(row.amountInPaise)}`),
-        "",
-        "Once you've paid, tap *\"I've paid the 1st installment\"* on the link (you may attach the payment screenshot — it's optional). We'll verify it and your student-portal login will appear on the same link.",
-        "",
-        `The remaining ${emi.installments.length - 1} installment${emi.installments.length === 2 ? "" : "s"} are NOT due today. After you log in they appear under *My Classes → EMI installments*, and you can pay them any time from there.`,
-      ]
-    : [
-        `To confirm the admission, please complete the fee payment of *${formatPaiseAsRupees(dueNowInPaise)}* using the secure link below:`,
-        payUrl,
-        "",
-        "The link shows the full fee breakdown and the payment options available to you. Once we verify the payment, your login details for the student portal will appear on the same link.",
-      ];
-
-  return waUrl(student.phone, [
-    `Dear ${student.parentName || "Parent"},`,
-    "",
-    `Greetings from Javani Spiritual Hub! 🙏`,
-    "",
-    `We're delighted to welcome *${student.name}* to *${student.className}*${student.slotLabel ? ` (${student.slotLabel})` : ""}.`,
-    ...(student.trainerName ? [`Trainer: *${student.trainerName}*`] : []),
-    "",
-    ...askLines,
-    "",
-    "If you have any questions, simply reply to this message. Thank you!",
-    "— Javani Spiritual Hub",
-  ]);
 };
 
 /** Login credentials message (req 2: admin can re-share anytime). */

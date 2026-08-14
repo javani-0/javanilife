@@ -15,8 +15,12 @@ import {
 } from "@/lib/portal/attendance";
 
 // ---------------------------------------------------------------------------
-// Attendance & progress for the student (req P2): live stats computed from
-// real records, plus the staff-written progress reports.
+// My Progress (req: "Progress is not visible in the student login").
+//
+// The reports always existed — they were the LAST card on a page called
+// "Attendance", which parents never opened. Progress is now its own menu entry
+// and its own page, and it leads with the teacher's report; the attendance
+// record that backs the report up follows underneath.
 // ---------------------------------------------------------------------------
 
 const DOT: Record<AttendanceStatus, string> = {
@@ -32,7 +36,7 @@ const monthLabel = (monthKey: string): string => {
   return new Date(year, month - 1, 1).toLocaleDateString("en-IN", { month: "long", year: "numeric" });
 };
 
-const Attendance = () => {
+const Progress = () => {
   const { user } = useAuth();
   const { enrollments } = useStudentPortal();
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
@@ -72,10 +76,14 @@ const Attendance = () => {
     () => (classFilter === "all" ? reports : reports.filter((r) => r.enrollmentId === classFilter)),
     [reports, classFilter],
   );
+  const latestGrade = useMemo(
+    () => visibleReports.find((report) => report.grade)?.grade || "",
+    [visibleReports],
+  );
 
   if (loading) {
     return (
-      <AccountLayout title="Attendance & Progress" description="Your attendance record and progress reports.">
+      <AccountLayout title="My Progress" description="Your progress reports, grades and attendance.">
         <div className="flex items-center justify-center rounded-2xl border border-border/60 bg-card p-10">
           <Loader2 className="h-6 w-6 animate-spin text-gold" />
         </div>
@@ -84,7 +92,7 @@ const Attendance = () => {
   }
 
   return (
-    <AccountLayout title="Attendance & Progress" description="Your attendance record and progress reports.">
+    <AccountLayout title="My Progress" description="Your progress reports, grades and attendance.">
       <div className="space-y-4">
         {enrollments.length > 1 && (
           <div className="flex flex-wrap gap-2">
@@ -113,23 +121,68 @@ const Attendance = () => {
             <p className={`mt-1 font-display text-2xl ${summary.percent >= 75 ? "text-green-700" : summary.percent >= 50 ? "text-amber-700" : "text-red-700"}`}>
               {summary.percent}%
             </p>
+            <p className="flex items-center gap-1 font-body text-[0.7rem] text-muted-foreground"><Flame className="h-3 w-3 text-gold" /> {summary.streak} in a row</p>
           </div>
           <div className="rounded-xl border border-border/60 bg-card p-4 shadow-card">
             <p className="font-body text-xs text-muted-foreground">Classes attended</p>
             <p className="mt-1 font-display text-2xl text-foreground">{summary.present + summary.late}<span className="font-body text-sm text-muted-foreground"> / {summary.total}</span></p>
           </div>
           <div className="rounded-xl border border-border/60 bg-card p-4 shadow-card">
-            <p className="flex items-center gap-1.5 font-body text-xs text-muted-foreground"><Flame className="h-3.5 w-3.5 text-gold" /> Current streak</p>
-            <p className="mt-1 font-display text-2xl text-foreground">{summary.streak}</p>
-          </div>
-          <div className="rounded-xl border border-border/60 bg-card p-4 shadow-card">
             <p className="font-body text-xs text-muted-foreground">Missed</p>
             <p className="mt-1 font-display text-2xl text-foreground">{summary.absent}</p>
             {summary.excused > 0 && <p className="font-body text-[0.7rem] text-muted-foreground">{summary.excused} excused</p>}
           </div>
+          <div className="rounded-xl border border-border/60 bg-card p-4 shadow-card">
+            <p className="font-body text-xs text-muted-foreground">Latest grade</p>
+            <p className="mt-1 font-display text-2xl text-gold">{latestGrade || "—"}</p>
+            <p className="font-body text-[0.7rem] text-muted-foreground">{visibleReports.length} report{visibleReports.length === 1 ? "" : "s"}</p>
+          </div>
         </div>
 
-        {/* Month-by-month record */}
+        {/* Progress reports — the reason this page exists, so it leads. */}
+        <div className="rounded-2xl border border-gold/25 bg-card p-5 shadow-card sm:p-6">
+          <h3 className="flex items-center gap-2 font-display text-lg text-foreground">
+            <Award className="h-5 w-5 text-gold" /> Progress reports
+          </h3>
+          {visibleReports.length === 0 ? (
+            <p className="mt-2 font-body text-sm text-muted-foreground">
+              No progress reports have been published yet. Your teacher publishes these periodically — grades, skill ratings and remarks appear here as soon as they do.
+            </p>
+          ) : (
+            <div className="mt-3 space-y-3">
+              {visibleReports.map((report) => (
+                <div key={report.id} className="rounded-lg border border-border/60 bg-background/70 p-3">
+                  <div className="flex flex-wrap items-baseline justify-between gap-2">
+                    <p className="font-body text-sm font-semibold text-foreground">{report.periodLabel}</p>
+                    <p className="font-body text-xs text-muted-foreground">{report.className}</p>
+                  </div>
+                  {report.grade && (
+                    <span className="mt-1 inline-block rounded-full bg-gold/15 px-2.5 py-0.5 font-body text-[0.7rem] font-bold text-gold">
+                      Grade {report.grade}
+                    </span>
+                  )}
+                  {report.skills.length > 0 && (
+                    <div className="mt-2 space-y-1">
+                      {report.skills.map((skill) => (
+                        <div key={skill.name} className="flex items-center justify-between gap-3">
+                          <span className="min-w-0 font-body text-xs text-muted-foreground">{skill.name}</span>
+                          <span className="flex shrink-0 gap-0.5">
+                            {[1, 2, 3, 4, 5].map((step) => (
+                              <span key={step} className={`h-2 w-4 rounded-sm ${step <= skill.rating ? "bg-gold" : "bg-muted"}`} />
+                            ))}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {report.remarks && <p className="mt-2 font-body text-xs text-foreground">{report.remarks}</p>}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Month-by-month attendance — the evidence behind the percentage. */}
         <div className="rounded-2xl border border-border/60 bg-card p-5 shadow-card sm:p-6">
           <h3 className="flex items-center gap-2 font-display text-lg text-foreground">
             <CalendarCheck className="h-5 w-5 text-gold" /> Attendance record
@@ -165,50 +218,9 @@ const Attendance = () => {
             </div>
           )}
         </div>
-
-        {/* Progress reports */}
-        <div className="rounded-2xl border border-border/60 bg-card p-5 shadow-card sm:p-6">
-          <h3 className="flex items-center gap-2 font-display text-lg text-foreground">
-            <Award className="h-5 w-5 text-gold" /> Progress reports
-          </h3>
-          {visibleReports.length === 0 ? (
-            <p className="mt-2 font-body text-sm text-muted-foreground">No progress reports have been published yet.</p>
-          ) : (
-            <div className="mt-3 space-y-3">
-              {visibleReports.map((report) => (
-                <div key={report.id} className="rounded-lg border border-border/60 bg-background/70 p-3">
-                  <div className="flex flex-wrap items-baseline justify-between gap-2">
-                    <p className="font-body text-sm font-semibold text-foreground">{report.periodLabel}</p>
-                    <p className="font-body text-xs text-muted-foreground">{report.className}</p>
-                  </div>
-                  {report.grade && (
-                    <span className="mt-1 inline-block rounded-full bg-gold/15 px-2.5 py-0.5 font-body text-[0.7rem] font-bold text-gold">
-                      Grade {report.grade}
-                    </span>
-                  )}
-                  {report.skills.length > 0 && (
-                    <div className="mt-2 space-y-1">
-                      {report.skills.map((skill) => (
-                        <div key={skill.name} className="flex items-center justify-between gap-3">
-                          <span className="min-w-0 font-body text-xs text-muted-foreground">{skill.name}</span>
-                          <span className="flex shrink-0 gap-0.5">
-                            {[1, 2, 3, 4, 5].map((step) => (
-                              <span key={step} className={`h-2 w-4 rounded-sm ${step <= skill.rating ? "bg-gold" : "bg-muted"}`} />
-                            ))}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  {report.remarks && <p className="mt-2 font-body text-xs text-foreground">{report.remarks}</p>}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
       </div>
     </AccountLayout>
   );
 };
 
-export default Attendance;
+export default Progress;

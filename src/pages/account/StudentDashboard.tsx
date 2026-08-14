@@ -1,7 +1,7 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import {
-  AlertTriangle, CalendarClock, GraduationCap, Loader2, Lock, PlayCircle, Radio, Wallet,
+  AlertTriangle, Award, CalendarClock, ChevronRight, GraduationCap, Loader2, Lock, PlayCircle, Radio, TrendingUp, Wallet,
 } from "lucide-react";
 import AccountLayout from "@/components/account/AccountLayout";
 import { useAuth } from "@/contexts/AuthContext";
@@ -9,6 +9,13 @@ import { useStudentPortal } from "@/contexts/StudentPortalContext";
 import { formatPaiseAsRupees } from "@/lib/ecommerce";
 import { summarizeStudentFees } from "@/lib/students";
 import { joinStatusFor, nextSessionsFor, type SessionOccurrence } from "@/lib/portal/schedule";
+import {
+  listMyAttendance,
+  listMyProgressReports,
+  summarizeAttendance,
+  type AttendanceRecord,
+  type ProgressReport,
+} from "@/lib/portal/attendance";
 
 // ---------------------------------------------------------------------------
 // Personalized student dashboard (req P1): the whole learning journey in one
@@ -36,6 +43,28 @@ const StudentDashboard = () => {
 
   const allFees = useMemo(() => Object.values(feesByEnrollment).flat(), [feesByEnrollment]);
   const summary = useMemo(() => summarizeStudentFees(allFees), [allFees]);
+
+  // Progress (req): the reports used to sit at the bottom of a page nobody
+  // opened, so the dashboard now carries the headline itself.
+  const [attendance, setAttendance] = useState<AttendanceRecord[]>([]);
+  const [reports, setReports] = useState<ProgressReport[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    if (!user) return;
+    (async () => {
+      const [marks, published] = await Promise.all([
+        listMyAttendance(user.uid).catch(() => []),
+        listMyProgressReports(user.uid).catch(() => []),
+      ]);
+      if (cancelled) return;
+      setAttendance(marks);
+      setReports(published);
+    })();
+    return () => { cancelled = true; };
+  }, [user]);
+
+  const attendanceSummary = useMemo(() => summarizeAttendance(attendance), [attendance]);
+  const latestReport = reports[0];
 
   // This week's sessions across EVERY class, soonest first.
   const week = useMemo(() => {
@@ -132,6 +161,46 @@ const StudentDashboard = () => {
             {week[0] && <p className="font-body text-[0.7rem] text-muted-foreground">{week[0].timeLabel}</p>}
           </div>
         </div>
+
+        {/* Progress — its own category on the dashboard (req). Always shown, so
+            a parent can see there is a progress section even before the first
+            report is published. */}
+        <Link
+          to="/account/progress"
+          className="flex flex-col gap-3 rounded-2xl border border-gold/25 bg-card p-5 shadow-card transition-colors hover:border-gold/60 sm:flex-row sm:items-center sm:justify-between sm:p-6"
+        >
+          <div className="min-w-0">
+            <h3 className="flex items-center gap-2 font-display text-lg text-foreground">
+              <TrendingUp className="h-5 w-5 text-gold" /> Progress
+            </h3>
+            {latestReport ? (
+              <p className="mt-1 font-body text-sm text-muted-foreground">
+                Latest report: <span className="font-semibold text-foreground">{latestReport.periodLabel}</span>
+                {latestReport.className ? ` · ${latestReport.className}` : ""}
+                {latestReport.grade ? ` · Grade ${latestReport.grade}` : ""}
+              </p>
+            ) : (
+              <p className="mt-1 font-body text-sm text-muted-foreground">
+                Progress reports appear here as soon as your teacher publishes one.
+              </p>
+            )}
+          </div>
+          <div className="flex shrink-0 items-center gap-4">
+            <div className="text-center">
+              <p className="font-body text-[0.7rem] uppercase tracking-wide text-muted-foreground">Attendance</p>
+              <p className={`font-display text-2xl ${attendanceSummary.total === 0 ? "text-muted-foreground" : attendanceSummary.percent >= 75 ? "text-green-700" : attendanceSummary.percent >= 50 ? "text-amber-700" : "text-red-700"}`}>
+                {attendanceSummary.total === 0 ? "—" : `${attendanceSummary.percent}%`}
+              </p>
+            </div>
+            <div className="text-center">
+              <p className="font-body text-[0.7rem] uppercase tracking-wide text-muted-foreground">Reports</p>
+              <p className="flex items-center justify-center gap-1 font-display text-2xl text-foreground">
+                <Award className="h-4 w-4 text-gold" />{reports.length}
+              </p>
+            </div>
+            <ChevronRight className="h-5 w-5 text-gold" />
+          </div>
+        </Link>
 
         {/* This week's schedule with a gated Join. */}
         <div className="rounded-2xl border border-border/60 bg-card p-5 shadow-card sm:p-6">

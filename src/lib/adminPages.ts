@@ -60,8 +60,12 @@ export const TEACHER_PAGES: ManagerPage[] = MANAGER_PAGES.filter(
   (page) => (TEACHER_PAGE_KEYS as readonly string[]).includes(page.key),
 );
 
-/** Where a teacher lands after signing in. */
-export const TEACHER_LANDING_PATH = "/admin/attendance";
+/**
+ * Where a teacher lands after signing in. Academics, not the standalone
+ * Attendance page: attendance is the first TAB inside Academics, and the
+ * standalone page was removed from the nav for being a duplicate door.
+ */
+export const TEACHER_LANDING_PATH = "/admin/academics";
 
 /** Can a teacher open this /admin path? */
 export const teacherCanAccessPath = (pathname: string): boolean => {

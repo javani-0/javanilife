@@ -57,6 +57,11 @@ const OnboardingPay = () => {
   // everywhere else "due now" is simply the whole onboarding total.
   const dueNow = link?.dueNowInPaise ?? total;
   const isEmi = Boolean(link?.methods.emi && dueNow > 0 && dueNow < total);
+  // A MULTI-class link is never flagged `methods.emi` (EMI is a single-class
+  // rail), yet each class can still be on installments — so the amount due
+  // today is less than the total. Without this the page shouted the full total
+  // while the buttons charged a fraction of it, with nothing to explain the gap.
+  const partialNow = dueNow > 0 && dueNow < total;
   // Multi-class links carry one breakdown section per class. Links written
   // before multi-class have no `sections` — those fall back to the flat rows.
   const sections = link?.sections || [];
@@ -225,7 +230,7 @@ const OnboardingPay = () => {
         <p className="mt-1 font-body text-sm text-muted-foreground">
           {link.studentName}
           {multiClass
-            ? ` — ${sections.length} classes`
+            ? ` — ${sections.length} classes: ${sections.map((section) => section.className).filter(Boolean).join(", ")}`
             : ` — ${link.className}${link.slotLabel ? ` · ${link.slotLabel}` : ""}`}
         </p>
         {link.trainerName && (
@@ -235,19 +240,25 @@ const OnboardingPay = () => {
           <p className="mt-3 rounded-md border border-amber-300 bg-amber-50 p-3 font-body text-[0.8rem] text-amber-800">{link.rejectReason}</p>
         )}
 
-        {/* Fee breakdown — one section PER CLASS (req: transparent pricing),
-            falling back to the flat rows for links written before multi-class. */}
+        {/* Fee breakdown — one section PER CLASS (req: payment split-up), falling
+            back to the flat rows for links written before multi-class. EVERY
+            section carries its class name and its own total, single class
+            included: a parent must never see a bare list of charges and have to
+            ask which class they belong to. */}
         <div className="mt-4 rounded-xl border border-border/60 bg-background/60 p-4">
           {sections.length > 0 ? (
             <div className="space-y-3">
-              {sections.map((section) => (
+              <p className="font-body text-[0.7rem] font-semibold uppercase tracking-wide text-gold">
+                {multiClass ? `Fee split-up · ${sections.length} classes` : "Fee split-up"}
+              </p>
+              {sections.map((section, index) => (
                 <div key={section.key} className={multiClass ? "rounded-lg border border-border/60 bg-card/60 p-3" : ""}>
-                  {multiClass && (
-                    <div className="mb-1.5 flex flex-wrap items-baseline justify-between gap-x-2">
-                      <p className="min-w-0 font-body text-sm font-semibold text-foreground">{section.className}</p>
-                      {section.slotLabel && <p className="font-body text-xs text-muted-foreground">{section.slotLabel}</p>}
-                    </div>
-                  )}
+                  <div className="mb-1.5 flex flex-wrap items-baseline justify-between gap-x-2">
+                    <p className="min-w-0 font-body text-sm font-semibold text-foreground">
+                      {multiClass ? `${index + 1}. ` : ""}{section.className}
+                    </p>
+                    {section.slotLabel && <p className="font-body text-xs text-muted-foreground">{section.slotLabel}</p>}
+                  </div>
                   <div className="space-y-1">
                     {section.rows.map((row, i) => (
                       <div key={i} className="flex justify-between gap-2 font-body text-sm">
@@ -256,10 +267,14 @@ const OnboardingPay = () => {
                       </div>
                     ))}
                   </div>
-                  {multiClass && (
-                    <div className="mt-1.5 flex justify-between gap-2 border-t border-border/60 pt-1.5 font-body text-sm font-semibold text-foreground">
-                      <span className="min-w-0">Subtotal</span>
-                      <span className="shrink-0">{formatPaiseAsRupees(section.totalInPaise)}</span>
+                  <div className="mt-1.5 flex justify-between gap-2 border-t border-border/60 pt-1.5 font-body text-sm font-semibold text-foreground">
+                    <span className="min-w-0">Class total</span>
+                    <span className="shrink-0">{formatPaiseAsRupees(section.totalInPaise)}</span>
+                  </div>
+                  {section.dueNowInPaise > 0 && section.dueNowInPaise !== section.totalInPaise && (
+                    <div className="mt-1 flex justify-between gap-2 font-body text-xs text-muted-foreground">
+                      <span className="min-w-0">Payable now for this class</span>
+                      <span className="shrink-0 font-semibold text-primary">{formatPaiseAsRupees(section.dueNowInPaise)}</span>
                     </div>
                   )}
                   {section.recurring && (
@@ -280,9 +295,9 @@ const OnboardingPay = () => {
               ))}
             </div>
           )}
-          <div className={`mt-2 flex justify-between gap-2 border-t border-border/60 pt-2 font-display ${isEmi ? "text-base font-semibold text-muted-foreground" : "text-lg font-bold text-foreground"}`}>
+          <div className={`mt-2 flex justify-between gap-2 border-t border-border/60 pt-2 font-display ${partialNow ? "text-base font-semibold text-muted-foreground" : "text-lg font-bold text-foreground"}`}>
             <span className="min-w-0">{isEmi ? "Course fee (total)" : multiClass ? `Total for ${sections.length} classes` : "Total"}</span>
-            <span className={isEmi ? "shrink-0 text-foreground" : "shrink-0 text-primary"}>{formatPaiseAsRupees(total)}</span>
+            <span className={partialNow ? "shrink-0 text-foreground" : "shrink-0 text-primary"}>{formatPaiseAsRupees(total)}</span>
           </div>
           {link.freeMonthNote && <p className="mt-2 font-body text-[0.72rem] text-green-700">🎁 {link.freeMonthNote}</p>}
           {isEmi && link.emiInstallments && link.emiInstallments.length > 0 && (
@@ -303,12 +318,15 @@ const OnboardingPay = () => {
           )}
         </div>
 
-        {/* On EMI the headline amount is the 1st installment, NOT the total —
-            the Total row above is demoted so this can't be misread (req). */}
-        {isEmi && (
+        {/* When only part of the total is due today the headline amount is that
+            part, NOT the total — the Total row above is demoted so this can't
+            be misread (req). */}
+        {partialNow && (
           <div className="mt-3 flex items-center justify-between gap-3 rounded-xl border border-gold/40 bg-gold/5 px-4 py-3">
             <div className="min-w-0">
-              <p className="font-body text-[0.7rem] font-semibold uppercase tracking-wide text-gold">Pay now · 1st installment</p>
+              <p className="font-body text-[0.7rem] font-semibold uppercase tracking-wide text-gold">
+                {isEmi ? "Pay now · 1st installment" : multiClass ? `Pay now · 1st installment of ${sections.length} classes` : "Pay now · 1st installment"}
+              </p>
               <p className="font-body text-[0.7rem] text-muted-foreground">of {formatPaiseAsRupees(total)} total</p>
             </div>
             <span className="shrink-0 font-display text-2xl font-bold text-primary">{formatPaiseAsRupees(dueNow)}</span>

@@ -6,13 +6,18 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { confirmDialog } from "@/components/ConfirmDialogHost";
 import { formatPaiseAsRupees } from "@/lib/ecommerce";
+import IncomeSalesDialog from "@/components/admin/IncomeSalesDialog";
 import {
   EXPENSE_CATEGORIES,
   INCOME_CATEGORIES,
+  SALE_CATEGORIES,
+  SALE_CATEGORY_LABELS,
   addExpense,
   addManualIncome,
   buildFinanceSummary,
+  buildSaleLines,
   computePartnerCategoryShareInPaise,
+  dateKeyOf,
   deleteExpense,
   deleteManualIncome,
   hasAnyShare,
@@ -20,14 +25,16 @@ import {
   subscribeToExpenses,
   subscribeToFinancePartners,
   subscribeToManualIncome,
+  summarizeSalesByCategory,
   sumExpensesInPaise,
   sumClassIncomeInPaise,
   sumManualIncomeInPaise,
   type ExpenseDoc,
   type FinancePartner,
   type IncomeDoc,
+  type SaleCategory,
 } from "@/lib/finance";
-import { ChevronDown, IndianRupee, Loader2, Plus, Trash2, TrendingUp, TrendingDown, Wallet, Handshake, ShieldCheck } from "lucide-react";
+import { ChevronDown, IndianRupee, Loader2, Plus, Receipt, Trash2, TrendingUp, TrendingDown, Wallet, Handshake, ShieldCheck } from "lucide-react";
 
 const Tile = ({ label, value, sub, accent, icon: Icon }: { label: string; value: string; sub?: string; accent: string; icon: typeof IndianRupee }) => (
   <div className="rounded-xl border border-border/60 bg-card p-4 shadow-card">
@@ -40,25 +47,11 @@ const Tile = ({ label, value, sub, accent, icon: Icon }: { label: string; value:
   </div>
 );
 
-// "YYYY-MM-DD" from a Firestore Timestamp, {seconds}, Date, or ISO/date string.
-// Empty string when there's no usable date.
-const dateKeyOf = (value: unknown): string => {
-  if (!value) return "";
-  if (typeof value === "string") {
-    const match = /^(\d{4}-\d{2}-\d{2})/.exec(value);
-    if (match) return match[1];
-    const parsed = new Date(value);
-    return Number.isFinite(parsed.getTime()) ? parsed.toISOString().slice(0, 10) : "";
-  }
-  if (value instanceof Date) return Number.isFinite(value.getTime()) ? value.toISOString().slice(0, 10) : "";
-  const record = value as { toDate?: () => Date; seconds?: number };
-  if (typeof record.toDate === "function") {
-    const date = record.toDate();
-    return date instanceof Date && Number.isFinite(date.getTime()) ? date.toISOString().slice(0, 10) : "";
-  }
-  if (typeof record.seconds === "number") return new Date(record.seconds * 1000).toISOString().slice(0, 10);
-  return "";
-};
+// `dateKeyOf` now lives in the sales ledger (src/lib/finance/salesLedger.ts) so
+// the period filter and the per-sale drill-down date a record identically.
+// "Today" must be the admin's local today for the same reason — before dawn IST
+// a UTC date would file this morning's collection under yesterday.
+const todayKey = (): string => dateKeyOf(new Date());
 
 type FinancePeriod = "all" | "month" | "today" | "day";
 
@@ -77,7 +70,7 @@ const AdminFinance = () => {
   const [title, setTitle] = useState("");
   const [category, setCategory] = useState<string>(EXPENSE_CATEGORIES[0]);
   const [amount, setAmount] = useState("");
-  const [spentOn, setSpentOn] = useState(() => new Date().toISOString().slice(0, 10));
+  const [spentOn, setSpentOn] = useState(todayKey);
   const [note, setNote] = useState("");
   const [savingExpense, setSavingExpense] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -86,7 +79,8 @@ const AdminFinance = () => {
   const [incomeTitle, setIncomeTitle] = useState("");
   const [incomeCategory, setIncomeCategory] = useState<string>(INCOME_CATEGORIES[0]);
   const [incomeAmount, setIncomeAmount] = useState("");
-  const [receivedOn, setReceivedOn] = useState(() => new Date().toISOString().slice(0, 10));
+  const [receivedOn, setReceivedOn] = useState(todayKey);
+  const [incomeMode, setIncomeMode] = useState<"online" | "offline">("offline");
   const [incomeNote, setIncomeNote] = useState("");
   const [savingIncome, setSavingIncome] = useState(false);
   const [busyIncomeId, setBusyIncomeId] = useState<string | null>(null);
@@ -102,7 +96,7 @@ const AdminFinance = () => {
 
   // Period filter (default: this month). "day" uses the calendar-picked date.
   const [period, setPeriod] = useState<FinancePeriod>("month");
-  const [customDay, setCustomDay] = useState(() => new Date().toISOString().slice(0, 10));
+  const [customDay, setCustomDay] = useState(todayKey);
 
   // Collapsible sections (req: easy toggles, mobile friendly). Both start
   // collapsed so the page opens compact; tap a header to expand.
@@ -110,13 +104,13 @@ const AdminFinance = () => {
   const [expensesOpen, setExpensesOpen] = useState(false);
 
   const inPeriod = useMemo(() => {
-    const todayKey = new Date().toISOString().slice(0, 10);
-    const monthKey = todayKey.slice(0, 7);
+    const today = todayKey();
+    const monthKey = today.slice(0, 7);
     return (dateKey: string): boolean => {
       if (period === "all") return true;
       if (!dateKey) return false; // undated records only count in "All time"
       if (period === "month") return dateKey.startsWith(monthKey);
-      if (period === "today") return dateKey === todayKey;
+      if (period === "today") return dateKey === today;
       return dateKey === customDay;
     };
   }, [period, customDay]);
@@ -143,7 +137,31 @@ const AdminFinance = () => {
     });
   }, [filteredOrders, filteredFees, filteredIncome, filteredExpenses]);
 
-  // Each partner's payout for the selected period, split by category (req 4).
+  // The individual sales behind the period's income (req 2): what was sold,
+  // when, for how much, and online vs offline. Derived from the SAME filtered
+  // records as the tiles, so the drill-down can never disagree with them.
+  const saleLines = useMemo(
+    () => buildSaleLines({
+      orders: filteredOrders as never,
+      fees: filteredFees as never,
+      manualIncome: filteredIncome as never,
+    }),
+    [filteredOrders, filteredFees, filteredIncome],
+  );
+  const salesByCategory = useMemo(() => summarizeSalesByCategory(saleLines), [saleLines]);
+
+  // Which category's sales the drill-down is showing (null = closed).
+  const [salesView, setSalesView] = useState<{ category: SaleCategory | "all"; note?: string } | null>(null);
+
+  const categoryIncomeInPaise: Record<SaleCategory, number> = {
+    product: summary.productIncomeInPaise,
+    course: summary.courseIncomeInPaise,
+    class: summary.classIncomeInPaise,
+    other: summary.otherIncomeInPaise,
+  };
+
+  // Each partner's payout for the selected period, split by category (req 4),
+  // now itemised so a partner can be shown exactly which sales earned it.
   const partnerPayouts = useMemo(() => {
     const income = {
       classIncomeInPaise: summary.classIncomeInPaise,
@@ -159,6 +177,19 @@ const AdminFinance = () => {
           coursesPercent: partner.coursesPercent,
           productsPercent: partner.productsPercent,
         }),
+        // One row per category the partner actually draws from.
+        parts: ([
+          ["class", partner.classesPercent, summary.classIncomeInPaise],
+          ["course", partner.coursesPercent, summary.courseIncomeInPaise],
+          ["product", partner.productsPercent, summary.productIncomeInPaise],
+        ] as [SaleCategory, number, number][])
+          .filter(([, percent]) => percent > 0)
+          .map(([category, percent, incomeInPaise]) => ({
+            category,
+            percent,
+            incomeInPaise,
+            shareInPaise: Math.round((Math.max(0, incomeInPaise) * Math.max(0, Math.min(100, percent))) / 100),
+          })),
       }));
   }, [financePartners, summary.classIncomeInPaise, summary.courseIncomeInPaise, summary.productIncomeInPaise]);
 
@@ -194,7 +225,7 @@ const AdminFinance = () => {
     if (!Number.isFinite(rupees) || rupees <= 0) { toast({ title: "Enter a valid amount", variant: "destructive" }); return; }
     setSavingIncome(true);
     try {
-      await addManualIncome({ title: incomeTitle, category: incomeCategory, amountInPaise: Math.round(rupees * 100), note: incomeNote, receivedOn, createdBy: user?.uid });
+      await addManualIncome({ title: incomeTitle, category: incomeCategory, amountInPaise: Math.round(rupees * 100), note: incomeNote, receivedOn, paymentMode: incomeMode, createdBy: user?.uid });
       toast({ title: "Income added" });
       setIncomeTitle(""); setIncomeAmount(""); setIncomeNote("");
     } catch (error) {
@@ -271,6 +302,45 @@ const AdminFinance = () => {
         <Tile label="Partner Payouts" value={formatPaiseAsRupees(totalPartnerPayoutInPaise)} sub={`${partnerPayouts.length} partner${partnerPayouts.length === 1 ? "" : "s"} · by category`} accent="text-gold" icon={Handshake} />
       </div>
 
+      {/* Income breakdown (req 2): every category opens into the sales that
+          made it — name, date, amount and online/offline. */}
+      <div className="rounded-xl border border-border/60 bg-card p-5 shadow-card">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h2 className="flex items-center gap-2 font-display text-xl text-foreground"><Receipt className="h-5 w-5 text-gold" /> Income Breakdown</h2>
+            <p className="mt-1 font-body text-sm text-muted-foreground">
+              Where the money came from in {periodLabel.toLowerCase()}. Tap a category to see every sale behind it.
+            </p>
+          </div>
+          <button
+            onClick={() => setSalesView({ category: "all" })}
+            className="shrink-0 rounded-md border border-gold/40 px-3 py-2 font-body text-xs font-semibold text-gold hover:bg-gold/10"
+          >
+            View all {saleLines.length} sales
+          </button>
+        </div>
+
+        <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          {SALE_CATEGORIES.map((saleCategory) => {
+            const bucket = salesByCategory[saleCategory];
+            return (
+              <button
+                key={saleCategory}
+                onClick={() => setSalesView({ category: saleCategory })}
+                disabled={bucket.count === 0}
+                className="rounded-xl border border-border/60 bg-background/70 p-4 text-left transition-colors hover:border-gold/50 hover:bg-gold/5 disabled:cursor-default disabled:opacity-60 disabled:hover:border-border/60 disabled:hover:bg-background/70"
+              >
+                <p className="font-body text-xs uppercase tracking-wider text-muted-foreground">{SALE_CATEGORY_LABELS[saleCategory]}</p>
+                <p className="mt-1 font-display text-xl font-bold text-foreground">{formatPaiseAsRupees(categoryIncomeInPaise[saleCategory])}</p>
+                <p className="font-body text-xs text-muted-foreground">
+                  {bucket.count === 0 ? "No sales yet" : `${bucket.count} sale${bucket.count === 1 ? "" : "s"} · view details`}
+                </p>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
       {/* Partner shares — one row per partner, split by category (req 4) */}
       <div className="rounded-xl border border-border/60 bg-card p-5 shadow-card">
         <h2 className="flex items-center gap-2 font-display text-xl text-foreground"><Handshake className="h-5 w-5 text-gold" /> Partner Shares</h2>
@@ -282,18 +352,36 @@ const AdminFinance = () => {
           <p className="mt-4 rounded-lg border border-dashed border-border/60 p-6 text-center font-body text-sm text-muted-foreground">No partners with a profit share yet.</p>
         ) : (
           <div className="mt-4 space-y-2">
-            {partnerPayouts.map(({ partner, shareInPaise }) => (
-              <div key={partner.id} className="flex flex-col gap-2 rounded-lg border border-border/60 bg-background/70 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <p className="font-body text-sm font-medium text-foreground">{partner.name || partner.email || "Partner"}</p>
-                  <p className="mt-0.5 flex flex-wrap gap-1.5 font-body text-[0.7rem] text-muted-foreground">
-                    {partner.classesPercent > 0 && <span className="rounded-full bg-gold/10 px-2 py-0.5 font-semibold text-gold">Classes {partner.classesPercent}%</span>}
-                    {partner.coursesPercent > 0 && <span className="rounded-full bg-gold/10 px-2 py-0.5 font-semibold text-gold">Courses {partner.coursesPercent}%</span>}
-                    {partner.productsPercent > 0 && <span className="rounded-full bg-gold/10 px-2 py-0.5 font-semibold text-gold">Products {partner.productsPercent}%</span>}
-                    {!partner.partnerUid && partner.email && <span className="rounded-full bg-amber-100 px-2 py-0.5 font-semibold text-amber-700">Access pending sign-up</span>}
+            {partnerPayouts.map(({ partner, shareInPaise, parts }) => (
+              <div key={partner.id} className="rounded-lg border border-border/60 bg-background/70 px-3 py-2.5">
+                <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                  <p className="font-body text-sm font-medium text-foreground">
+                    {partner.name || partner.email || "Partner"}
+                    {!partner.partnerUid && partner.email && <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 font-body text-[0.7rem] font-semibold text-amber-700">Access pending sign-up</span>}
                   </p>
+                  <span className="font-display text-base font-bold text-gold">{formatPaiseAsRupees(shareInPaise)}</span>
                 </div>
-                <span className="font-display text-base font-bold text-gold">{formatPaiseAsRupees(shareInPaise)}</span>
+                {/* The arithmetic, and a way into the exact sales it came from
+                    (req: "partners know exactly what items generated it"). */}
+                <div className="mt-1.5 space-y-1">
+                  {parts.map((part) => (
+                    <button
+                      key={part.category}
+                      onClick={() => setSalesView({
+                        category: part.category,
+                        note: `${partner.name || partner.email || "Partner"} · ${part.percent}% of ${SALE_CATEGORY_LABELS[part.category].toLowerCase()}`,
+                      })}
+                      className="flex w-full flex-wrap items-center justify-between gap-2 rounded-md border border-transparent px-2 py-1 text-left transition-colors hover:border-gold/40 hover:bg-gold/5"
+                    >
+                      <span className="min-w-0 font-body text-[0.72rem] text-muted-foreground">
+                        <span className="font-semibold text-gold">{SALE_CATEGORY_LABELS[part.category]}</span>
+                        {" "}{part.percent}% of {formatPaiseAsRupees(part.incomeInPaise)}
+                        <span className="text-gold"> · {salesByCategory[part.category].count} sale{salesByCategory[part.category].count === 1 ? "" : "s"} ↗</span>
+                      </span>
+                      <span className="shrink-0 font-body text-[0.72rem] font-semibold text-foreground">{formatPaiseAsRupees(part.shareInPaise)}</span>
+                    </button>
+                  ))}
+                </div>
               </div>
             ))}
           </div>
@@ -342,7 +430,14 @@ const AdminFinance = () => {
             <label className="mb-1 block font-body text-xs font-medium text-foreground">Date</label>
             <input type="date" value={receivedOn} onChange={(e) => setReceivedOn(e.target.value)} className={inputClass} />
           </div>
-          <div className="sm:col-span-2 lg:col-span-4">
+          <div>
+            <label className="mb-1 block font-body text-xs font-medium text-foreground">Received via</label>
+            <select value={incomeMode} onChange={(e) => setIncomeMode(e.target.value as "online" | "offline")} className={inputClass}>
+              <option value="offline">Offline (cash / counter)</option>
+              <option value="online">Online (UPI / bank)</option>
+            </select>
+          </div>
+          <div className="sm:col-span-2 lg:col-span-3">
             <label className="mb-1 block font-body text-xs font-medium text-foreground">Note</label>
             <input value={incomeNote} onChange={(e) => setIncomeNote(e.target.value)} placeholder="Optional" className={inputClass} />
           </div>
@@ -360,7 +455,11 @@ const AdminFinance = () => {
             <div key={entry.id} className="flex items-center justify-between rounded-lg border border-border/60 bg-background/70 px-3 py-2">
               <div>
                 <p className="font-body text-sm font-medium text-foreground">{entry.title}</p>
-                <p className="font-body text-xs text-muted-foreground">{entry.category}{entry.receivedOn ? ` · ${entry.receivedOn}` : ""}{entry.note ? ` · ${entry.note}` : ""}</p>
+                <p className="font-body text-xs text-muted-foreground">
+                  {entry.category}{entry.receivedOn ? ` · ${entry.receivedOn}` : ""}
+                  {entry.paymentMode ? ` · ${entry.paymentMode === "online" ? "Online" : "Offline"}` : ""}
+                  {entry.note ? ` · ${entry.note}` : ""}
+                </p>
               </div>
               <div className="flex items-center gap-3">
                 <span className="font-display text-sm font-bold text-green-600">{formatPaiseAsRupees(entry.amountInPaise)}</span>
@@ -451,6 +550,15 @@ const AdminFinance = () => {
           </div>
           )}
       </div>
+
+      <IncomeSalesDialog
+        open={salesView !== null}
+        onClose={() => setSalesView(null)}
+        lines={saleLines}
+        category={salesView?.category || "all"}
+        periodLabel={periodLabel}
+        note={salesView?.note}
+      />
     </div>
   );
 };
