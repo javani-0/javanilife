@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Award, Loader2, Upload } from "lucide-react";
+import { Award, Loader2, Trash2, Upload } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import { useAdminLog } from "@/hooks/useAdminLog";
@@ -7,6 +7,7 @@ import { confirmDialog } from "@/components/ConfirmDialogHost";
 import { CLOUDINARY_CLOUD_NAME, CLOUDINARY_UPLOAD_PRESET } from "@/lib/cloudinary";
 import { listEnrollmentsForClass, type ClassDoc, type EnrollmentDoc } from "@/lib/classes";
 import {
+  deleteCertificate,
   issueCertificate,
   listCertificatesForClass,
   setCertificateStatus,
@@ -37,6 +38,7 @@ const AdminCertificatesPanel = ({ selectedClass }: { selectedClass: ClassDoc | u
   const [imageUrl, setImageUrl] = useState("");
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const classId = selectedClass?.id || "";
@@ -123,6 +125,29 @@ const AdminCertificatesPanel = ({ selectedClass }: { selectedClass: ClassDoc | u
     await load();
   };
 
+  // Permanent delete (req). Revoke is the reversible option; this one is for a
+  // certificate issued by mistake, so it asks the operator to type DELETE.
+  const remove = async (certificate: Certificate) => {
+    if (!(await confirmDialog({
+      title: `Delete ${certificate.studentName}'s certificate?`,
+      description: `"${certificate.title}" will be removed permanently. This cannot be undone — use Revoke instead if you may want it back.`,
+      confirmText: "Delete certificate",
+      destructive: true,
+      requireText: "DELETE",
+    }))) return;
+    setDeletingId(certificate.id);
+    try {
+      await deleteCertificate(certificate.id);
+      toast({ title: "Certificate deleted", description: `${certificate.studentName} · ${certificate.title}` });
+      logAction("Deleted certificate", `${certificate.studentName} · ${certificate.title}`);
+      await load();
+    } catch (error) {
+      toast({ title: "Could not delete", description: error instanceof Error ? error.message : undefined, variant: "destructive" });
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
   if (!selectedClass) {
     return <p className="rounded-xl border border-dashed border-border p-10 text-center font-body text-sm text-muted-foreground">Choose a class to issue certificates.</p>;
   }
@@ -184,6 +209,14 @@ const AdminCertificatesPanel = ({ selectedClass }: { selectedClass: ClassDoc | u
                 </span>
                 <button onClick={() => revoke(certificate)} className="rounded-md border border-border px-3 py-1.5 font-body text-xs font-semibold text-muted-foreground hover:bg-muted">
                   {certificate.status === "issued" ? "Revoke" : "Restore"}
+                </button>
+                <button
+                  onClick={() => remove(certificate)}
+                  disabled={deletingId === certificate.id}
+                  title="Delete permanently"
+                  className="rounded-md border border-border p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"
+                >
+                  {deletingId === certificate.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
                 </button>
               </div>
             </div>

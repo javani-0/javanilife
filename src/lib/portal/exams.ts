@@ -229,6 +229,17 @@ export const setCertificateStatus = async (id: string, status: CertificateStatus
   await updateDoc(doc(db, CERTIFICATES_COLLECTION, id), { status, updatedAt: serverTimestamp() });
 };
 
+/**
+ * Staff: PERMANENTLY remove a certificate (req). Revoke only hides it from the
+ * student and is reversible; this is for one uploaded by mistake — the wrong
+ * student, the wrong file — where leaving a revoked row around is just clutter.
+ * The Cloudinary image is intentionally left alone (other records may embed the
+ * same URL, and an orphaned asset is cheaper than a broken certificate).
+ */
+export const deleteCertificate = async (id: string): Promise<void> => {
+  await deleteDoc(doc(db, CERTIFICATES_COLLECTION, id));
+};
+
 /** Student: their own certificates. Revoked ones are filtered out for them. */
 export const listMyCertificates = async (uid: string): Promise<Certificate[]> => {
   const snapshot = await getDocs(query(collection(db, CERTIFICATES_COLLECTION), where("studentUid", "==", uid)));

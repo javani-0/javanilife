@@ -23,6 +23,9 @@ export interface IncomeDoc {
   amountInPaise: number;
   note?: string;
   receivedOn?: string; // "YYYY-MM-DD"
+  // How it was received (req 2: online vs offline on every sale). Absent on
+  // entries recorded before this was asked for — those show as "—".
+  paymentMode?: "online" | "offline";
   createdBy?: string;
   createdAt?: Timestamp;
   updatedAt?: Timestamp;

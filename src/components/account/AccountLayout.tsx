@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { Link, NavLink } from "react-router-dom";
-import { ArrowLeft, Award, CalendarCheck, ClipboardList, GraduationCap, Ticket, Heart, LayoutDashboard, MapPin, PackageCheck, UserRound, CalendarDays } from "lucide-react";
+import { ArrowLeft, Award, ClipboardList, GraduationCap, Ticket, Heart, LayoutDashboard, MapPin, PackageCheck, TrendingUp, UserRound, CalendarDays } from "lucide-react";
 import { useStudentPortal } from "@/contexts/StudentPortalContext";
 import Footer from "@/components/Footer";
 import PageHero from "@/components/PageHero";
@@ -18,9 +18,13 @@ const shopLinks = [
 
 // A student gets their portal links FIRST; the shop links stay because a
 // parent may still buy products from the same account.
+//
+// "Progress" replaced the old "Attendance" entry (req): the progress reports
+// were invisible at the bottom of a page nobody opened, and attendance is the
+// evidence behind the progress rather than a destination of its own.
 const studentLinks = [
   { label: "Dashboard", path: "/account/dashboard", Icon: LayoutDashboard },
-  { label: "Attendance", path: "/account/attendance", Icon: CalendarCheck },
+  { label: "Progress", path: "/account/progress", Icon: TrendingUp },
   { label: "Assignments", path: "/account/assignments", Icon: ClipboardList },
   { label: "Exams", path: "/account/exams", Icon: Ticket },
   { label: "Certificates", path: "/account/certificates", Icon: Award },

@@ -27,7 +27,7 @@ const TABS = [
 
 interface ClassAcademicsTabsProps {
   selectedClass: ClassDoc | undefined;
-  /** Tabs to hide — the standalone Attendance page owns attendance already. */
+  /** Tabs to hide. Nothing hides attendance any more — Academics owns it. */
   exclude?: AcademicsTab[];
   initialTab?: AcademicsTab;
 }

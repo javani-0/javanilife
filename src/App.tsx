@@ -30,7 +30,7 @@ import Classes from "./pages/Classes";
 import ClassDetail from "./pages/ClassDetail";
 import AccountClasses from "./pages/account/Classes";
 import StudentDashboard from "./pages/account/StudentDashboard";
-import AccountAttendance from "./pages/account/Attendance";
+import AccountProgress from "./pages/account/Progress";
 import AccountAssignments from "./pages/account/Assignments";
 import AccountExams from "./pages/account/Exams";
 import AccountHallTicket from "./pages/account/HallTicket";
@@ -228,7 +228,10 @@ const App = () => {
                     <Route path="/account/profile" element={<AccountRoute><AccountProfile /></AccountRoute>} />
                     <Route path="/account/orders" element={<AccountRoute><AccountOrders /></AccountRoute>} />
                     <Route path="/account/dashboard" element={<AccountRoute><StudentDashboard /></AccountRoute>} />
-                    <Route path="/account/attendance" element={<AccountRoute><AccountAttendance /></AccountRoute>} />
+                    <Route path="/account/progress" element={<AccountRoute><AccountProgress /></AccountRoute>} />
+                    {/* Attendance moved INSIDE Progress (req) — old links, shared
+                        WhatsApp messages and bookmarks must keep working. */}
+                    <Route path="/account/attendance" element={<Navigate to="/account/progress" replace />} />
                     <Route path="/account/assignments" element={<AccountRoute><AccountAssignments /></AccountRoute>} />
                     <Route path="/account/exams" element={<AccountRoute><AccountExams /></AccountRoute>} />
                     <Route path="/account/exams/:examId/hall-ticket" element={<AccountRoute><AccountHallTicket /></AccountRoute>} />

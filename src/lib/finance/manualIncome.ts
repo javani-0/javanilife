@@ -28,6 +28,8 @@ export const normalizeIncome = (id: string, data: DocumentData = {}): IncomeDoc 
   amountInPaise: Math.max(0, Math.round(toNumber(data.amountInPaise))),
   note: typeof data.note === "string" ? data.note : "",
   receivedOn: typeof data.receivedOn === "string" ? data.receivedOn : "",
+  // Legacy entries have no mode — left blank rather than guessed (req 2).
+  paymentMode: data.paymentMode === "online" || data.paymentMode === "offline" ? data.paymentMode : undefined,
   createdBy: typeof data.createdBy === "string" ? data.createdBy : "",
   createdAt: data.createdAt,
   updatedAt: data.updatedAt,
@@ -48,6 +50,7 @@ export interface AddIncomeInput {
   amountInPaise: number;
   note?: string;
   receivedOn?: string; // "YYYY-MM-DD"
+  paymentMode?: "online" | "offline";
   createdBy?: string;
 }
 
@@ -58,6 +61,7 @@ export const addManualIncome = async (input: AddIncomeInput): Promise<string> =>
     amountInPaise: Math.max(0, Math.round(input.amountInPaise)),
     note: (input.note || "").trim(),
     receivedOn: input.receivedOn || new Date().toISOString().slice(0, 10),
+    ...(input.paymentMode ? { paymentMode: input.paymentMode } : {}),
     createdBy: input.createdBy || "",
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
