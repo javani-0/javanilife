@@ -43,6 +43,13 @@ WhatsApp message, exactly how much of the total belongs to each class.
   caption and a per-class "Pay now" line whenever it differs from the class
   total. No data-model change: `sections[]` already has everything.
 
+**Found while testing the live link** (`SAMVIDHA`, 2 classes): a multi-class link
+is never flagged `methods.emi` (EMI is a single-class rail), yet each class can
+still carry an EMI split — so the page shouted **₹66,200 Total** in bold while
+its buttons charged **₹19,860**, with nothing explaining the gap. The "pay now"
+headline and the demoted total now key off `dueNow < total` rather than the EMI
+flag, and the WhatsApp message ends with `Payable now: ₹19,860` under the total.
+
 ## Req 2 — Finance: what made up the money
 
 **Goal:** behind every income figure and every partner payout, the exact sales.
@@ -96,9 +103,33 @@ Rules already permit `delete` for `academics` staff and the owning teacher.
 - The student dashboard gets a Progress card: attendance %, latest grade/period,
   and a link in — "its own separate category on the dashboard", as asked.
 
-## Verification
+## Verification — done
 
-Unit tests for both new pure modules (message split + ledger reconciliation);
-`tsc -p tsconfig.app.json` and `-p api/tsconfig.json` (the root tsconfig checks
-nothing); `npm test`; `npm run build`; then a real browser pass on the admin
-console, a live multi-class pay link, and the student portal at 375px + desktop.
+- **Unit/component tests:** 29 new (9 payment message, 15 sales ledger, 5 student
+  Progress UI). Suite: **445 pass, 5 fail** — the same 5 that fail on a clean
+  tree (`course-installments`, `delivery-flow-ui`).
+- **Types:** `tsconfig.app.json` reports only the 7 pre-existing errors
+  (CategoryManager ×5, categories.ts ×2); `api/tsconfig.json` clean. The root
+  tsconfig checks nothing and was not used. `npm run build` green; ESLint clean
+  on every changed file.
+- **Browser (Chromium, real production data):** live multi-class pay link at
+  1440px and 375px — split-up, per-class totals, per-class payable-now, no
+  overflow; admin sign-in; nav has no Attendance item and `/admin/attendance`
+  still answers by URL; Academics opens on Attendance with all five tabs;
+  certificate **Delete** present, type-to-confirm dialog verified and cancelled
+  (production record left intact); Finance breakdown reconciles to the tiles
+  (₹8,599.50 + ₹17,189.90 + ₹2,37,492 + ₹0 = ₹2,63,281.40 total income), the
+  sales dialog lists real sales with Online/Offline chips, search filters, and
+  partner rows open the same list. No console errors.
+- **Not browser-tested:** the student portal signed in AS a student — those
+  credentials aren't available to this session, so the Progress page and the
+  dashboard card are covered by component tests instead
+  (`src/test/student-progress-ui.test.tsx`), the same approach used for the
+  class-EMI card.
+
+## Data issue to report (not fixed here)
+
+Two `attendance` rows point at `studentUid` `mjVFnt88jNOOj7pKNDd2Kpg6orz2`
+(enrolment `Ma09HtYG46PX7quIcoIj`), which has no `users/{uid}` document. That
+student cannot read their own attendance. Left alone deliberately — guessing the
+right mapping is how data gets silently corrupted.

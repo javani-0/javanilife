@@ -22,15 +22,15 @@ Website, shop and student portal for Javani Spiritual Hub.
 | **Bill** button (on any fee) | Creates a proper bill you can print, save as PDF, or send by WhatsApp |
 | **Classes Manager → Academics** *(new)* | Open any class and get **everything for that class in one place** — attendance, assignments, exams, certificates and progress. No hunting for the class on another page. |
 | **Managers → Teachers** *(new)* | Create a **teacher login**. A teacher sees **only Attendance and Academics**, and only for the classes you assign them. They cannot see fees, student records or finance. |
-| **Attendance** | Pick a class and a date, tap Present / Absent, save |
+| **Academics → Attendance** | Pick a class and a date, tap Present / Absent, save. (The old standalone **Attendance** sidebar item is gone — it was the same screen twice. The URL `/admin/attendance` still works.) |
 | **Academics → Assignments** | Set homework, read what students send in, give marks and feedback |
 | **Academics → Progress** | Write a progress report that parents can see |
 | **Academics → Exams** | Announce exams and release hall tickets |
-| **Academics → Certificates** | Issue a certificate to a student (and revoke it if needed) |
+| **Academics → Certificates** | Issue a certificate to a student, **revoke** it (reversible, hides it from the parent) or **delete** it permanently (for one issued by mistake) |
 
 ### For parents and students
 
-A **Dashboard** showing their classes, what they owe, and this week's class times — plus **Attendance**, **Assignments**, **Exams** (with a printable hall ticket) and **Certificates** to view.
+A **Dashboard** showing their classes, what they owe, this week's class times and a **Progress** card — plus **Progress** (the teacher's reports, grades and skill ratings, with the attendance record underneath), **Assignments**, **Exams** (with a printable hall ticket) and **Certificates** to view.
 
 - **My Classes** leads with the **course name**, its **timing** and the **trainer**, and shows that class's **live link, recordings and materials right on the card**.
 - **EMI Payments** shows **class fee installments** — how much is paid, what's left, and a Pay button on each pending one.
@@ -52,6 +52,12 @@ A **Dashboard** showing their classes, what they owe, and this week's class time
 3. ✅ You should see **both classes listed separately with their own prices**, then one total at the bottom
 4. Tick **"Charge GST on this student's fees"** — ✅ a GST line appears and the total goes up
 5. Save, then open the payment link — ✅ the parent sees **the same two classes and the same total**
+
+### A2. Check the payment split-up *(2 min)* — new
+
+1. **Student Manager** → a student in **more than one class** → **Send link**
+2. ✅ Before you send it, read the WhatsApp draft: each class is listed **by name with its own charges and its own class total**, then the combined total, then what is payable today
+3. Open the link itself — ✅ **Fee split-up · N classes**, one boxed section per class with **Class total**, and the amount due today shown separately from the full total
 
 ### B. Mark attendance *(2 min)*
 
@@ -79,6 +85,14 @@ Two ways in — use whichever suits you:
 3. Add a grade, rate a skill, write a remark → **Publish**
 4. ✅ It appears in the list underneath
 
+### C2. See which sales made the money *(3 min)* — new
+
+1. **Finance** → pick a period (**This Month**, **Today**, **All Time** or a specific day)
+2. ✅ **Income Breakdown** shows **Product / Course / Classes / Other** income, each with how many sales it came from
+3. Tap a category — ✅ every sale is listed: **what was sold, the date, the buyer, the amount**, and an **Online / Offline** tag with the actual method (Razorpay, UPI, Autopay, Cash…)
+4. Search a name, or filter to **Online** / **Offline** only
+5. Under **Partner Shares**, tap a partner's category line — ✅ the same list opens, showing exactly which sales earned that payout
+
 ### D. Make a bill *(2 min)*
 
 1. **Student Manager** → a student → **Fees** → **Bill** on any payment
@@ -89,8 +103,9 @@ Two ways in — use whichever suits you:
 
 1. Copy a student's **User ID** and **Password** from their card in Student Manager
 2. Open a **private / incognito** window and sign in as them
-3. ✅ Their Dashboard shows their classes and what they owe
-4. **My Classes** — ✅ the **course name** is the heading, with the **timing** and **trainer** under it, and a **Class resources** strip showing the live link, recordings and materials
+3. ✅ Their Dashboard shows their classes, what they owe, and a **Progress card** with their attendance % and latest report
+4. **Progress** in the menu — ✅ the teacher's report opens first (grade, skill bars, remarks), with the **attendance record** underneath. (Attendance no longer has its own menu item; `/account/attendance` redirects here.)
+5. **My Classes** — ✅ the **course name** is the heading, with the **timing** and **trainer** under it, and a **Class resources** strip showing the live link, recordings and materials
 5. **EMI Payments** — ✅ for a student on an installment plan, their **class fee installments** are listed with paid/remaining and a Pay button on each pending one
 
 ### F. Fix a student who can't see their class *(2 min)*
@@ -162,6 +177,8 @@ npx firebase deploy --only firestore:rules
 ```
 
 ⚠️ **Pending deploy: the `teacher` role.** Teacher logins can be created and will sign in, but every write they attempt (attendance, assignments, exams, certificates) is denied until `firestore.rules` is deployed. Admins and managers are unaffected.
+
+⚠️ **Pending deploy: attendance for `academics` managers.** Marking attendance used to require the `attendance` page key. Now that attendance lives on the Academics tab, the rule accepts `academics` too — until the rules are deployed, a manager who holds **only** Academics can open the tab but not save. Admins and teachers are unaffected.
 
 ## Tech stack
 
