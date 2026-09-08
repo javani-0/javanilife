@@ -11,14 +11,17 @@ export const clampCartQuantity = (quantity: number, maxQuantity?: number): numbe
   return typeof maxQuantity === "number" && maxQuantity > 0 ? Math.min(safeQuantity, maxQuantity) : safeQuantity;
 };
 
-export const createCartItemFromProduct = (product: Product, quantity = 1): CartItem => {
+export const createCartItemFromProduct = (product: Product, quantity = 1, size?: string): CartItem => {
   const maxQuantity = typeof product.stockQuantity === "number" ? Math.max(0, product.stockQuantity) : undefined;
+  const chosenSize = (size || "").trim();
 
   return {
-    productId: product.id,
+    // Two sizes of the same dress are two different things to pick, pack and
+    // count, so they are two cart lines (the cart is keyed by productId).
+    productId: chosenSize ? `${product.id}::${chosenSize}` : product.id,
     sourceId: product.id,
     itemType: "product",
-    name: product.name,
+    name: chosenSize ? `${product.name} (${chosenSize})` : product.name,
     category: product.category,
     categoryLabel: getProductCategoryLabel(product),
     image: product.image || product.images?.[0],
@@ -28,6 +31,7 @@ export const createCartItemFromProduct = (product: Product, quantity = 1): CartI
     stockStatus: normalizeProductStockStatus(product.stockStatus),
     allowedPaymentMethods: product.allowedPaymentMethods,
     maxQuantity,
+    ...(chosenSize ? { size: chosenSize } : {}),
   };
 };
 
@@ -40,7 +44,7 @@ export const createCartItemFromProduct = (product: Product, quantity = 1): CartI
  */
 export const createCartItemFromRental = (
   product: Product,
-  selection: { startAt: string; days: number; quantity?: number; fulfilment?: "pickup" | "delivery" },
+  selection: { startAt: string; days: number; quantity?: number; fulfilment?: "pickup" | "delivery"; size?: string },
 ): CartItem => {
   const pricePerDayInPaise = Math.max(0, Math.round(product.rental?.pricePerDayInPaise || 0));
   const days = clampRentalDays(selection.days, product.rental?.maxDays || 0);
@@ -53,11 +57,13 @@ export const createCartItemFromRental = (
     ...(selection.fulfilment ? { fulfilment: selection.fulfilment } : {}),
   };
 
+  const chosenSize = (selection.size || "").trim();
+
   return {
-    productId: `rent:${product.id}:${selection.startAt}`,
+    productId: `rent:${product.id}:${selection.startAt}${chosenSize ? `:${chosenSize}` : ""}`,
     sourceId: product.id,
     itemType: "rental",
-    name: `${product.name} — ${days} day${days === 1 ? "" : "s"} rental`,
+    name: `${product.name}${chosenSize ? ` (${chosenSize})` : ""} — ${days} day${days === 1 ? "" : "s"} rental`,
     category: product.category,
     categoryLabel: getProductCategoryLabel(product),
     image: product.image || product.images?.[0],
@@ -69,6 +75,7 @@ export const createCartItemFromRental = (
     allowedPaymentMethods: product.allowedPaymentMethods,
     maxQuantity: product.rental?.units || undefined,
     rental,
+    ...(chosenSize ? { size: chosenSize } : {}),
   };
 };
 

@@ -49,5 +49,6 @@ export const createOrderItemFromCartItem = (cartItem: CartItem, deliveryProfile?
     // the order alone (req 3). Firestore rejects `undefined`, so the key is
     // omitted entirely on a normal purchase.
     ...(cartItem.itemType === "rental" && cartItem.rental ? { rental: cartItem.rental } : {}),
+    ...(cartItem.size ? { size: cartItem.size } : {}),
   };
 };

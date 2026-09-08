@@ -10,6 +10,9 @@ export interface AdminOrderFilters {
   paymentStatus: "all" | PaymentStatus;
   dateRange: AdminOrderDateFilter;
   specificDate: string; // "YYYY-MM-DD" – empty string means no specific-date filter
+  /** Inclusive "YYYY-MM-DD" range (req 3). Either side may be empty. */
+  fromDate: string;
+  toDate: string;
 }
 
 export const ADMIN_ORDER_STATUS_OPTIONS: OrderStatus[] = [
@@ -77,6 +80,20 @@ const matchesSpecificDate = (order: Order, specificDate: string): boolean => {
   return `${y}-${m}-${d}` === specificDate;
 };
 
+/** Orders placed inside an inclusive from–to range (req 3). */
+const matchesDateWindow = (order: Order, fromDate: string, toDate: string): boolean => {
+  if (!fromDate && !toDate) return true;
+  const orderDate = getOrderPlacedDateValue(order);
+  if (!orderDate) return false;
+  const key = `${orderDate.getFullYear()}-${String(orderDate.getMonth() + 1).padStart(2, "0")}-${String(orderDate.getDate()).padStart(2, "0")}`;
+  // A backwards range is read the way it was obviously meant.
+  const from = fromDate && toDate && fromDate > toDate ? toDate : fromDate;
+  const to = fromDate && toDate && fromDate > toDate ? fromDate : toDate;
+  if (from && key < from) return false;
+  if (to && key > to) return false;
+  return true;
+};
+
 export const filterAdminOrders = (orders: Order[], filters: AdminOrderFilters) => {
   const search = filters.search.trim().toLowerCase();
 
@@ -91,7 +108,8 @@ export const filterAdminOrders = (orders: Order[], filters: AdminOrderFilters) =
       && matchesPaymentMethod
       && matchesPaymentStatus
       && matchesDateRange(order, filters.dateRange)
-      && matchesSpecificDate(order, filters.specificDate);
+      && matchesSpecificDate(order, filters.specificDate)
+      && matchesDateWindow(order, filters.fromDate || "", filters.toDate || "");
   });
 };
 

@@ -39,7 +39,6 @@ import AccountClassRoom from "./pages/account/ClassRoom";
 import Grading from "./pages/Grading";
 import Gallery from "./pages/Gallery";
 import Products from "./pages/Products";
-import Vestra from "./pages/Vestra";
 import Cart from "./pages/Cart";
 import Checkout from "./pages/Checkout";
 import AccountProfile from "./pages/account/Profile";
@@ -224,8 +223,6 @@ const App = () => {
                     <Route path="/grading" element={<Grading />} />
                     <Route path="/gallery" element={<Gallery />} />
                     <Route path="/products" element={<Products />} />
-                    {/* VESTRA — buy or rent (req 2 + 4) */}
-                    <Route path="/vestra" element={<Vestra />} />
                     <Route path="/cart" element={<Cart />} />
                     <Route path="/checkout" element={<Checkout />} />
                     <Route path="/account" element={<AccountRoute><AccountProfile /></AccountRoute>} />

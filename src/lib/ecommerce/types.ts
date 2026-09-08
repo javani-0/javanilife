@@ -189,6 +189,9 @@ export interface CourseInstallmentPlan {
   installments: CourseInstallmentPayment[];
 }
 
+/** The sizes offered by default in the admin picker; any other text is allowed. */
+export const COMMON_PRODUCT_SIZES = ["XS", "S", "M", "L", "XL", "XXL", "Free size"] as const;
+
 // ── Rentals (req 2-4) ─────────────────────────────────────────────────────
 // The admin sets ONE price: what 24 hours costs. Everything else is derived —
 // a booking of N days is N × that, and time past the return moment is billed
@@ -249,8 +252,10 @@ export interface Product {
   rating?: number;
   reviewCount?: number;
   delivery?: ProductDeliveryProfile;
-  /** Shown in the VESTRA section (req 2/4). */
-  vestra?: boolean;
+  /** A VASTRA piece — dresses and costumes, the things that carry sizes. */
+  vastra?: boolean;
+  /** Sizes this piece comes in, e.g. ["S","M","L"] or ["Free size"]. */
+  sizes?: string[];
   /** Rentable, and on what terms (req 3). Absent = purchase only. */
   rental?: ProductRentalConfig;
   /** Sold outright. Default true; a rent-only costume sets it false. */
@@ -275,6 +280,8 @@ export interface CartItem {
   maxQuantity?: number;
   /** Present only on `itemType: "rental"` lines. */
   rental?: RentalSelection;
+  /** The size the customer chose, when the piece comes in sizes. */
+  size?: string;
   addedAt?: unknown;
   updatedAt?: unknown;
 }
@@ -410,6 +417,8 @@ export interface OrderItem {
   shipmentWeightInGrams?: number;
   /** Present only on rental lines — what was booked, and until when. */
   rental?: RentalSelection;
+  /** The size the customer chose, when the piece comes in sizes. */
+  size?: string;
 }
 
 export interface OrderTimelineEvent {

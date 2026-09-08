@@ -53,6 +53,20 @@ export const isProductPurchasable = (
   return getProductAmountInPaise(product) > 0;
 };
 
+/** Trimmed, de-duplicated, order preserved — an empty list means "no sizes". */
+export const normalizeProductSizes = (raw: unknown): string[] => {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set<string>();
+  const sizes: string[] = [];
+  for (const value of raw) {
+    const size = typeof value === "string" ? value.trim() : "";
+    if (!size || seen.has(size.toLowerCase())) continue;
+    seen.add(size.toLowerCase());
+    sizes.push(size);
+  }
+  return sizes;
+};
+
 /**
  * A rental config is only real when it is switched on AND carries a 24-hour
  * price — a half-filled form must never make an item look rentable for ₹0.
@@ -103,9 +117,12 @@ export const normalizeProduct = (id: string, data: Partial<Product> & { category
     rating: data.rating,
     reviewCount: data.reviewCount,
     delivery: data.delivery,
-    // VESTRA + rentals (req 2-4). A field written to Firestore is invisible
-    // until it is mapped here, so both live in the normalizer from day one.
-    vestra: data.vestra === true,
+    // VASTRA + rentals. A field written to Firestore is invisible until it is
+    // mapped here, so all three live in the normalizer from day one.
+    // `vestra` is the original misspelling — read it so nothing an admin
+    // already ticked is lost.
+    vastra: data.vastra === true || (data as { vestra?: boolean }).vestra === true,
+    sizes: normalizeProductSizes(data.sizes),
     purchasable: data.purchasable !== false,
     rental: normalizeProductRental(data.rental),
     createdAt: data.createdAt,

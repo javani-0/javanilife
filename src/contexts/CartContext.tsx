@@ -73,6 +73,7 @@ const normalizeStoredCartItem = (value: unknown, fallbackProductId?: string): Ca
     allowedPaymentMethods: itemType === "course" ? ["razorpay"] : normalizeAllowedPaymentMethods(Array.isArray(value.allowedPaymentMethods) ? value.allowedPaymentMethods : undefined),
     maxQuantity: typeof value.maxQuantity === "number" ? value.maxQuantity : undefined,
     ...(itemType === "rental" && rental ? { rental } : {}),
+    ...(typeof value.size === "string" && value.size.trim() ? { size: value.size.trim() } : {}),
     addedAt: value.addedAt,
     updatedAt: value.updatedAt,
   };
@@ -175,6 +176,7 @@ const cartItemToFirestore = (item: CartItem): Record<string, unknown> => {
   // The rental terms must survive the round trip to Firestore, or the cart
   // comes back as an ordinary purchase (req 3).
   if (item.itemType === "rental" && item.rental) data.rental = item.rental;
+  if (item.size) data.size = item.size;
   data.addedAt = item.addedAt || serverTimestamp();
 
   return data;
@@ -303,12 +305,12 @@ export const CartProvider = ({ children }: { children: ReactNode }) => {
     await persistItems(mergeCartItems(items, [normalizedItem]));
   }, [items, persistItems]);
 
-  const addProduct = useCallback(async (product: Product, quantity = 1) => {
+  const addProduct = useCallback(async (product: Product, quantity = 1, size?: string) => {
     if (!isProductPurchasable(product)) {
       throw new Error("This product is not available for purchase.");
     }
 
-    await addItem(createCartItemFromProduct(product, quantity));
+    await addItem(createCartItemFromProduct(product, quantity, size));
   }, [addItem]);
 
   const setItemQuantity = useCallback(async (productId: string, quantity: number) => {
@@ -341,12 +343,12 @@ export const CartProvider = ({ children }: { children: ReactNode }) => {
     writeStoredBuyNowItem(normalizedItem);
   }, []);
 
-  const setBuyNowProduct = useCallback((product: Product, quantity = 1) => {
+  const setBuyNowProduct = useCallback((product: Product, quantity = 1, size?: string) => {
     if (!isProductPurchasable(product)) {
       throw new Error("This product is not available for purchase.");
     }
 
-    setBuyNowItem(createCartItemFromProduct(product, quantity));
+    setBuyNowItem(createCartItemFromProduct(product, quantity, size));
   }, [setBuyNowItem]);
 
   const clearBuyNowItem = useCallback(() => {

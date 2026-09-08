@@ -14,7 +14,6 @@ const navLinks = [
   { label: "Courses", path: "/courses" },
   { label: "Classes", path: "/classes" },
   { label: "Products", path: "/products" },
-  { label: "VESTRA", path: "/vestra" },
   { label: "Contact", path: "/contact" },
 ];
 

@@ -1,6 +1,7 @@
 export * from "./types";
 export * from "./income";
 export * from "./salesLedger";
+export * from "./period";
 export * from "./financeExport";
 export * from "./expenses";
 export * from "./manualIncome";

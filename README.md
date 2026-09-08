@@ -108,6 +108,15 @@ Two ways in — use whichever suits you:
 5. **My Classes** — ✅ the **course name** is the heading, with the **timing** and **trainer** under it, and a **Class resources** strip showing the live link, recordings and materials
 5. **EMI Payments** — ✅ for a student on an installment plan, their **class fee installments** are listed with paid/remaining and a Pay button on each pending one
 
+### C2b. Pick any period in Finance *(1 min)* — new
+
+**Finance** now filters by **This Month · Today · All Time · any month · one day · From–To range**.
+1. ✅ Use the **month box** to look at, say, July 2026 — not just the current month
+2. ✅ Use **From** and **To** for a stretch like 1–15 August; the line under the filter always spells out
+   what you are looking at ("Showing: 1 Aug 2026 → 15 Aug 2026") and every tile follows it
+3. ✅ **Export to Excel** opens on exactly that period
+4. **Orders Manager** has the same **From / To** pair next to its date filter, with **Clear dates**
+
 ### C3. Download Finance as Excel *(2 min)* — new
 
 1. **Finance** → **Export to Excel** (top right)
@@ -139,23 +148,28 @@ If a class was ever deleted, the students attached to it are stranded — they c
 4. If the row is marked **Student profile deleted**, there is nobody to re-link — press **Delete** on that row (or **Delete all N**). ✅ It asks twice, then gives you **5 seconds to Undo**; after that the enrolment and its fee records, attendance, progress reports, submissions, certificates and bills are removed
 5. ✅ Once the last one is handled the banner is gone for good. **Hide for now** also sticks — it only comes back if a *new* enrolment breaks
 
-### C4. VESTRA — buy or rent *(4 min)* — new
+### C4. VASTRA — sizes and renting *(4 min)* — new
 
-**Setting a piece up:** **Products Manager** → add or edit a product → the gold **VESTRA & rentals** box:
-tick **Show in VESTRA**, tick **Can be rented**, and type what **24 hours** costs. That single price
-drives everything — the screen immediately shows you the matching per-hour rate for late returns.
-Optionally cap the days per booking, say how many pieces you own, and add your terms.
+**Setting a piece up:** **Products Manager** → add or edit a product → the gold **VASTRA & rentals** box:
+1. Tick **VASTRA piece** (a dress or costume)
+2. **Available sizes** — tap the sizes you stock (S, M, L…), or type your own (36, 5-6 yrs) and **Add size**.
+   One size is fine; leave them all off for something that has no sizes
+3. Tick **Can be rented** and type what **24 hours** costs. That one price drives everything — the screen
+   shows you the matching per-hour rate for late returns. Optionally cap the days, say how many pieces you
+   own, and add your terms
 
-**What the customer sees:** **VESTRA** in the top menu → two tabs, **Buy** and **Rent**.
-1. On **Rent**, each piece shows its 24-hour price and the per-hour late rate
-2. **Rent this** → pick the date and time they need it, and how many days → ✅ the total and the exact
-   *"Back by…"* moment appear before anything is added
-3. It goes through the normal cart and checkout, where they choose **store pickup** or **delivery**
+**What the customer sees** — on the **normal product page**, no separate section:
+1. ✅ **Size** buttons above the buttons. Add to Cart and Buy Now ask for a size first if the piece has them
+2. ✅ Under Add to Cart / Buy Now, a **full-width "Rent This — ₹500 / 24 hours"** button
+3. Tapping it opens a popup: **From**, **To**, **Days**, **Pieces** (and Size if not already chosen)
+4. ✅ Moving the To date moves the days and the price together — *"3 days × ₹500 = ₹1,500 · Return by…"*
+5. **Add rental** puts it in the normal cart; checkout offers store pickup or delivery as usual
+6. ✅ Product cards in the shop show *"Sizes: S · M · L — also on rent"*
 
 **Running it:** **Rental Desk** in the sidebar.
 1. ✅ Tiles show what is out, what is overdue, and the late fees still to collect
 2. **Mark collected** when the piece leaves — the clock starts then, not at the booked hour
-3. While it is out you see a live countdown; once late, the row turns red and shows the maths:
+3. Once late, the row turns red and shows the maths:
    *"49 hours past the return time at ₹20.83/hour = ₹1,020.67"*
 4. **Mark returned** freezes that amount, and **Late fee collected** records the payment (it then
    appears in Finance as Rental income)
@@ -245,7 +259,7 @@ npx firebase deploy --only firestore:rules
 
 ⚠️ **Pending deploy: the `teacher` role.** Teacher logins can be created and will sign in, but every write they attempt (attendance, assignments, exams, certificates) is denied until `firestore.rules` is deployed. Admins and managers are unaffected.
 
-⚠️ **Pending deploy: the `rentals` collection.** VESTRA rentals work against production today only
+⚠️ **Pending deploy: the `rentals` collection.** VASTRA rentals work against production today only
 because the deployed rules are older than this file and allow an admin to write a collection they do
 not declare. Deploy the rules to keep the Rental Desk working once they ship — and to close that gap.
 

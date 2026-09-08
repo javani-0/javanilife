@@ -40,6 +40,8 @@ const emptyFilters: AdminOrderFilters = {
   paymentStatus: "all",
   dateRange: "all",
   specificDate: "",
+  fromDate: "",
+  toDate: "",
 };
 
 const paymentMethodLabels: Record<PaymentMethod, string> = {
@@ -220,6 +222,36 @@ const AdminOrders = () => {
             className="h-11 rounded-md border border-border bg-background px-3 font-body text-sm outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
             title="Filter by exact date"
           />
+          {/* From–To range (req 3) */}
+          <label className="flex items-center gap-2">
+            <span className="font-body text-xs font-semibold uppercase tracking-wider text-muted-foreground">From</span>
+            <input
+              type="date"
+              value={filters.fromDate}
+              onChange={(e) => updateFilter("fromDate", e.target.value)}
+              className="h-11 w-full rounded-md border border-border bg-background px-3 font-body text-sm outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+              title="Orders placed on or after this date"
+            />
+          </label>
+          <label className="flex items-center gap-2">
+            <span className="font-body text-xs font-semibold uppercase tracking-wider text-muted-foreground">To</span>
+            <input
+              type="date"
+              value={filters.toDate}
+              onChange={(e) => updateFilter("toDate", e.target.value)}
+              className="h-11 w-full rounded-md border border-border bg-background px-3 font-body text-sm outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+              title="Orders placed on or before this date"
+            />
+          </label>
+          {(filters.fromDate || filters.toDate || filters.specificDate) && (
+            <button
+              type="button"
+              onClick={() => { updateFilter("fromDate", ""); updateFilter("toDate", ""); updateFilter("specificDate", ""); }}
+              className="h-11 rounded-md border border-border px-3 font-body text-sm font-semibold text-muted-foreground hover:bg-muted"
+            >
+              Clear dates
+            </button>
+          )}
         </div>
       </section>
 

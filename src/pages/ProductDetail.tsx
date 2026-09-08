@@ -7,9 +7,11 @@ import SEO from "@/components/SEO";
 import ImageViewer from "@/components/ImageViewer";
 import ShareButton from "@/components/ShareButton";
 import { useCart } from "@/contexts/cart-context";
+import RentProductDialog from "@/components/RentProductDialog";
 import { useWishlist } from "@/hooks/useWishlist";
 import { useToast } from "@/hooks/use-toast";
 import {
+  formatPaiseAsRupees,
   getProductDisplayPrice,
   isProductActive,
   isProductPurchasable,
@@ -18,7 +20,7 @@ import {
   type Product,
   type ProductStockStatus,
 } from "@/lib/ecommerce";
-import { AlertCircle, ArrowLeft, CheckCircle2, ChevronRight, Clock, CreditCard, Heart, Minus, Plus, ShieldCheck, ShoppingBag, Truck, Zap, type LucideIcon } from "lucide-react";
+import { AlertCircle, ArrowLeft, CalendarClock, CheckCircle2, ChevronRight, Clock, CreditCard, Heart, Minus, Plus, ShieldCheck, ShoppingBag, Truck, Zap, type LucideIcon } from "lucide-react";
 import productDetailBg from "@/assets/product-detail-bg.png";
 import productDetailBgMobile from "@/assets/product-detail-bg-mobile.png";
 
@@ -155,6 +157,9 @@ const ProductDetail = () => {
   const [imgLoaded, setImgLoaded] = useState(false);
   const [selectedImage, setSelectedImage] = useState(0);
   const [isViewerOpen, setIsViewerOpen] = useState(false);
+  // Sizes (req 2) and the rent popup (req 1).
+  const [selectedSize, setSelectedSize] = useState("");
+  const [rentOpen, setRentOpen] = useState(false);
   const { addProduct, openCart, setBuyNowProduct } = useCart();
   const { isWishlisted, toggleWishlist } = useWishlist();
   const { toast } = useToast();
@@ -168,6 +173,9 @@ const ProductDetail = () => {
   const maxQuantity = typeof stockQuantity === "number" && stockQuantity > 0 ? stockQuantity : undefined;
   const purchasable = product ? isProductPurchasable(product) : false;
   const canIncrease = !maxQuantity || qty < maxQuantity;
+  const sizes = product?.sizes || [];
+  const needsSize = sizes.length > 0 && !selectedSize;
+  const rentable = Boolean(product?.rental?.enabled && (product.rental.pricePerDayInPaise || 0) > 0);
   const wishlisted = product ? isWishlisted(product.id) : false;
 
   useEffect(() => {
@@ -179,6 +187,9 @@ const ProductDetail = () => {
           setProduct(isProductActive(normalizedProduct) ? normalizedProduct : null);
           setSelectedImage(0);
           setImgLoaded(false);
+          // One size only? Pick it for them; nobody wants a required choice
+          // with a single option.
+          setSelectedSize(normalizedProduct.sizes?.length === 1 ? normalizedProduct.sizes[0] : "");
         } else {
           setProduct(null);
         }
@@ -212,9 +223,14 @@ const ProductDetail = () => {
   const handleAddToCart = async () => {
     if (!product || !purchasable || pendingAction) return;
 
+    if (needsSize) {
+      toast({ title: "Choose a size first", description: "Pick one of the available sizes.", variant: "destructive" });
+      return;
+    }
+
     setPendingAction("cart");
     try {
-      await addProduct(product, qty);
+      await addProduct(product, qty, selectedSize);
       openCart();
     } catch {
       toast({ title: "Unable to add item", description: "Please try again.", variant: "destructive" });
@@ -226,10 +242,15 @@ const ProductDetail = () => {
   const handleBuyNow = async () => {
     if (!product || !purchasable || pendingAction) return;
 
+    if (needsSize) {
+      toast({ title: "Choose a size first", description: "Pick one of the available sizes.", variant: "destructive" });
+      return;
+    }
+
     setPendingAction("buy-now");
     try {
-      setBuyNowProduct(product, qty);
-      await addProduct(product, qty);
+      setBuyNowProduct(product, qty, selectedSize);
+      await addProduct(product, qty, selectedSize);
       toast({ title: "Buy Now item selected", description: `${product.name} is ready for checkout.` });
       navigate("/checkout");
     } catch {
@@ -524,6 +545,30 @@ const ProductDetail = () => {
                   </div>
                 </div>
 
+                {/* Sizes (req 2): a VASTRA piece comes in sizes, so say which
+                    ones exist and make the customer pick before adding. */}
+                {sizes.length > 0 && (
+                  <div>
+                    <div className="mb-2 flex flex-wrap items-center gap-2">
+                      <span className="font-body text-sm font-semibold text-[#2A0D05]">Size</span>
+                      {needsSize && <span className="font-body text-xs text-[#8B1A1A]">Please choose one</span>}
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {sizes.map((size) => (
+                        <button
+                          key={size}
+                          type="button"
+                          onClick={() => setSelectedSize(size)}
+                          aria-pressed={selectedSize === size}
+                          className={`min-h-11 min-w-[3.25rem] rounded-md border px-4 font-body text-sm font-bold transition-colors ${selectedSize === size ? "border-[#8B1A1A] bg-[#8B1A1A] text-white" : "border-[#C4A882] bg-white/70 text-[#6B4C3B] hover:border-[#8B1A1A] hover:text-[#8B1A1A]"}`}
+                        >
+                          {size}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {!purchasable && (
                   <div className="rounded-lg border border-[#8B1A1A]/15 bg-white/45 px-4 py-3 font-body text-sm font-semibold text-[#7A1010]">
                     This product is not available for purchase right now.
@@ -553,6 +598,19 @@ const ProductDetail = () => {
                     <Zap className="w-5 h-5" /> {pendingAction === "buy-now" ? "Preparing" : "Buy Now"}
                   </button>
                 </div>
+
+                {/* Rent This (req 1): full width, straight under the two buy
+                    buttons. It opens the popup that asks From, To and pieces. */}
+                {rentable && (
+                  <button
+                    type="button"
+                    onClick={() => setRentOpen(true)}
+                    className="flex w-full items-center justify-center gap-2 border-2 border-[#8B1A1A] bg-white/80 px-8 py-3 font-display text-base font-semibold tracking-wide text-[#8B1A1A] shadow-md transition-all hover:bg-[#8B1A1A] hover:text-white"
+                  >
+                    <CalendarClock className="h-5 w-5" />
+                    Rent This — {formatPaiseAsRupees(product.rental?.pricePerDayInPaise || 0)} / 24 hours
+                  </button>
+                )}
 
                 <div className="grid grid-cols-1 gap-2 pt-1.5 sm:grid-cols-3 sm:gap-3 sm:pt-2">
                   <div className="rounded-lg border border-[#C4A882]/45 bg-white/45 p-2.5 sm:p-3">
@@ -633,6 +691,16 @@ const ProductDetail = () => {
             </div>
           </div>
         </section>
+      )}
+
+      {product && rentable && (
+        <RentProductDialog
+          open={rentOpen}
+          onClose={() => setRentOpen(false)}
+          product={product}
+          size={selectedSize}
+          sizes={sizes}
+        />
       )}
 
       <Footer />

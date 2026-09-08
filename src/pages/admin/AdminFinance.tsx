@@ -8,6 +8,7 @@ import { confirmDialog } from "@/components/ConfirmDialogHost";
 import { formatPaiseAsRupees, subscribeToRentals, type RentalBooking } from "@/lib/ecommerce";
 import IncomeSalesDialog from "@/components/admin/IncomeSalesDialog";
 import FinanceExportDialog from "@/components/admin/FinanceExportDialog";
+import PeriodFilter from "@/components/admin/PeriodFilter";
 import {
   EXPENSE_CATEGORIES,
   INCOME_CATEGORIES,
@@ -17,6 +18,11 @@ import {
   addManualIncome,
   buildFinanceSummary,
   buildSaleLines,
+  createPeriodSelection,
+  describePeriod,
+  isInPeriod,
+  periodBounds,
+  type PeriodSelection,
   type FinanceExportInput,
   computePartnerCategoryShareInPaise,
   dateKeyOf,
@@ -54,8 +60,6 @@ const Tile = ({ label, value, sub, accent, icon: Icon }: { label: string; value:
 // "Today" must be the admin's local today for the same reason — before dawn IST
 // a UTC date would file this morning's collection under yesterday.
 const todayKey = (): string => dateKeyOf(new Date());
-
-type FinancePeriod = "all" | "month" | "today" | "day";
 
 const AdminFinance = () => {
   const { user } = useAuth();
@@ -99,26 +103,21 @@ const AdminFinance = () => {
     return () => { unsubOrders(); unsubFees(); unsubExpenses(); unsubIncome(); unsubPartners(); unsubRentals(); };
   }, []);
 
-  // Period filter (default: this month). "day" uses the calendar-picked date.
-  const [period, setPeriod] = useState<FinancePeriod>("month");
-  const [customDay, setCustomDay] = useState(todayKey);
+  // Period filter (req 3): this month · today · all time · ANY month · one day
+  // · from–to. The whole model lives in src/lib/finance/period.ts so the page,
+  // the export and the tests all read a date the same way.
+  const [today] = useState(() => new Date());
+  const [period, setPeriod] = useState<PeriodSelection>(() => createPeriodSelection(today));
 
   // Collapsible sections (req: easy toggles, mobile friendly). Both start
   // collapsed so the page opens compact; tap a header to expand.
   const [incomeOpen, setIncomeOpen] = useState(false);
   const [expensesOpen, setExpensesOpen] = useState(false);
 
-  const inPeriod = useMemo(() => {
-    const today = todayKey();
-    const monthKey = today.slice(0, 7);
-    return (dateKey: string): boolean => {
-      if (period === "all") return true;
-      if (!dateKey) return false; // undated records only count in "All time"
-      if (period === "month") return dateKey.startsWith(monthKey);
-      if (period === "today") return dateKey === today;
-      return dateKey === customDay;
-    };
-  }, [period, customDay]);
+  const inPeriod = useMemo(
+    () => (dateKey: string): boolean => isInPeriod(dateKey, period, today),
+    [period, today],
+  );
 
   const filteredOrders = useMemo(
     () => orders.filter((order) => inPeriod(dateKeyOf((order.payment as Record<string, unknown> | undefined)?.paidAt || order.createdAt))),
@@ -188,17 +187,8 @@ const AdminFinance = () => {
     partners: financePartners,
   }), [orders, fees, incomeEntries, expenses, financePartners, rentals]);
 
-  const exportRange = useMemo(() => {
-    const today = todayKey();
-    if (period === "all") return { from: "", to: "" };
-    if (period === "today") return { from: today, to: today };
-    if (period === "day") return { from: customDay, to: customDay };
-    const now = new Date();
-    const pad2 = (value: number) => String(value).padStart(2, "0");
-    const monthStart = `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-01`;
-    const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-    return { from: monthStart, to: `${lastDay.getFullYear()}-${pad2(lastDay.getMonth() + 1)}-${pad2(lastDay.getDate())}` };
-  }, [period, customDay]);
+  // The export opens on exactly the period the page is showing.
+  const exportRange = useMemo(() => periodBounds(period, today), [period, today]);
 
   const categoryIncomeInPaise: Record<SaleCategory, number> = {
     // `summary.productIncomeInPaise` carries rentals for the profit maths, so
@@ -251,10 +241,7 @@ const AdminFinance = () => {
     [partnerPayouts],
   );
 
-  const periodLabel = period === "all" ? "All time"
-    : period === "month" ? `This month (${new Date().toLocaleDateString("en-IN", { month: "long", year: "numeric" })})`
-    : period === "today" ? "Today"
-    : new Date(`${customDay}T00:00:00`).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+  const periodLabel = describePeriod(period, today);
 
   const handleAddExpense = async () => {
     const rupees = Number(amount);
@@ -333,28 +320,9 @@ const AdminFinance = () => {
         </button>
       </div>
 
-      {/* Period filter — default "This month"; calendar picks a specific day */}
-      <div className="flex flex-col gap-3 rounded-xl border border-border/60 bg-card p-4 shadow-card sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex flex-wrap items-center gap-2">
-          {([["month", "This Month"], ["today", "Today"], ["all", "All Time"]] as [FinancePeriod, string][]).map(([value, label]) => (
-            <button
-              key={value}
-              onClick={() => setPeriod(value)}
-              className={`rounded-md border px-4 py-2 font-body text-sm font-semibold transition-colors ${period === value ? "border-gold bg-gold/10 text-gold" : "border-border text-muted-foreground hover:border-gold/40"}`}
-            >
-              {label}
-            </button>
-          ))}
-          <input
-            type="date"
-            value={customDay}
-            onChange={(e) => { if (e.target.value) { setCustomDay(e.target.value); setPeriod("day"); } }}
-            className={`h-10 rounded-md border px-3 font-body text-sm outline-none focus:border-gold focus:ring-2 focus:ring-gold/20 ${period === "day" ? "border-gold bg-gold/10 text-gold" : "border-border bg-background text-muted-foreground"}`}
-            title="Pick a specific day"
-          />
-        </div>
-        <p className="font-body text-sm text-muted-foreground">Showing: <span className="font-semibold text-foreground">{periodLabel}</span></p>
-      </div>
+      {/* Period filter (req 3) — this month · today · all time · any month ·
+          one day · from–to range. */}
+      <PeriodFilter value={period} onChange={setPeriod} today={today} />
 
       {/* Summary tiles */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">

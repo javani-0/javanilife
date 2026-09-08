@@ -37,6 +37,8 @@ export interface RentalBooking {
   /** The real product id (the cart line's id is namespaced). */
   productId: string;
   productName: string;
+  /** The size that went out, when the piece has sizes. */
+  size?: string;
   image?: string;
   customerId: string;
   customerName: string;
@@ -79,6 +81,7 @@ export const normalizeRentalBooking = (id: string, data: DocumentData = {}): Ren
   orderNumber: getString(data.orderNumber),
   productId: getString(data.productId),
   productName: getString(data.productName, "Rental item"),
+  size: getString(data.size) || undefined,
   image: getString(data.image) || undefined,
   customerId: getString(data.customerId),
   customerName: getString(data.customerName),
@@ -132,6 +135,7 @@ export const createRentalBookingsForOrder = async (
       orderNumber: order.orderNumber || "",
       productId: item.sourceId || item.productId,
       productName: item.name,
+      size: item.size || "",
       image: item.image || "",
       customerId: order.customerId || "",
       customerName: order.customerName || "",

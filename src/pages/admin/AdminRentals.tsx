@@ -249,13 +249,12 @@ const AdminRentals = () => {
 
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="font-body text-sm font-semibold uppercase tracking-[0.2em] text-gold">VESTRA</p>
+          <p className="font-body text-sm font-semibold uppercase tracking-[0.2em] text-gold">VASTRA</p>
           <h1 className="mt-2 flex items-center gap-2 font-display text-3xl text-foreground">
             <CalendarClock className="h-7 w-7 text-gold" /> Rental Desk
           </h1>
           <p className="mt-1 font-body text-sm text-muted-foreground">
-            What is out, when it is due back, and what the late hours have cost. Rentals are booked from{" "}
-            <Link to="/vestra?mode=rent" className="font-semibold text-gold hover:underline">VESTRA</Link>.
+            What is out, when it is due back, and what the late hours have cost. Rentals are booked by customers from the product page.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -320,7 +319,7 @@ const AdminRentals = () => {
           <CalendarClock className="mx-auto mb-3 h-6 w-6 text-gold" />
           <p className="font-display text-xl text-foreground">Nothing here</p>
           <p className="mt-1 font-body text-sm text-muted-foreground">
-            {filter === "overdue" ? "Nothing is overdue — good." : "Rentals booked on VESTRA show up here."}
+            {filter === "overdue" ? "Nothing is overdue — good." : "Rentals booked from a product page show up here."}
           </p>
         </div>
       ) : (

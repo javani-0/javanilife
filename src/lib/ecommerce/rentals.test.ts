@@ -7,6 +7,7 @@ import {
   overdueChargeInPaise,
   overdueHoursAt,
   rentalBaseInPaise,
+  rentalDaysBetween,
   rentalDueAt,
   rentalHourlyRateInPaise,
 } from "./rentals";
@@ -150,5 +151,23 @@ describe("describeRentalCountdown", () => {
     expect(describeRentalCountdown(dueAt, "2026-09-08T10:00:00.000Z")).toBe("Due in 3 days");
     expect(describeRentalCountdown(dueAt, "2026-09-11T13:00:00.000Z")).toBe("3 h overdue");
     expect(describeRentalCountdown(dueAt, "2026-09-14T10:00:00.000Z")).toBe("3 days overdue");
+  });
+});
+
+describe("rentalDaysBetween", () => {
+  it("turns a FROM/TO pair into whole billed days", () => {
+    expect(rentalDaysBetween("2026-09-10T10:00:00.000Z", "2026-09-11T10:00:00.000Z")).toBe(1);
+    expect(rentalDaysBetween("2026-09-10T10:00:00.000Z", "2026-09-13T10:00:00.000Z")).toBe(3);
+  });
+
+  it("counts any part of a day as a whole day", () => {
+    expect(rentalDaysBetween("2026-09-10T10:00:00.000Z", "2026-09-11T10:00:01.000Z")).toBe(2);
+    expect(rentalDaysBetween("2026-09-10T18:00:00.000Z", "2026-09-11T09:00:00.000Z")).toBe(1);
+  });
+
+  it("never returns less than a day, however the dates are given", () => {
+    expect(rentalDaysBetween("2026-09-10T10:00:00.000Z", "2026-09-10T10:00:00.000Z")).toBe(1);
+    expect(rentalDaysBetween("2026-09-12T10:00:00.000Z", "2026-09-10T10:00:00.000Z")).toBe(1);
+    expect(rentalDaysBetween("nonsense", "2026-09-10T10:00:00.000Z")).toBe(1);
   });
 });

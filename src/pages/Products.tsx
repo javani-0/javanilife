@@ -261,6 +261,18 @@ const ProductCard = ({
 
           <p className="mt-2.5 line-clamp-1 font-body text-[0.92rem] leading-relaxed text-muted-foreground sm:text-sm lg:mt-3 lg:text-[1rem]">{listingCaption}</p>
 
+          {/* Sizes + hire price at a glance (req 2) — the card should say a
+              dress comes in sizes before the customer opens it. */}
+          {((product.sizes?.length || 0) > 0 || product.rental?.enabled) && (
+            <p className="mt-1.5 font-body text-[0.72rem] text-muted-foreground sm:text-xs">
+              {(product.sizes?.length || 0) > 0 && (
+                <span className="font-semibold text-foreground">Sizes: {(product.sizes || []).join(" · ")}</span>
+              )}
+              {(product.sizes?.length || 0) > 0 && product.rental?.enabled && " — "}
+              {product.rental?.enabled && <span>also on rent</span>}
+            </p>
+          )}
+
           <div className="mt-4 flex items-center justify-between gap-3 lg:mt-5">
             <p className="font-body text-[1.2rem] font-bold leading-none text-primary sm:text-[1.5rem] lg:text-[1.8rem]">{displayPrice}</p>
             <span className={`inline-flex shrink-0 items-center gap-1 rounded-full border px-2.5 py-1 font-body text-[0.7rem] font-semibold sm:text-xs ${stockMeta.className}`}>

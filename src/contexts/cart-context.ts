@@ -10,14 +10,14 @@ export interface CartContextType {
   buyNowItem: CartItem | null;
   openCart: () => void;
   closeCart: () => void;
-  addProduct: (product: Product, quantity?: number) => Promise<void>;
+  addProduct: (product: Product, quantity?: number, size?: string) => Promise<void>;
   addItem: (item: CartItem) => Promise<void>;
   setItemQuantity: (productId: string, quantity: number) => Promise<void>;
   incrementItem: (productId: string) => Promise<void>;
   decrementItem: (productId: string) => Promise<void>;
   removeItem: (productId: string) => Promise<void>;
   clearCart: () => Promise<void>;
-  setBuyNowProduct: (product: Product, quantity?: number) => void;
+  setBuyNowProduct: (product: Product, quantity?: number, size?: string) => void;
   setBuyNowItem: (item: CartItem) => void;
   clearBuyNowItem: () => void;
 }

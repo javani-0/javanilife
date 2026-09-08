@@ -154,6 +154,18 @@ export const isRentalOverdue = (
 ): boolean => (booking.status === "booked" || booking.status === "picked-up")
   && overdueHoursAt(booking.dueAt, now) > 0;
 
+/**
+ * Whole 24-hour blocks between two moments, never less than one — how a
+ * FROM/TO pair the customer picks becomes the number of days they are billed
+ * for. Part of a day counts as a day, which is what "per 24 hours" means.
+ */
+export const rentalDaysBetween = (from: Date | string, to: Date | string): number => {
+  const start = toTime(from);
+  const end = toTime(to);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return 1;
+  return Math.max(1, Math.ceil((end - start) / (RENTAL_HOURS_PER_DAY * MS_PER_HOUR)));
+};
+
 /** "10 Sep 2026, 6:00 pm" in the admin's own timezone. */
 export const formatRentalMoment = (value: Date | string, locale = "en-IN"): string => {
   const time = toTime(value);

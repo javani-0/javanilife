@@ -86,7 +86,7 @@ export const buildOverdueMessage = (
   "",
   "Extra time is charged by the hour until the item is returned, so please bring it back at the earliest.",
   "",
-  "Thank you — Javani Spiritual Hub (VESTRA)",
+  "Thank you — Javani Spiritual Hub (VASTRA)",
 ].join("\n");
 
 /** Message again only once the lateness has meaningfully grown. */

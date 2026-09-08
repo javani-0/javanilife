@@ -40,7 +40,7 @@ export const buildRentalOverdueMessage = (
   "",
   "Extra time is charged by the hour until the item is returned, so please bring it back at the earliest.",
   "",
-  "Thank you — Javani Spiritual Hub (VESTRA)",
+  "Thank you — Javani Spiritual Hub (VASTRA)",
 ].join("\n");
 
 /** wa.me link so the admin can send it from their own phone. */

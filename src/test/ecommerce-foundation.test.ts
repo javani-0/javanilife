@@ -406,7 +406,25 @@ describe("admin order foundation", () => {
       paymentStatus: "cod-pending",
       dateRange: "all",
       specificDate: "",
+      fromDate: "",
+      toDate: "",
     })).toHaveLength(1);
+  });
+
+  // req 3: the office asks for "1 to 15 May", not just one day.
+  it("filters admin orders by a from–to date range", () => {
+    const base = {
+      search: "", status: "all", paymentMethod: "all", paymentStatus: "all",
+      dateRange: "all", specificDate: "",
+    } as const;
+    // The two fixtures were placed on 4 and 5 May 2026.
+    expect(filterAdminOrders(adminOrders, { ...base, fromDate: "2026-05-01", toDate: "2026-05-04" })).toHaveLength(1);
+    expect(filterAdminOrders(adminOrders, { ...base, fromDate: "2026-05-05", toDate: "" })).toHaveLength(1);
+    expect(filterAdminOrders(adminOrders, { ...base, fromDate: "", toDate: "2026-05-04" })).toHaveLength(1);
+    expect(filterAdminOrders(adminOrders, { ...base, fromDate: "2026-06-01", toDate: "2026-06-30" })).toHaveLength(0);
+    // Reversed by mistake — read the way it was meant.
+    expect(filterAdminOrders(adminOrders, { ...base, fromDate: "2026-05-31", toDate: "2026-05-01" })).toHaveLength(2);
+    expect(filterAdminOrders(adminOrders, { ...base, fromDate: "", toDate: "" })).toHaveLength(2);
   });
 
   it("summarizes order management metrics", () => {

@@ -1,19 +1,19 @@
-# VESTRA, rentals, three more exports, and re-manifest
+# VASTRA, rentals, three more exports, and re-manifest
 
 **Date:** 2026-09-08 (second round of the day)
-**Requests:** students-by-class export · a VESTRA section · rentals priced by 24 hours with hourly
+**Requests:** students-by-class export · a VASTRA section · rentals priced by 24 hours with hourly
 overtime and a WhatsApp warning · Buy/Rent tabs · a products export · a finance breakdown by
 product / class / course / rental with customer details · re-manifest a missed delivery.
 
 ---
 
-## 1 · VESTRA and rentals (reqs 2, 3, 4)
+## 1 · VASTRA and rentals (reqs 2, 3, 4)
 
 ### Decisions taken with the client
 
 | Question | Answer |
 |---|---|
-| Where VESTRA lives | Its own page `/vestra` with **Buy \| Rent** tabs |
+| Where VASTRA lives | Its own page `/vestra` with **Buy \| Rent** tabs |
 | Overtime pricing | **Per hour after the first 24 h**, at a 24th of the day rate |
 | Who is warned when it runs late | **The customer** |
 | How a rental is collected | **Store pickup or delivery, chosen at checkout** |
@@ -83,8 +83,7 @@ lands on the timeline. "Manifest Order" now greys out to **Manifested** once a w
 ## Verification
 
 - 515 unit tests pass (the same 5 pre-existing failures); both typechecks and `vite build` clean.
-- Browser, live data: VESTRA tabs and the booking panel (₹500/24 h → ₹20.83/h, 3 days = ₹1,500, the
-  7-day cap holds); rental added to the cart; **a real COD order placed end to end** → the order line
+- Browser, live data: the booking panel (₹500/24 h → ₹20.83/h, 3 days = ₹1,500, the 7-day cap holds); rental added to the cart; **a real COD order placed end to end** → the order line
   kept `itemType: "rental"` with its terms and the booking appeared on the desk as *Booked · 2 days ·
   store pickup*; an overdue fixture showed *49 hours past the return time at ₹20.83/hour = ₹1,020.67*,
   matched by the return dialog, the frozen charge, the export and the WhatsApp text; the late fee, once

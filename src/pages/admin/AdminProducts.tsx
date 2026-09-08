@@ -49,6 +49,8 @@ import {
   normalizeDeliveryProfile,
   normalizeAllowedPaymentMethods,
   normalizeProduct,
+  normalizeProductSizes,
+  COMMON_PRODUCT_SIZES,
   normalizeProductStockStatus,
   parsePriceToPaise,
   PRODUCT_CATEGORIES_SETTINGS_ID,
@@ -82,8 +84,10 @@ interface ProductFormState {
   freeDeliveryEligible: boolean;
   allowCod: boolean;
   allowOnline: boolean;
-  // VESTRA + rentals (req 2-4)
-  vestra: boolean;
+  // VASTRA + rentals
+  vastra: boolean;
+  /** Sizes this piece comes in — free text, comma-separated in the form. */
+  sizes: string[];
   purchasable: boolean;
   rentalEnabled: boolean;
   rentalPriceRupees: string;
@@ -114,7 +118,8 @@ const emptyForm: ProductFormState = {
   freeDeliveryEligible: false,
   allowCod: true,
   allowOnline: true,
-  vestra: false,
+  vastra: false,
+  sizes: [],
   purchasable: true,
   rentalEnabled: false,
   rentalPriceRupees: "",
@@ -230,6 +235,7 @@ const AdminProducts = () => {
   const [viewMode, setViewMode] = useState<"grid" | "table">("grid");
   // Download the catalogue as a spreadsheet (req 5).
   const [exportOpen, setExportOpen] = useState(false);
+  const [customSize, setCustomSize] = useState("");
   const [imageUploading, setImageUploading] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const imageRef = useRef<HTMLInputElement>(null);
@@ -309,7 +315,8 @@ const AdminProducts = () => {
       freeDeliveryEligible: product.delivery?.freeDeliveryEligible === true,
       allowCod: allowedPaymentMethods.includes("cod"),
       allowOnline: allowedPaymentMethods.includes("razorpay"),
-      vestra: product.vestra === true,
+      vastra: product.vastra === true,
+      sizes: product.sizes || [],
       purchasable: product.purchasable !== false,
       rentalEnabled: product.rental?.enabled === true,
       rentalPriceRupees: product.rental?.pricePerDayInPaise ? String(product.rental.pricePerDayInPaise / 100) : "",
@@ -412,9 +419,10 @@ const AdminProducts = () => {
       whatsappEnquiry: form.whatsappEnquiry,
       allowedPaymentMethods: [form.allowCod ? "cod" : null, form.allowOnline ? "razorpay" : null].filter(Boolean),
       delivery,
-      // VESTRA + rentals (req 2-4). `rental` is always written as an object so
+      // VASTRA + rentals. `rental` is always written as an object so
       // switching renting OFF actually clears it on the live product.
-      vestra: form.vestra,
+      vastra: form.vastra,
+      sizes: normalizeProductSizes(form.sizes),
       purchasable: form.purchasable,
       rental: {
         enabled: form.rentalEnabled,
@@ -718,18 +726,18 @@ const AdminProducts = () => {
                 </label>
               </div>
 
-              {/* VESTRA & rentals (req 2-4) */}
+              {/* VASTRA, sizes & rentals */}
               <div className="rounded-xl border border-gold/25 bg-gold/5 p-4 sm:col-span-2">
-                <p className="font-body text-[0.7rem] font-semibold uppercase tracking-[0.14em] text-gold">VESTRA &amp; rentals</p>
+                <p className="font-body text-[0.7rem] font-semibold uppercase tracking-[0.14em] text-gold">VASTRA &amp; rentals</p>
                 <p className="mt-1 font-body text-xs text-muted-foreground">
-                  VESTRA items appear on the /vestra page. Type what <strong>24 hours</strong> costs and the site does the rest:
+                  A VASTRA piece is a dress or costume — it can carry sizes, and it can be hired. Type what <strong>24 hours</strong> costs and the site does the rest:
                   a booking of N days is N × that, and every hour past the return time is billed at a 24th of it.
                 </p>
 
                 <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <label className="flex cursor-pointer items-center justify-between gap-3 rounded-lg border border-border bg-card px-3 py-2.5 font-body text-sm font-semibold text-foreground">
-                    <span className="flex items-center gap-2"><Sparkles className="h-4 w-4 text-gold" /> Show in VESTRA</span>
-                    <input type="checkbox" checked={form.vestra} onChange={(event) => setForm({ ...form, vestra: event.target.checked })} />
+                    <span className="flex items-center gap-2"><Sparkles className="h-4 w-4 text-gold" /> VASTRA piece</span>
+                    <input type="checkbox" checked={form.vastra} onChange={(event) => setForm({ ...form, vastra: event.target.checked })} />
                   </label>
                   <label className="flex cursor-pointer items-center justify-between gap-3 rounded-lg border border-border bg-card px-3 py-2.5 font-body text-sm font-semibold text-foreground">
                     <span className="flex items-center gap-2"><BadgeIndianRupee className="h-4 w-4 text-gold" /> Can be bought</span>
@@ -739,6 +747,78 @@ const AdminProducts = () => {
                     <span className="flex items-center gap-2"><Clock className="h-4 w-4 text-gold" /> Can be rented</span>
                     <input type="checkbox" checked={form.rentalEnabled} onChange={(event) => setForm({ ...form, rentalEnabled: event.target.checked })} />
                   </label>
+                </div>
+
+                {/* Sizes (req 2): a dress comes in sizes, so the customer can be
+                    told which ones exist and pick one. */}
+                <div className="mt-3 rounded-lg border border-border bg-card p-3">
+                  <p className="font-body text-xs font-semibold text-foreground">Available sizes</p>
+                  <p className="mt-0.5 font-body text-[0.7rem] text-muted-foreground">
+                    Tick every size you stock. One is fine. Leave all off for a piece that has no sizes.
+                  </p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {COMMON_PRODUCT_SIZES.map((size) => {
+                      const on = form.sizes.includes(size);
+                      return (
+                        <button
+                          key={size}
+                          type="button"
+                          onClick={() => setForm({
+                            ...form,
+                            sizes: on ? form.sizes.filter((item) => item !== size) : [...form.sizes, size],
+                          })}
+                          className={`rounded-md border px-3 py-1.5 font-body text-xs font-semibold transition-colors ${on ? "border-gold bg-gold/15 text-gold" : "border-border text-muted-foreground hover:border-gold/40"}`}
+                        >
+                          {size}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {form.sizes.filter((size) => !COMMON_PRODUCT_SIZES.includes(size as typeof COMMON_PRODUCT_SIZES[number])).length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {form.sizes
+                        .filter((size) => !COMMON_PRODUCT_SIZES.includes(size as typeof COMMON_PRODUCT_SIZES[number]))
+                        .map((size) => (
+                          <button
+                            key={size}
+                            type="button"
+                            onClick={() => setForm({ ...form, sizes: form.sizes.filter((item) => item !== size) })}
+                            className="flex items-center gap-1 rounded-md border border-gold bg-gold/15 px-3 py-1.5 font-body text-xs font-semibold text-gold"
+                            title="Remove this size"
+                          >
+                            {size} <X className="h-3 w-3" />
+                          </button>
+                        ))}
+                    </div>
+                  )}
+                  <div className="mt-2 flex gap-2">
+                    <input
+                      value={customSize}
+                      onChange={(event) => setCustomSize(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key !== "Enter") return;
+                        event.preventDefault();
+                        const size = customSize.trim();
+                        if (!size || form.sizes.some((item) => item.toLowerCase() === size.toLowerCase())) { setCustomSize(""); return; }
+                        setForm({ ...form, sizes: [...form.sizes, size] });
+                        setCustomSize("");
+                      }}
+                      placeholder="Other size — e.g. 36, 5-6 yrs"
+                      className={inputClass}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const size = customSize.trim();
+                        if (!size || form.sizes.some((item) => item.toLowerCase() === size.toLowerCase())) { setCustomSize(""); return; }
+                        setForm({ ...form, sizes: [...form.sizes, size] });
+                        setCustomSize("");
+                      }}
+                      className="shrink-0 rounded-md border border-border px-3 font-body text-xs font-semibold text-foreground hover:bg-muted"
+                    >
+                      Add size
+                    </button>
+                  </div>
                 </div>
 
                 {form.rentalEnabled && (
