@@ -6,7 +6,7 @@ import {
   LayoutDashboard, ClipboardList, BookOpen, Image, ShoppingBag, Users, Users2,
   Handshake, SlidersHorizontal, LogOut, Menu, X, PackageCheck,
   ChevronLeft, ChevronRight, TicketPercent, Truck,
-  GraduationCap, PiggyBank, QrCode, UserCog, UserPlus, ScrollText,
+  GraduationCap, PiggyBank, QrCode, UserCog, UserPlus, ScrollText, CalendarClock,
 } from "lucide-react";
 import logoWhite from "@/assets/logo-white.png";
 
@@ -27,6 +27,7 @@ const allNavItems = [
   { label: "Payment Settings", icon: QrCode, path: "/admin/payment-settings" },
   { label: "Gallery Manager", icon: Image, path: "/admin/gallery" },
   { label: "Products Manager", icon: ShoppingBag, path: "/admin/products" },
+  { label: "Rental Desk", icon: CalendarClock, path: "/admin/rentals" },
   { label: "Coupons", icon: TicketPercent, path: "/admin/coupons" },
   { label: "Delivery Settings", icon: Truck, path: "/admin/delivery-settings" },
   { label: "Orders Manager", icon: PackageCheck, path: "/admin/orders" },

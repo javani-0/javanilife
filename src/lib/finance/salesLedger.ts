@@ -12,7 +12,7 @@
 // ---------------------------------------------------------------------------
 import { orderCollectedInPaise, type OrderLineItem, type SplittableOrder } from "./income";
 
-export type SaleCategory = "product" | "course" | "class" | "other";
+export type SaleCategory = "product" | "course" | "class" | "rental" | "other";
 
 /** How the money arrived. `unknown` when the record simply doesn't say. */
 export type SaleMode = "online" | "offline" | "unknown";
@@ -24,6 +24,11 @@ export interface SaleLine {
   name: string;
   /** Who paid — customer or student. */
   buyer: string;
+  /** How to reach them (req 6: "to whom we sold it, customer details"). */
+  buyerPhone?: string;
+  buyerEmail?: string;
+  /** How many units this line covered — 1 for a class fee or a course seat. */
+  quantity?: number;
   /** "YYYY-MM-DD", or "" when the record carries no usable date. */
   dateKey: string;
   amountInPaise: number;
@@ -77,6 +82,9 @@ export interface SaleOrder extends SplittableOrder {
   id?: string;
   orderNumber?: string;
   customerName?: string;
+  customerPhone?: string;
+  customerEmail?: string;
+  customerWhatsAppNumber?: string;
   createdAt?: unknown;
   payment?: SplittableOrder["payment"] & { method?: string; paidAt?: unknown };
 }
@@ -113,6 +121,8 @@ export const orderSaleLines = (order: SaleOrder, index = 0): SaleLine[] => {
   const { mode, label } = orderMethod(order);
   const dateKey = dateKeyOf(order.payment?.paidAt || order.createdAt);
   const buyer = str(order.customerName);
+  const buyerPhone = str(order.customerPhone) || str(order.customerWhatsAppNumber);
+  const buyerEmail = str(order.customerEmail);
   const reference = str(order.orderNumber);
 
   const items = (order.items || []).filter((item) => lineTotalOf(item) > 0);
@@ -125,7 +135,8 @@ export const orderSaleLines = (order: SaleOrder, index = 0): SaleLine[] => {
       id: orderId,
       category: "product",
       name: reference ? `Order ${reference}` : "Order",
-      buyer, dateKey, amountInPaise: collected, mode, methodLabel: label, reference,
+      buyer, buyerPhone, buyerEmail, quantity: 1,
+      dateKey, amountInPaise: collected, mode, methodLabel: label, reference,
     }];
   }
 
@@ -134,11 +145,25 @@ export const orderSaleLines = (order: SaleOrder, index = 0): SaleLine[] => {
     const isLast = itemIndex === items.length - 1;
     const amountInPaise = isLast ? remaining : Math.round((collected * lineTotalOf(item)) / lineSum);
     remaining -= amountInPaise;
+    const lineItem = item as OrderLineItem & { name?: string; rental?: { days?: number; dueAt?: string } };
+    const category: SaleCategory = item.itemType === "course"
+      ? "course"
+      : item.itemType === "rental" ? "rental" : "product";
     return {
       id: `${orderId}:${itemIndex}`,
-      category: item.itemType === "course" ? "course" : "product",
-      name: str((item as OrderLineItem & { name?: string }).name) || "Item",
-      buyer, dateKey, amountInPaise, mode, methodLabel: label, reference,
+      category,
+      name: str(lineItem.name) || "Item",
+      buyer, buyerPhone, buyerEmail,
+      quantity: Math.max(1, Math.round(num(item.quantity) || 1)),
+      dateKey,
+      amountInPaise,
+      mode,
+      methodLabel: label,
+      // A rental's reference carries its term, so the sheet says what was hired
+      // and for how long, not just that money arrived.
+      reference: category === "rental" && lineItem.rental?.days
+        ? `${reference ? `${reference} · ` : ""}${lineItem.rental.days} day${lineItem.rental.days === 1 ? "" : "s"}`
+        : reference,
     };
   });
 };
@@ -150,6 +175,8 @@ export interface SaleFee {
   status?: string;
   className?: string;
   studentName?: string;
+  parentPhone?: string;
+  studentRollNo?: string;
   periodLabel?: string;
   amountInPaise?: number;
   paymentMethod?: string;
@@ -178,6 +205,8 @@ export const feeSaleLines = (fees: SaleFee[]): SaleLine[] =>
         category: "class" as SaleCategory,
         name: str(fee.className) || "Class fee",
         buyer: str(fee.studentName),
+        buyerPhone: str(fee.parentPhone),
+        quantity: 1,
         dateKey: dateKeyOf(fee.paidAt || fee.updatedAt || fee.createdAt),
         amountInPaise: Math.max(0, Math.round(num(fee.amountInPaise))),
         mode: method.mode,
@@ -213,15 +242,55 @@ export const manualIncomeSaleLines = (entries: SaleManualIncome[]): SaleLine[] =
     };
   });
 
+// ── Rental late fees ──────────────────────────────────────────────────────
+
+export interface SaleRental {
+  id?: string;
+  productName?: string;
+  customerName?: string;
+  customerPhone?: string;
+  orderNumber?: string;
+  quantity?: number;
+  overdueHours?: number;
+  extraChargeInPaise?: number;
+  extraChargeCollected?: boolean;
+  returnedAt?: unknown;
+  dueAt?: unknown;
+}
+
+/**
+ * Money earned from LATE returns (req 3/6). The booking itself was already paid
+ * through its order, so only the collected late fee is counted here — counting
+ * the booking twice would inflate the month.
+ */
+export const rentalLateFeeSaleLines = (rentals: SaleRental[]): SaleLine[] =>
+  (rentals || [])
+    .filter((rental) => rental?.extraChargeCollected === true && num(rental.extraChargeInPaise) > 0)
+    .map((rental, index) => ({
+      id: rental.id ? `rental-late-${rental.id}` : `rental-late-${index}`,
+      category: "rental" as SaleCategory,
+      name: `${str(rental.productName) || "Rental"} — late return`,
+      buyer: str(rental.customerName),
+      buyerPhone: str(rental.customerPhone),
+      quantity: Math.max(1, Math.round(num(rental.quantity) || 1)),
+      dateKey: dateKeyOf(rental.returnedAt || rental.dueAt),
+      amountInPaise: Math.max(0, Math.round(num(rental.extraChargeInPaise))),
+      mode: "unknown" as SaleMode,
+      methodLabel: "Late fee",
+      reference: `${str(rental.orderNumber)}${rental.overdueHours ? ` · ${Math.round(num(rental.overdueHours))} h late` : ""}`.trim(),
+    }));
+
 /** Every sale behind the period's income, newest first. */
 export const buildSaleLines = (input: {
   orders?: SaleOrder[];
   fees?: SaleFee[];
   manualIncome?: SaleManualIncome[];
+  rentals?: SaleRental[];
 }): SaleLine[] => [
   ...(input.orders || []).flatMap((order, index) => orderSaleLines(order, index)),
   ...feeSaleLines(input.fees || []),
   ...manualIncomeSaleLines(input.manualIncome || []),
+  ...rentalLateFeeSaleLines(input.rentals || []),
 ].sort((a, b) => (b.dateKey || "").localeCompare(a.dateKey || ""));
 
 export interface SalesTotal {
@@ -229,12 +298,13 @@ export interface SalesTotal {
   totalInPaise: number;
 }
 
-export const SALE_CATEGORIES: SaleCategory[] = ["product", "course", "class", "other"];
+export const SALE_CATEGORIES: SaleCategory[] = ["product", "course", "class", "rental", "other"];
 
 export const SALE_CATEGORY_LABELS: Record<SaleCategory, string> = {
   product: "Product Income",
   course: "Course Income",
   class: "Classes Income",
+  rental: "Rental Income",
   other: "Other Income",
 };
 
@@ -242,7 +312,7 @@ export const SALE_CATEGORY_LABELS: Record<SaleCategory, string> = {
 export const summarizeSalesByCategory = (lines: SaleLine[]): Record<SaleCategory, SalesTotal> => {
   const empty = (): SalesTotal => ({ count: 0, totalInPaise: 0 });
   const totals: Record<SaleCategory, SalesTotal> = {
-    product: empty(), course: empty(), class: empty(), other: empty(),
+    product: empty(), course: empty(), class: empty(), rental: empty(), other: empty(),
   };
   for (const line of lines) {
     totals[line.category].count += 1;
@@ -260,4 +330,68 @@ export const summarizeSalesByMode = (lines: SaleLine[]): Record<SaleMode, SalesT
     totals[line.mode].totalInPaise += line.amountInPaise;
   }
   return totals;
+};
+
+// ── What actually sold (req 6) ────────────────────────────────────────────
+
+export interface ItemSalesSummary {
+  category: SaleCategory;
+  name: string;
+  /** How many separate sales — the "no. of sales". */
+  sales: number;
+  /** Units moved across those sales. */
+  units: number;
+  totalInPaise: number;
+  /** Distinct buyers, and who they were. */
+  customerCount: number;
+  customers: string[];
+  firstSale: string;
+  lastSale: string;
+}
+
+/**
+ * One row per thing sold — product, course, class or rental — with how often it
+ * went, how much it made and who bought it. This is the answer to "which
+ * product sells", and it reads off the same lines as every other total.
+ */
+export const summarizeSalesByItem = (lines: SaleLine[]): ItemSalesSummary[] => {
+  const byKey = new Map<string, ItemSalesSummary & { buyers: Set<string> }>();
+
+  for (const line of lines || []) {
+    const key = `${line.category}::${line.name}`;
+    const existing = byKey.get(key);
+    const buyer = (line.buyer || "").trim();
+    if (existing) {
+      existing.sales += 1;
+      existing.units += Math.max(1, Math.round(line.quantity || 1));
+      existing.totalInPaise += line.amountInPaise;
+      if (buyer) existing.buyers.add(buyer);
+      if (line.dateKey) {
+        if (!existing.firstSale || line.dateKey < existing.firstSale) existing.firstSale = line.dateKey;
+        if (!existing.lastSale || line.dateKey > existing.lastSale) existing.lastSale = line.dateKey;
+      }
+      continue;
+    }
+    byKey.set(key, {
+      category: line.category,
+      name: line.name,
+      sales: 1,
+      units: Math.max(1, Math.round(line.quantity || 1)),
+      totalInPaise: line.amountInPaise,
+      customerCount: 0,
+      customers: [],
+      firstSale: line.dateKey || "",
+      lastSale: line.dateKey || "",
+      buyers: new Set(buyer ? [buyer] : []),
+    });
+  }
+
+  return [...byKey.values()]
+    .map(({ buyers, ...summary }) => ({
+      ...summary,
+      customerCount: buyers.size,
+      customers: [...buyers].sort((a, b) => a.localeCompare(b)),
+    }))
+    // Best sellers first — that is the question this table is asked.
+    .sort((a, b) => b.totalInPaise - a.totalInPaise);
 };

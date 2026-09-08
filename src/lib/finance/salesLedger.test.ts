@@ -10,6 +10,8 @@ import {
   summarizeSalesByMode,
   type SaleFee,
   type SaleOrder,
+  rentalLateFeeSaleLines,
+  summarizeSalesByItem,
 } from "./salesLedger";
 
 const paidOrder = (over: Partial<SaleOrder> = {}): SaleOrder => ({
@@ -173,5 +175,79 @@ describe("buildSaleLines", () => {
   it("is empty, not broken, when there is nothing to show", () => {
     expect(buildSaleLines({})).toEqual([]);
     expect(summarizeSalesByCategory([]).product).toEqual({ count: 0, totalInPaise: 0 });
+  });
+});
+
+// ── Rentals + per-item summary (req 6) ────────────────────────────────────
+
+describe("rental sale lines", () => {
+  const order = {
+    id: "o1",
+    orderNumber: "JV-9",
+    customerName: "Meera",
+    customerPhone: "9876500000",
+    customerEmail: "meera@example.com",
+    totalInPaise: 150_000,
+    payment: { status: "paid", method: "razorpay", paidAt: "2026-09-10T06:00:00.000Z" },
+    items: [
+      { itemType: "rental", name: "Kuchipudi costume — 2 days rental", lineTotalInPaise: 100_000, quantity: 1, rental: { days: 2, dueAt: "2026-09-12T06:00:00.000Z" } },
+      { itemType: "product", name: "Ghungroo", lineTotalInPaise: 50_000, quantity: 2 },
+    ],
+  };
+
+  it("files a rental line under its own category and carries the customer", () => {
+    const [rental, product] = orderSaleLines(order as never);
+    expect(rental.category).toBe("rental");
+    expect(rental.buyerPhone).toBe("9876500000");
+    expect(rental.buyerEmail).toBe("meera@example.com");
+    expect(rental.reference).toContain("2 days");
+    expect(product.category).toBe("product");
+    expect(product.quantity).toBe(2);
+  });
+
+  it("counts a COLLECTED late fee as rental income, and ignores an uncollected one", () => {
+    const lines = rentalLateFeeSaleLines([
+      { id: "r1", productName: "Kuchipudi costume", customerName: "Meera", customerPhone: "98765", quantity: 1, overdueHours: 5, extraChargeInPaise: 10_415, extraChargeCollected: true, returnedAt: "2026-09-13T04:00:00.000Z" },
+      { id: "r2", productName: "Anklets", extraChargeInPaise: 5_000, extraChargeCollected: false, returnedAt: "2026-09-13T04:00:00.000Z" },
+    ] as never);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatchObject({ category: "rental", amountInPaise: 10_415, buyer: "Meera" });
+    expect(lines[0].name).toContain("late return");
+    expect(lines[0].reference).toContain("5 h late");
+  });
+});
+
+describe("summarizeSalesByItem", () => {
+  const lines = [
+    { id: "1", category: "product", name: "Ghungroo", buyer: "Meera", dateKey: "2026-09-01", amountInPaise: 50_000, mode: "online", methodLabel: "UPI", reference: "", quantity: 2 },
+    { id: "2", category: "product", name: "Ghungroo", buyer: "Anita", dateKey: "2026-09-05", amountInPaise: 25_000, mode: "offline", methodLabel: "Cash", reference: "", quantity: 1 },
+    { id: "3", category: "product", name: "Ghungroo", buyer: "Meera", dateKey: "2026-09-03", amountInPaise: 25_000, mode: "online", methodLabel: "UPI", reference: "", quantity: 1 },
+    { id: "4", category: "class", name: "KP Grades", buyer: "Ravi", dateKey: "2026-09-02", amountInPaise: 200_000, mode: "offline", methodLabel: "Cash", reference: "" },
+  ] as never;
+
+  it("answers 'which product sells' — sales, units, money and buyers", () => {
+    const [best, second] = summarizeSalesByItem(lines);
+    expect(best.name).toBe("KP Grades");          // sorted by money
+    expect(second.name).toBe("Ghungroo");
+    expect(second.sales).toBe(3);
+    expect(second.units).toBe(4);
+    expect(second.totalInPaise).toBe(100_000);
+    expect(second.customerCount).toBe(2);          // Meera counted once
+    expect(second.customers).toEqual(["Anita", "Meera"]);
+    expect(second.firstSale).toBe("2026-09-01");
+    expect(second.lastSale).toBe("2026-09-05");
+  });
+
+  it("keeps the same name in two categories apart", () => {
+    const summary = summarizeSalesByItem([
+      { id: "a", category: "product", name: "Costume", buyer: "A", dateKey: "2026-09-01", amountInPaise: 100, mode: "online", methodLabel: "", reference: "" },
+      { id: "b", category: "rental", name: "Costume", buyer: "B", dateKey: "2026-09-01", amountInPaise: 200, mode: "online", methodLabel: "", reference: "" },
+    ] as never);
+    expect(summary).toHaveLength(2);
+    expect(summary.map((item) => item.category).sort()).toEqual(["product", "rental"]);
+  });
+
+  it("is empty for no sales", () => {
+    expect(summarizeSalesByItem([])).toEqual([]);
   });
 });

@@ -8,6 +8,8 @@ import { Plus, Pencil, Trash2, X, Upload, BadgeIndianRupee, AlertTriangle, Clipb
 import { useToast } from "@/hooks/use-toast";
 import { useAdminLog } from "@/hooks/useAdminLog";
 import { confirmDialog } from "@/components/ConfirmDialogHost";
+import { useUndoableDelete } from "@/hooks/useUndoableDelete";
+import UndoDeleteBar from "@/components/UndoDeleteBar";
 import ClassAcademicsTabs from "@/components/admin/ClassAcademicsTabs";
 import BrokenEnrollmentsBanner from "@/components/admin/BrokenEnrollmentsBanner";
 import { formatPaiseAsRupees, parsePriceToPaise } from "@/lib/ecommerce";
@@ -27,6 +29,7 @@ import {
   getTermPayFullPriceInPaise,
   hasAutopayDiscount,
   hasTermPayFullOffer,
+  listEnrollmentsForClass,
   monthsBetween,
   subscribeToClasses,
   getClassContent,
@@ -195,6 +198,8 @@ const hasStudentContent = (classDoc: ClassDoc): boolean =>
   Boolean(classDoc.liveClassUrl) || (classDoc.recordings?.length || 0) > 0 || (classDoc.materials?.length || 0) > 0;
 
 const AdminClasses = () => {
+  // Deleting a class hides it for five seconds first, so a mis-tap is undoable.
+  const { pending: pendingDeletes, revision: deleteRevision, scheduleDelete, undoDelete, isPendingDelete } = useUndoableDelete(5000);
   const [classes, setClasses] = useState<ClassDoc[]>([]);
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
@@ -213,7 +218,12 @@ const AdminClasses = () => {
     console.error("Unable to load classes", error);
   }), []);
 
-  const sortedClasses = useMemo(() => [...classes].sort((a, b) => a.name.localeCompare(b.name)), [classes]);
+  const sortedClasses = useMemo(
+    // A class inside its undo window is already gone as far as the admin is
+    // concerned; Undo is what brings it back.
+    () => [...classes].filter((cls) => !isPendingDelete(cls.id)).sort((a, b) => a.name.localeCompare(b.name)),
+    [classes, isPendingDelete, pendingDeletes, deleteRevision],
+  );
 
   const monthlyFeePreviewInPaise = parsePriceToPaise(form.feeRupees) || 0;
   const termFeePreviewInPaise = parsePriceToPaise(form.termFeeRupees) || 0;
@@ -480,20 +490,47 @@ const AdminClasses = () => {
     }
   };
 
+  // Deleting a class is what CREATES broken enrolments: the students stay
+  // attached to an id nothing answers to and lose the live link, recordings and
+  // materials. So the admin is told exactly how many students that is before
+  // they decide, and gets the same 5-second undo as every other delete (req 2).
   const deleteClass = async (id: string, name: string) => {
+    let attached = 0;
+    try {
+      attached = (await listEnrollmentsForClass(id)).filter((item) => item.status !== "cancelled").length;
+    } catch (error) {
+      console.error("Could not count the enrolments on this class", error);
+    }
+    const warning = attached > 0
+      ? `${attached} student${attached === 1 ? " is" : "s are"} still enrolled in it. They will lose the live link, recordings and materials until you re-link them from the banner on Student Manager.`
+      : "No students are enrolled in it.";
     if (!(await confirmDialog({
       title: `Delete "${name}"?`,
-      description: "Existing enrollments and fee history are not removed.",
+      description: `${warning}
+
+Enrolments and fee history are kept — only the class goes.
+
+You'll get 5 seconds to undo.`,
       confirmText: "Delete class",
       destructive: true,
+      requireText: attached > 0 ? "DELETE" : undefined,
     }))) return;
-    await deleteDoc(doc(db, CLASSES_COLLECTION, id));
-    toast({ title: "Class deleted" });
-    logAction("Deleted class", name);
+    scheduleDelete(id, `Class "${name}"`, async () => {
+      try {
+        await deleteDoc(doc(db, CLASSES_COLLECTION, id));
+        toast({ title: "Class deleted", description: attached > 0 ? `${attached} enrolment${attached === 1 ? "" : "s"} now need re-linking on Student Manager.` : undefined });
+        logAction("Deleted class", `${name}${attached > 0 ? ` · ${attached} enrolments left needing a re-link` : ""}`);
+      } catch (error) {
+        toast({ title: "Could not delete the class", description: error instanceof Error ? error.message : undefined, variant: "destructive" });
+        throw error;
+      }
+    });
   };
 
   return (
     <div className="space-y-6">
+      <UndoDeleteBar pending={pendingDeletes} onUndo={undoDelete} />
+
       <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
         <div>
           <p className="font-body text-sm font-semibold uppercase tracking-[0.2em] text-gold">Classes</p>

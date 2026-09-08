@@ -34,6 +34,8 @@ import approveOnboarding from "./_razorpay/approve-onboarding.js";
 // @ts-ignore
 import deleteStudent from "./_razorpay/delete-student.js";
 // @ts-ignore
+import rentalOverdue from "./_razorpay/rental-overdue.js";
+// @ts-ignore
 import manageUser from "./_razorpay/manage-user.js";
 // @ts-ignore
 import classJoinLink from "./_razorpay/class-join-link.js";
@@ -76,6 +78,11 @@ export default async function handler(request: ApiRequest, response: ApiResponse
   }
   if (action === "delete-student" || url.includes("/delete-student")) {
     return deleteStudent(request, response);
+  }
+  // Overdue rental alerts (req 3) — reached by the scheduler at
+  // /api/cron/rental-overdue and by the Rental Desk button.
+  if (action === "rental-overdue" || url.includes("/rental-overdue")) {
+    return rentalOverdue(request, response);
   }
   if (action === "manage-user" || url.includes("/manage-user")) {
     return manageUser(request, response);

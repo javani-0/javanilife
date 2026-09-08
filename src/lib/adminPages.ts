@@ -23,6 +23,7 @@ export const MANAGER_PAGES: ManagerPage[] = [
   { key: "payment-settings", label: "Payment Settings", path: "/admin/payment-settings" },
   { key: "gallery", label: "Gallery Manager", path: "/admin/gallery" },
   { key: "products", label: "Products Manager", path: "/admin/products" },
+  { key: "rentals", label: "Rental Desk", path: "/admin/rentals" },
   { key: "coupons", label: "Coupons", path: "/admin/coupons" },
   { key: "delivery-settings", label: "Delivery Settings", path: "/admin/delivery-settings" },
   { key: "orders", label: "Orders Manager", path: "/admin/orders" },

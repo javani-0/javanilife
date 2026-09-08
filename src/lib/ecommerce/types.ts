@@ -99,9 +99,30 @@ export const PRODUCT_CATEGORY_LABELS: Record<ProductCategory, string> = Object.f
   DEFAULT_PRODUCT_CATEGORY_OPTIONS.map((category) => [category.id, category.label]),
 );
 
-export type CartItemType = "product" | "course";
+export type CartItemType = "product" | "course" | "rental";
+
+/**
+ * The rental terms carried by a cart line and copied onto the order item, so a
+ * booking can be reconstructed from the order alone (req 3).
+ */
+export interface RentalSelection {
+  /** ISO moment the item goes out. */
+  startAt: string;
+  /** ISO moment it is due back — start + days × 24h. */
+  dueAt: string;
+  days: number;
+  pricePerDayInPaise: number;
+  /** "pickup" or "delivery", chosen at checkout (req 4). */
+  fulfilment?: "pickup" | "delivery";
+}
 
 export type ProductStockStatus = "available" | "out-of-stock" | "coming-soon";
+
+export const PRODUCT_STOCK_LABEL: Record<ProductStockStatus, string> = {
+  available: "Available",
+  "out-of-stock": "Out of stock",
+  "coming-soon": "Coming soon",
+};
 export type PaymentMethod = "cod" | "razorpay";
 export type PaymentStatus = "pending" | "paid" | "partially-paid" | "failed" | "refunded" | "cod-pending" | "cod-collected";
 export type CoursePaymentPlanOption = "full" | "installment";
@@ -168,6 +189,22 @@ export interface CourseInstallmentPlan {
   installments: CourseInstallmentPayment[];
 }
 
+// ── Rentals (req 2-4) ─────────────────────────────────────────────────────
+// The admin sets ONE price: what 24 hours costs. Everything else is derived —
+// a booking of N days is N × that, and time past the return moment is billed
+// per started hour at a 24th of it (see src/lib/ecommerce/rentals.ts).
+export interface ProductRentalConfig {
+  enabled: boolean;
+  /** What 24 hours costs. The only price the admin types. */
+  pricePerDayInPaise: number;
+  /** Longest booking the customer may make. 0 = no limit. */
+  maxDays?: number;
+  /** How many of this item can be out at once. 0 = not tracked. */
+  units?: number;
+  /** Shown on the rental card — care instructions, ID proof needed, etc. */
+  terms?: string;
+}
+
 export interface ProductDeliveryProfile {
   weightInGrams?: number;
   lengthInCm?: number;
@@ -212,6 +249,12 @@ export interface Product {
   rating?: number;
   reviewCount?: number;
   delivery?: ProductDeliveryProfile;
+  /** Shown in the VESTRA section (req 2/4). */
+  vestra?: boolean;
+  /** Rentable, and on what terms (req 3). Absent = purchase only. */
+  rental?: ProductRentalConfig;
+  /** Sold outright. Default true; a rent-only costume sets it false. */
+  purchasable?: boolean;
   createdAt?: unknown;
   updatedAt?: unknown;
 }
@@ -230,6 +273,8 @@ export interface CartItem {
   stockStatus: ProductStockStatus;
   allowedPaymentMethods?: PaymentMethod[];
   maxQuantity?: number;
+  /** Present only on `itemType: "rental"` lines. */
+  rental?: RentalSelection;
   addedAt?: unknown;
   updatedAt?: unknown;
 }
@@ -297,6 +342,21 @@ export interface DeliveryInfo {
   labelPdfSize?: "A4" | "4R";
   labelFetchedAt?: unknown;
   manifestedAt?: unknown;
+  /** 1 = first manifest; 2+ after a re-manifest (req 7). */
+  manifestAttempt?: number;
+  remanifestReason?: string;
+  remanifestedAt?: unknown;
+  /** Waybills this order carried before it was re-booked — never overwritten. */
+  previousShipments?: {
+    attempt?: number;
+    trackingNumber?: string;
+    providerOrderId?: string;
+    providerStatus?: string;
+    lifecycleStatus?: string;
+    pickupId?: string;
+    reason?: string;
+    archivedAt?: string;
+  }[];
   pickupId?: string;
   pickupRequestStatus?: DeliveryPickupRequestStatus;
   pickupRequestMessage?: string;
@@ -348,6 +408,8 @@ export interface OrderItem {
   allowedPaymentMethods?: PaymentMethod[];
   delivery?: ProductDeliveryProfile;
   shipmentWeightInGrams?: number;
+  /** Present only on rental lines — what was booked, and until when. */
+  rental?: RentalSelection;
 }
 
 export interface OrderTimelineEvent {

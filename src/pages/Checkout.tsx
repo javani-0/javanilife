@@ -30,6 +30,7 @@ import {
   createRazorpayPrefill,
   createEmiSubscription,
   createOrderItemFromCartItem,
+  createRentalBookingsForOrder,
   DEFAULT_DELIVERY_PROVIDER,
   DELIVERY_SETTINGS_DOCUMENT_ID,
   evaluateCouponEligibility,
@@ -566,7 +567,15 @@ const Checkout = () => {
           customerName: normalizedAddress.fullName,
         })
         : null;
-      const orderItems = items.map((item) => sanitizeForFirestore(createOrderItemFromCartItem(item, deliveryProfiles[item.productId])));
+      // A rental line records HOW it is being collected (req 4) — the customer
+      // chose store pickup or delivery for this whole order a moment ago, and
+      // the rental desk needs to know which without opening the order.
+      const orderItems = items.map((item) => sanitizeForFirestore(createOrderItemFromCartItem(
+        item.itemType === "rental" && item.rental
+          ? { ...item, rental: { ...item.rental, fulfilment: deliveryMethod === "store-pickup" ? "pickup" as const : "delivery" as const } }
+          : item,
+        deliveryProfiles[item.productId],
+      )));
 
       const sanitizedOrderPayload = sanitizeForFirestore({
         orderNumber,
@@ -641,6 +650,25 @@ const Checkout = () => {
       };
 
       const orderDocument = await addDoc(collection(db, "orders"), orderPayload);
+
+      // Rentals live on beyond the sale — one booking per rental line, so the
+      // office can mark it out and back and the overdue clock can run (req 3).
+      // Best-effort: a failure here must never cost the customer their order.
+      if (items.some((item) => item.itemType === "rental")) {
+        try {
+          await createRentalBookingsForOrder(orderDocument.id, {
+            orderNumber,
+            customerId: user.uid,
+            customerName: normalizedAddress.fullName,
+            customerPhone: normalizedAddress.phone,
+            customerWhatsAppNumber: accountWhatsAppNumber || normalizedAddress.phone,
+            items: orderItems as never,
+            delivery: { method: deliveryMethod },
+          });
+        } catch (rentalError) {
+          console.error("Order placed, but the rental bookings could not be created", rentalError);
+        }
+      }
 
       if (paymentMethod === "razorpay") {
         if (!razorpayOrder) throw new Error("Razorpay order was not created.");

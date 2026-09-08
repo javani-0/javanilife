@@ -1,6 +1,7 @@
 import { calculateCartTotals } from "./pricing";
 import { getProductAmountInPaise, getProductCategoryLabel, getProductDisplayPrice, normalizeProductStockStatus } from "./products";
-import type { Cart, CartItem, Product } from "./types";
+import { clampRentalDays, rentalBaseInPaise, rentalDueAt } from "./rentals";
+import type { Cart, CartItem, Product, RentalSelection } from "./types";
 
 export const CART_STORAGE_KEY = "javani.cart.v1";
 export const BUY_NOW_STORAGE_KEY = "javani.buyNow.v1";
@@ -27,6 +28,47 @@ export const createCartItemFromProduct = (product: Product, quantity = 1): CartI
     stockStatus: normalizeProductStockStatus(product.stockStatus),
     allowedPaymentMethods: product.allowedPaymentMethods,
     maxQuantity,
+  };
+};
+
+/**
+ * A RENTAL line (req 3/4). Namespaced exactly like a course line
+ * ("course:<id>"), because the same costume can sit in the cart twice — once
+ * bought, once rented for a particular weekend — and the cart is keyed by
+ * `productId`. The amount is the whole booking (days × the 24-hour price), so
+ * every existing total, coupon and payment rule works untouched.
+ */
+export const createCartItemFromRental = (
+  product: Product,
+  selection: { startAt: string; days: number; quantity?: number; fulfilment?: "pickup" | "delivery" },
+): CartItem => {
+  const pricePerDayInPaise = Math.max(0, Math.round(product.rental?.pricePerDayInPaise || 0));
+  const days = clampRentalDays(selection.days, product.rental?.maxDays || 0);
+  const quantity = clampCartQuantity(selection.quantity || 1, product.rental?.units || undefined);
+  const rental: RentalSelection = {
+    startAt: selection.startAt,
+    dueAt: rentalDueAt(selection.startAt, days),
+    days,
+    pricePerDayInPaise,
+    ...(selection.fulfilment ? { fulfilment: selection.fulfilment } : {}),
+  };
+
+  return {
+    productId: `rent:${product.id}:${selection.startAt}`,
+    sourceId: product.id,
+    itemType: "rental",
+    name: `${product.name} — ${days} day${days === 1 ? "" : "s"} rental`,
+    category: product.category,
+    categoryLabel: getProductCategoryLabel(product),
+    image: product.image || product.images?.[0],
+    quantity,
+    // One "unit" of this line is the whole booking for one item.
+    amountInPaise: rentalBaseInPaise(pricePerDayInPaise, days, 1),
+    displayPrice: `₹${(rentalBaseInPaise(pricePerDayInPaise, days, 1) / 100).toLocaleString("en-IN")}`,
+    stockStatus: normalizeProductStockStatus(product.stockStatus),
+    allowedPaymentMethods: product.allowedPaymentMethods,
+    maxQuantity: product.rental?.units || undefined,
+    rental,
   };
 };
 

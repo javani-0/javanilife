@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { Search, X } from "lucide-react";
 import { formatPaiseAsRupees } from "@/lib/ecommerce";
 import {
@@ -74,7 +75,9 @@ const IncomeSalesDialog = ({ open, onClose, lines, category, periodLabel, note }
 
   const title = category === "all" ? "All sales" : SALE_CATEGORY_LABELS[category];
 
-  return (
+  // Portalled for the same reason as the export dialog: a `fixed` overlay
+  // inside the transformed admin shell lands off-screen on a phone.
+  return createPortal(
     <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
       {/* max-h + min-h-0 + shrink-0 header: the canonical scroll-container fix —
           without it the list clips its own top and bottom on a phone. */}
@@ -153,7 +156,8 @@ const IncomeSalesDialog = ({ open, onClose, lines, category, periodLabel, note }
           <span className="font-display text-lg font-bold text-foreground">{formatPaiseAsRupees(totalInPaise)}</span>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 };
 

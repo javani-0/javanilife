@@ -108,13 +108,80 @@ Two ways in — use whichever suits you:
 5. **My Classes** — ✅ the **course name** is the heading, with the **timing** and **trainer** under it, and a **Class resources** strip showing the live link, recordings and materials
 5. **EMI Payments** — ✅ for a student on an installment plan, their **class fee installments** are listed with paid/remaining and a Pay button on each pending one
 
-### F. Fix a student who can't see their class *(2 min)*
+### C3. Download Finance as Excel *(2 min)* — new
+
+1. **Finance** → **Export to Excel** (top right)
+2. Choose **any date range** — the quick buttons (This month / Last month / This year / All time) or your own **From** and **To**
+3. Tick the **sheets** you want (Summary, Sales, Expenses, Other income, Partner payouts), the **sale categories**, **online / offline**, and the **columns** on the sales sheet
+4. Choose **Excel (.xlsx)** or **CSV**, amounts in **₹** or **paise**, totals row on or off, and a file name
+5. ✅ The footer counts what you're about to download; press **Download** and it lands in your Downloads folder
+6. ✅ Opening it in Excel gives one tab per sheet, a bold frozen header, ₹ formatting, and a TOTAL row that matches the Finance page exactly
+7. ✅ The **What sold** tab answers "which product sells": every product, course, class and rental with
+   **how many sales**, units, what it made, **how many customers** and **who bought it**
+8. ✅ The **Sales** tab now carries the customer's **phone and email** on every line
+
+### C5. Download students, or the whole catalogue *(2 min)* — new
+
+- **Student Manager → Export Excel** — pick a **class or course** (each shows its live student count),
+  choose **one row per class** (the register: batch, trainer, fee, joining date) or **one row per student**
+  (the address book), tick the columns, download. ✅ Picking one class exports only that class's students.
+- **Products Manager → Export Excel** — filter by category, stock and visibility, tick the columns
+  (price, stock, rentable, 24-hour rent price, weight, dimensions…), download.
+- **Rental Desk → Export Excel** — everything that is out or has been returned, with the live late charges.
+
+### F. Fix — or clear — a student who can't see their class *(2 min)*
 
 If a class was ever deleted, the students attached to it are stranded — they can't see a live link, recordings or materials because their class no longer exists.
 
 1. Open **Student Manager** (or **Classes Manager**)
 2. ✅ If any exist, an amber banner lists them: *"N enrolments point at a deleted class"*
-3. Pick the correct class (and batch) for each → **Re-link** — they have access immediately
+3. If the student is still with you → pick the correct class (and batch) → **Re-link**, and they have access immediately
+4. If the row is marked **Student profile deleted**, there is nobody to re-link — press **Delete** on that row (or **Delete all N**). ✅ It asks twice, then gives you **5 seconds to Undo**; after that the enrolment and its fee records, attendance, progress reports, submissions, certificates and bills are removed
+5. ✅ Once the last one is handled the banner is gone for good. **Hide for now** also sticks — it only comes back if a *new* enrolment breaks
+
+### C4. VESTRA — buy or rent *(4 min)* — new
+
+**Setting a piece up:** **Products Manager** → add or edit a product → the gold **VESTRA & rentals** box:
+tick **Show in VESTRA**, tick **Can be rented**, and type what **24 hours** costs. That single price
+drives everything — the screen immediately shows you the matching per-hour rate for late returns.
+Optionally cap the days per booking, say how many pieces you own, and add your terms.
+
+**What the customer sees:** **VESTRA** in the top menu → two tabs, **Buy** and **Rent**.
+1. On **Rent**, each piece shows its 24-hour price and the per-hour late rate
+2. **Rent this** → pick the date and time they need it, and how many days → ✅ the total and the exact
+   *"Back by…"* moment appear before anything is added
+3. It goes through the normal cart and checkout, where they choose **store pickup** or **delivery**
+
+**Running it:** **Rental Desk** in the sidebar.
+1. ✅ Tiles show what is out, what is overdue, and the late fees still to collect
+2. **Mark collected** when the piece leaves — the clock starts then, not at the booked hour
+3. While it is out you see a live countdown; once late, the row turns red and shows the maths:
+   *"49 hours past the return time at ₹20.83/hour = ₹1,020.67"*
+4. **Mark returned** freezes that amount, and **Late fee collected** records the payment (it then
+   appears in Finance as Rental income)
+5. **WhatsApp customer** on any late row opens the message ready to send from your phone;
+   **Chase N overdue** sends it to everyone late at once, and the nightly job does it automatically
+
+### G. Deleting things safely *(2 min)* — new
+
+Every delete now asks twice and then waits five seconds, with an **Undo** button at the bottom of the screen. Nothing is written until the countdown ends.
+
+1. **Classes Manager** → delete a class → ✅ it tells you **how many students are still enrolled** and makes you type DELETE before it will go ahead
+2. **Student Manager** → a draft student → 🗑 → ✅ confirm, then **Undo** within 5 seconds and the student is still there
+3. **Student Manager** → **Delete completely** (admin only) → removes the student **and everything of theirs**: login, enrolments, fee history, attendance, progress reports, submissions, certificates, bills and payment link. Nobody else's records are touched — if a parent shares one login between two children, the sibling keeps everything
+
+### H. A delivery was missed — re-manifest it *(1 min)* — new
+
+Once an order was manifested there was no way to send it again; the button just handed back the old
+waybill. Now:
+
+1. **Orders Manager** → open the order → **Delivery One**
+2. ✅ **Manifest Order** reads **Manifested** and is greyed out once a waybill exists
+3. **Re-manifest** → say why (missed delivery, courier lost it…) → ✅ a **brand-new** Delhivery shipment
+   is booked. The old waybill is archived on the order under **Replaced shipments** with your reason, and
+   the old label and pickup are cleared so nobody prints the dead one
+4. If Delhivery refuses the new shipment, nothing changes — the existing waybill stays live and the
+   error is written to the order timeline
 
 ## Two things that still need a real-world test
 
@@ -177,6 +244,10 @@ npx firebase deploy --only firestore:rules
 ```
 
 ⚠️ **Pending deploy: the `teacher` role.** Teacher logins can be created and will sign in, but every write they attempt (attendance, assignments, exams, certificates) is denied until `firestore.rules` is deployed. Admins and managers are unaffected.
+
+⚠️ **Pending deploy: the `rentals` collection.** VESTRA rentals work against production today only
+because the deployed rules are older than this file and allow an admin to write a collection they do
+not declare. Deploy the rules to keep the Rental Desk working once they ship — and to close that gap.
 
 ⚠️ **Pending deploy: attendance for `academics` managers.** Marking attendance used to require the `attendance` page key. Now that attendance lives on the Academics tab, the rule accepts `academics` too — until the rules are deployed, a manager who holds **only** Academics can open the tab but not save. Admins and teachers are unaffected.
 

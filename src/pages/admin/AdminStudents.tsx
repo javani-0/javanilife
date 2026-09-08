@@ -2,13 +2,15 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   AlertTriangle, BadgeIndianRupee, Check, CheckCircle2, Copy, Eye, EyeOff, GraduationCap,
-  Images, KeyRound, LayoutGrid, List, Loader2, MessageCircle, Pencil, Power, RefreshCw, Trash2, Upload,
+  FileSpreadsheet, Images, KeyRound, LayoutGrid, List, Loader2, MessageCircle, Pencil, Power, RefreshCw, Trash2, Upload,
   UserPlus, Wallet, X, XCircle,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { useAdminLog } from "@/hooks/useAdminLog";
 import { confirmDialog } from "@/components/ConfirmDialogHost";
+import { useUndoableDelete } from "@/hooks/useUndoableDelete";
+import UndoDeleteBar from "@/components/UndoDeleteBar";
 import { CLOUDINARY_CLOUD_NAME, CLOUDINARY_UPLOAD_PRESET } from "@/lib/cloudinary";
 import { openSquareCropper } from "@/components/SquareImageCropper";
 import StudentFeePanel from "@/components/admin/StudentFeePanel";
@@ -16,6 +18,7 @@ import StudentFeeCollections from "@/components/admin/StudentFeeCollections";
 import StudentCourseEditor from "@/components/admin/StudentCourseEditor";
 import StudentFeeSummary from "@/components/admin/StudentFeeSummary";
 import BrokenEnrollmentsBanner from "@/components/admin/BrokenEnrollmentsBanner";
+import StudentExportDialog from "@/components/admin/StudentExportDialog";
 import { formatPaiseAsRupees } from "@/lib/ecommerce";
 import {
   classOffersMonthly,
@@ -139,8 +142,13 @@ const AdminStudents = () => {
   const logAction = useAdminLog();
   const isAdminRole = userProfile?.role === "admin";
 
+  // Deletes get a five-second undo window (req 2) before anything is written.
+  const { pending: pendingDeletes, revision: deleteRevision, scheduleDelete, undoDelete, isPendingDelete } = useUndoableDelete(5000);
+
   const [students, setStudents] = useState<StudentDoc[]>([]);
   const [classes, setClasses] = useState<ClassDoc[]>([]);
+  // Download the register for a class / course (req 1).
+  const [exportOpen, setExportOpen] = useState(false);
   const [credentials, setCredentials] = useState<Record<string, StudentCredential>>({});
   const [loading, setLoading] = useState(true);
 
@@ -463,20 +471,20 @@ const AdminStudents = () => {
   const handleDelete = async (student: StudentDoc) => {
     if (!(await confirmDialog({
       title: `Delete ${student.name}'s draft?`,
-      description: "The profile and its payment link are removed. This can't be undone.",
+      description: "The profile and its payment link are removed.\n\nYou'll get 5 seconds to undo.",
       confirmText: "Delete draft",
       destructive: true,
     }))) return;
-    setBusyId(student.id);
-    try {
-      await deleteDraftStudent(student);
-      toast({ title: "Draft deleted" });
-      logAction("Deleted student draft", `${student.name} · ${student.className}`);
-    } catch (error) {
-      toast({ title: "Could not delete", description: error instanceof Error ? error.message : undefined, variant: "destructive" });
-    } finally {
-      setBusyId(null);
-    }
+    scheduleDelete(student.id, `${student.name} · draft`, async () => {
+      try {
+        await deleteDraftStudent(student);
+        toast({ title: "Draft deleted" });
+        logAction("Deleted student draft", `${student.name} · ${student.className}`);
+      } catch (error) {
+        toast({ title: "Could not delete", description: error instanceof Error ? error.message : undefined, variant: "destructive" });
+        throw error; // put the row back — the student is still there
+      }
+    });
   };
 
   // Danger zone (admin only, req): removes EVERY trace — fees, enrollment,
@@ -485,22 +493,22 @@ const AdminStudents = () => {
     if (!user || !isAdminRole) return;
     if (!(await confirmDialog({
       title: `Permanently delete ${student.name}${student.studentId ? ` (${student.studentId})` : ""}?`,
-      description: "This removes the student, their login, enrollment and ALL fee history. There is no undo.",
+      description: "This removes the student and EVERY trace of them: their login, enrolments, fee history, attendance, progress reports, assignment submissions, certificates, bills and payment link. Nobody else is touched.\n\nYou'll get 5 seconds to undo.",
       confirmText: "Delete forever",
       destructive: true,
       requireText: "DELETE",
     }))) return;
-    setBusyId(student.id);
-    try {
-      const idToken = await user.getIdToken();
-      const result = await deleteStudentCompletely(idToken, student.id);
-      toast({ title: "Student deleted completely", description: `Removed: ${result.removed.join(", ")}.` });
-      logAction("PERMANENTLY deleted student", `${student.name}${student.studentId ? ` (${student.studentId})` : ""} · removed: ${result.removed.join(", ")}`);
-    } catch (error) {
-      toast({ title: "Could not delete", description: error instanceof Error ? error.message : undefined, variant: "destructive" });
-    } finally {
-      setBusyId(null);
-    }
+    scheduleDelete(student.id, `${student.name}${student.studentId ? ` (${student.studentId})` : ""}`, async () => {
+      try {
+        const idToken = await user.getIdToken();
+        const result = await deleteStudentCompletely(idToken, student.id);
+        toast({ title: "Student deleted completely", description: `Removed: ${result.removed.join(", ")}.` });
+        logAction("PERMANENTLY deleted student", `${student.name}${student.studentId ? ` (${student.studentId})` : ""} · removed: ${result.removed.join(", ")}`);
+      } catch (error) {
+        toast({ title: "Could not delete", description: error instanceof Error ? error.message : undefined, variant: "destructive" });
+        throw error; // put the row back — the student is still there
+      }
+    });
   };
 
   const handlePhotoFile = async (file: File | null) => {
@@ -533,8 +541,14 @@ const AdminStudents = () => {
       ? students.filter((s) => [s.name, s.email, s.parentName, s.studentId, ...s.courses.map((course) => course.className)]
           .some((v) => (v || "").toLowerCase().includes(q)))
       : students;
-    return [...list].sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
-  }, [students, search]);
+    return [...list]
+      // A student inside their undo window is already gone as far as the admin
+      // is concerned; the Undo bar is what brings them back.
+      .filter((student) => !isPendingDelete(student.id))
+      .sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+    // `pendingDeletes` is the state that changes when a delete is scheduled or
+    // undone — `isPendingDelete` reads a ref and never changes identity.
+  }, [students, search, isPendingDelete, pendingDeletes, deleteRevision]);
 
   const activeCount = students.filter((s) => s.active && s.onboardingStatus === "approved").length;
   const pendingApprovals = students.filter((s) => ["payment-submitted", "counter-chosen", "paid-online"].includes(s.onboardingStatus)).length;
@@ -542,21 +556,32 @@ const AdminStudents = () => {
 
   return (
     <div className="space-y-6">
+      <UndoDeleteBar pending={pendingDeletes} onUndo={undoDelete} />
+
       <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
         <div>
           <p className="font-body text-sm font-semibold uppercase tracking-[0.2em] text-gold">Students</p>
           <h1 className="mt-2 flex items-center gap-2 font-display text-3xl text-foreground"><GraduationCap className="h-7 w-7 text-gold" /> Student Manager</h1>
           <p className="mt-1 font-body text-sm text-muted-foreground">Create student profiles, send the payment link, approve, and issue the portal login.</p>
         </div>
-        <button onClick={() => openAdd()} className="flex items-center gap-2 self-start rounded-md bg-gradient-primary px-4 py-2.5 font-body text-[0.85rem] font-medium text-primary-foreground hover:brightness-110">
-          <UserPlus className="h-4 w-4" /> Add Student
-        </button>
+        <div className="flex flex-wrap items-center gap-2 self-start">
+          <button onClick={() => setExportOpen(true)} className="flex items-center gap-2 rounded-md border border-gold/40 px-4 py-2.5 font-body text-[0.85rem] font-medium text-gold hover:bg-gold/10">
+            <FileSpreadsheet className="h-4 w-4" /> Export Excel
+          </button>
+          <button onClick={() => openAdd()} className="flex items-center gap-2 rounded-md bg-gradient-primary px-4 py-2.5 font-body text-[0.85rem] font-medium text-primary-foreground hover:brightness-110">
+            <UserPlus className="h-4 w-4" /> Add Student
+          </button>
+        </div>
       </div>
 
       {/* Students attached to a class that has since been deleted can never
-          see its content — offer a re-link (req 6). Renders nothing when
-          there are none. */}
-      <BrokenEnrollmentsBanner />
+          see its content — offer a re-link (req 6), or a delete when the
+          student profile itself is already gone (req 2). The student list is
+          what tells those two cases apart. Renders nothing when there are
+          none. */}
+      <BrokenEnrollmentsBanner students={students} />
+
+      <StudentExportDialog open={exportOpen} onClose={() => setExportOpen(false)} students={students} classes={classes} />
 
       {/* Toggle: Student details · Fee collections · Enrolls (leads) (req) */}
       <div className="inline-flex flex-wrap rounded-lg border border-border bg-card p-1 shadow-card">

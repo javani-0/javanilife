@@ -5,8 +5,9 @@ import { db } from "@/lib/firebase";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { confirmDialog } from "@/components/ConfirmDialogHost";
-import { formatPaiseAsRupees } from "@/lib/ecommerce";
+import { formatPaiseAsRupees, subscribeToRentals, type RentalBooking } from "@/lib/ecommerce";
 import IncomeSalesDialog from "@/components/admin/IncomeSalesDialog";
+import FinanceExportDialog from "@/components/admin/FinanceExportDialog";
 import {
   EXPENSE_CATEGORIES,
   INCOME_CATEGORIES,
@@ -16,6 +17,7 @@ import {
   addManualIncome,
   buildFinanceSummary,
   buildSaleLines,
+  type FinanceExportInput,
   computePartnerCategoryShareInPaise,
   dateKeyOf,
   deleteExpense,
@@ -34,7 +36,7 @@ import {
   type IncomeDoc,
   type SaleCategory,
 } from "@/lib/finance";
-import { ChevronDown, IndianRupee, Loader2, Plus, Receipt, Trash2, TrendingUp, TrendingDown, Wallet, Handshake, ShieldCheck } from "lucide-react";
+import { ChevronDown, FileSpreadsheet, IndianRupee, Loader2, Plus, Receipt, Trash2, TrendingUp, TrendingDown, Wallet, Handshake, ShieldCheck } from "lucide-react";
 
 const Tile = ({ label, value, sub, accent, icon: Icon }: { label: string; value: string; sub?: string; accent: string; icon: typeof IndianRupee }) => (
   <div className="rounded-xl border border-border/60 bg-card p-4 shadow-card">
@@ -64,6 +66,8 @@ const AdminFinance = () => {
   const [expenses, setExpenses] = useState<ExpenseDoc[]>([]);
   const [incomeEntries, setIncomeEntries] = useState<IncomeDoc[]>([]);
   const [financePartners, setFinancePartners] = useState<FinancePartner[]>([]);
+  // Rentals: their late fees are income too (req 3/6).
+  const [rentals, setRentals] = useState<RentalBooking[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Expense form
@@ -91,7 +95,8 @@ const AdminFinance = () => {
     const unsubExpenses = subscribeToExpenses((items) => setExpenses(items), () => undefined);
     const unsubIncome = subscribeToManualIncome((items) => setIncomeEntries(items), () => undefined);
     const unsubPartners = subscribeToFinancePartners((items) => setFinancePartners(items), () => undefined);
-    return () => { unsubOrders(); unsubFees(); unsubExpenses(); unsubIncome(); unsubPartners(); };
+    const unsubRentals = subscribeToRentals((items) => setRentals(items), () => undefined);
+    return () => { unsubOrders(); unsubFees(); unsubExpenses(); unsubIncome(); unsubPartners(); unsubRentals(); };
   }, []);
 
   // Period filter (default: this month). "day" uses the calendar-picked date.
@@ -125,17 +130,34 @@ const AdminFinance = () => {
   );
   const filteredIncome = useMemo(() => incomeEntries.filter((entry) => inPeriod(entry.receivedOn || "")), [incomeEntries, inPeriod]);
   const filteredExpenses = useMemo(() => expenses.filter((expense) => inPeriod(expense.spentOn || "")), [expenses, inPeriod]);
+  // A late fee is earned on the day the item finally came back.
+  const filteredRentals = useMemo(
+    () => rentals.filter((rental) => inPeriod(dateKeyOf(rental.returnedAt || rental.dueAt))),
+    [rentals, inPeriod],
+  );
+
+  // Rental money = the bookings inside orders + late fees actually collected.
+  const rentalIncomeInPaise = useMemo(() => {
+    const { rentalIncomeInPaise: booked } = splitOrderIncomeInPaise(filteredOrders as never);
+    const lateFees = filteredRentals
+      .filter((rental) => rental.extraChargeCollected && rental.extraChargeInPaise > 0)
+      .reduce((sum, rental) => sum + rental.extraChargeInPaise, 0);
+    return booked + lateFees;
+  }, [filteredOrders, filteredRentals]);
 
   const summary = useMemo(() => {
     const { productIncomeInPaise, courseIncomeInPaise } = splitOrderIncomeInPaise(filteredOrders as never);
     return buildFinanceSummary({
-      productIncomeInPaise,
+      // Rentals get their own tile, but for TOTAL income and profit they sit on
+      // the product side — otherwise the money would simply vanish from the
+      // page. `categoryIncomeInPaise` below splits them back out for display.
+      productIncomeInPaise: productIncomeInPaise + rentalIncomeInPaise,
       courseIncomeInPaise,
       classIncomeInPaise: sumClassIncomeInPaise(filteredFees.map((fee) => ({ status: String(fee.status || ""), amountInPaise: Number(fee.amountInPaise || 0) }))),
       otherIncomeInPaise: sumManualIncomeInPaise(filteredIncome),
       expensesInPaise: sumExpensesInPaise(filteredExpenses),
     });
-  }, [filteredOrders, filteredFees, filteredIncome, filteredExpenses]);
+  }, [filteredOrders, filteredFees, filteredIncome, filteredExpenses, rentalIncomeInPaise]);
 
   // The individual sales behind the period's income (req 2): what was sold,
   // when, for how much, and online vs offline. Derived from the SAME filtered
@@ -145,18 +167,46 @@ const AdminFinance = () => {
       orders: filteredOrders as never,
       fees: filteredFees as never,
       manualIncome: filteredIncome as never,
+      rentals: filteredRentals as never,
     }),
-    [filteredOrders, filteredFees, filteredIncome],
+    [filteredOrders, filteredFees, filteredIncome, filteredRentals],
   );
   const salesByCategory = useMemo(() => summarizeSalesByCategory(saleLines), [saleLines]);
 
   // Which category's sales the drill-down is showing (null = closed).
   const [salesView, setSalesView] = useState<{ category: SaleCategory | "all"; note?: string } | null>(null);
 
+  // Export (req 1). The dialog owns its OWN date range — it must be able to
+  // export a period the page isn't showing — so it gets the UNFILTERED records
+  // and the current period only as a starting point.
+  const [exportOpen, setExportOpen] = useState(false);
+
+  const exportData: FinanceExportInput = useMemo(() => ({
+    lines: buildSaleLines({ orders: orders as never, fees: fees as never, manualIncome: incomeEntries as never, rentals: rentals as never }),
+    expenses,
+    otherIncome: incomeEntries,
+    partners: financePartners,
+  }), [orders, fees, incomeEntries, expenses, financePartners, rentals]);
+
+  const exportRange = useMemo(() => {
+    const today = todayKey();
+    if (period === "all") return { from: "", to: "" };
+    if (period === "today") return { from: today, to: today };
+    if (period === "day") return { from: customDay, to: customDay };
+    const now = new Date();
+    const pad2 = (value: number) => String(value).padStart(2, "0");
+    const monthStart = `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-01`;
+    const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    return { from: monthStart, to: `${lastDay.getFullYear()}-${pad2(lastDay.getMonth() + 1)}-${pad2(lastDay.getDate())}` };
+  }, [period, customDay]);
+
   const categoryIncomeInPaise: Record<SaleCategory, number> = {
-    product: summary.productIncomeInPaise,
+    // `summary.productIncomeInPaise` carries rentals for the profit maths, so
+    // the product tile shows what is left once rentals have their own.
+    product: Math.max(0, summary.productIncomeInPaise - rentalIncomeInPaise),
     course: summary.courseIncomeInPaise,
     class: summary.classIncomeInPaise,
+    rental: rentalIncomeInPaise,
     other: summary.otherIncomeInPaise,
   };
 
@@ -166,6 +216,9 @@ const AdminFinance = () => {
     const income = {
       classIncomeInPaise: summary.classIncomeInPaise,
       courseIncomeInPaise: summary.courseIncomeInPaise,
+      // Rentals are included here on purpose: a partner on a products share was
+      // already earning from these items, and splitting the category out for
+      // reporting must not quietly cut their payout.
       productIncomeInPaise: summary.productIncomeInPaise,
     };
     return financePartners
@@ -265,10 +318,19 @@ const AdminFinance = () => {
 
   return (
     <div className="space-y-6">
-      <div>
-        <p className="font-body text-sm font-semibold uppercase tracking-[0.2em] text-gold">Finance</p>
-        <h1 className="mt-2 font-display text-3xl text-foreground">Income &amp; Expenses</h1>
-        <p className="mt-1 font-body text-sm text-muted-foreground">Live income from product orders + class fees, your manual expenses, and the partner's profit share.</p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="font-body text-sm font-semibold uppercase tracking-[0.2em] text-gold">Finance</p>
+          <h1 className="mt-2 font-display text-3xl text-foreground">Income &amp; Expenses</h1>
+          <p className="mt-1 font-body text-sm text-muted-foreground">Live income from product orders + class fees, your manual expenses, and the partner's profit share.</p>
+        </div>
+        {/* Export (req 1): opens with full control over range, sheets and columns. */}
+        <button
+          onClick={() => setExportOpen(true)}
+          className="flex min-h-10 shrink-0 items-center gap-2 rounded-md bg-gradient-primary px-4 font-body text-sm font-semibold text-primary-foreground hover:brightness-110"
+        >
+          <FileSpreadsheet className="h-4 w-4" /> Export to Excel
+        </button>
       </div>
 
       {/* Period filter — default "This month"; calendar picks a specific day */}
@@ -296,7 +358,7 @@ const AdminFinance = () => {
 
       {/* Summary tiles */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <Tile label="Total Income" value={formatPaiseAsRupees(summary.incomeInPaise)} sub={`Products ${formatPaiseAsRupees(summary.productIncomeInPaise)} · Courses ${formatPaiseAsRupees(summary.courseIncomeInPaise)} · Classes ${formatPaiseAsRupees(summary.classIncomeInPaise)} · Other ${formatPaiseAsRupees(summary.otherIncomeInPaise)}`} accent="text-green-600" icon={TrendingUp} />
+        <Tile label="Total Income" value={formatPaiseAsRupees(summary.incomeInPaise)} sub={`Products ${formatPaiseAsRupees(categoryIncomeInPaise.product)} · Courses ${formatPaiseAsRupees(summary.courseIncomeInPaise)} · Classes ${formatPaiseAsRupees(summary.classIncomeInPaise)} · Rentals ${formatPaiseAsRupees(rentalIncomeInPaise)} · Other ${formatPaiseAsRupees(summary.otherIncomeInPaise)}`} accent="text-green-600" icon={TrendingUp} />
         <Tile label="Total Expenses" value={formatPaiseAsRupees(summary.expensesInPaise)} sub={`${filteredExpenses.length} entr${filteredExpenses.length === 1 ? "y" : "ies"}`} accent="text-red-600" icon={TrendingDown} />
         <Tile label="Net Profit" value={formatPaiseAsRupees(summary.netProfitInPaise)} sub="Income − Expenses" accent={summary.netProfitInPaise >= 0 ? "text-primary" : "text-red-600"} icon={Wallet} />
         <Tile label="Partner Payouts" value={formatPaiseAsRupees(totalPartnerPayoutInPaise)} sub={`${partnerPayouts.length} partner${partnerPayouts.length === 1 ? "" : "s"} · by category`} accent="text-gold" icon={Handshake} />
@@ -550,6 +612,15 @@ const AdminFinance = () => {
           </div>
           )}
       </div>
+
+      <FinanceExportDialog
+        open={exportOpen}
+        onClose={() => setExportOpen(false)}
+        data={exportData}
+        defaultFrom={exportRange.from}
+        defaultTo={exportRange.to}
+        periodLabel={periodLabel}
+      />
 
       <IncomeSalesDialog
         open={salesView !== null}

@@ -452,6 +452,10 @@ export default async function handler(request: ApiRequest, response: ApiResponse
             address: getString(student.address),
           },
           parentUserId: uid,
+          // The student profile this enrolment belongs to. Older enrolments
+          // don't carry it, which is why a delete also has to search by
+          // parentUserId — see api/_razorpay/delete-student.ts.
+          studentDocId,
           classId: course.classId,
           className: course.className || getString(classData.name),
           monthlyFeeInPaise: isTerm ? 0 : monthlyFeeInPaise,

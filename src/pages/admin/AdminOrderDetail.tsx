@@ -4,13 +4,14 @@ import { arrayUnion, deleteDoc, doc, onSnapshot, serverTimestamp, updateDoc } fr
 import {
   AlertTriangle, ArrowLeft, CalendarDays, Clock, CreditCard, ExternalLink,
   Mail, MapPin, MessageCircle, PackageCheck, PackagePlus, Phone, Printer,
-  RefreshCw, Save, Trash2, Truck, UserRound,
+  RefreshCw, RotateCw, Save, Trash2, Truck, UserRound,
 } from "lucide-react";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { ToastAction } from "@/components/ui/toast";
+import { promptDialog } from "@/components/ConfirmDialogHost";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { db } from "@/lib/firebase";
@@ -33,6 +34,7 @@ import {
   ORDER_STATUS_LABELS,
   printDeliveryOneLabel,
   refreshDeliveryOneTracking,
+  remanifestDeliveryOneOrder,
   rejectOrderCancellation,
   scheduleDeliveryOnePickup,
   sendOrderAutomation,
@@ -140,6 +142,7 @@ const AdminOrderDetail = () => {
   // Loading states
   const [saving, setSaving] = useState(false);
   const [syncingDelivery, setSyncingDelivery] = useState(false);
+  const [remanifesting, setRemanifesting] = useState(false);
   const [refreshingTracking, setRefreshingTracking] = useState(false);
   const [printingLabel, setPrintingLabel] = useState(false);
   const [schedulingPickup, setSchedulingPickup] = useState(false);
@@ -396,6 +399,40 @@ const AdminOrderDetail = () => {
       });
     } finally {
       setSyncingDelivery(false);
+    }
+  };
+
+  // Re-manifest (req 7): the delivery was missed / the waybill is dead, so book
+  // a brand-new shipment for the same order. The admin must say why — it goes on
+  // the order timeline next to the AWB it replaced.
+  const handleRemanifest = async () => {
+    if (!order || !user) return;
+    const reason = await promptDialog({
+      title: "Re-manifest this order?",
+      description: `A NEW Delhivery shipment is booked for ${order.orderNumber || order.id}. The current waybill ${order.delivery?.trackingNumber || ""} is archived on this order and stops being the live one. The label and any pickup booked against it are cleared.`,
+      placeholder: "Why? e.g. delivery missed, courier lost the parcel",
+      confirmText: "Book new shipment",
+      destructive: true,
+      optional: false,
+    });
+    if (!reason) return;
+    setRemanifesting(true);
+    try {
+      const idToken = await user.getIdToken();
+      const result = await remanifestDeliveryOneOrder(idToken, order.id, reason);
+      toast({
+        title: `Re-manifested (attempt ${result.attempt || 2})`,
+        description: result.message || `New AWB ${result.trackingNumber || "pending"}.`,
+      });
+    } catch (error) {
+      console.error("Unable to re-manifest order", error);
+      toast({
+        title: "Re-manifest failed",
+        description: error instanceof Error ? error.message : "Try again in a moment.",
+        variant: "destructive",
+      });
+    } finally {
+      setRemanifesting(false);
     }
   };
 
@@ -1008,11 +1045,22 @@ const AdminOrderDetail = () => {
               <button
                 type="button"
                 onClick={handleSyncDelivery}
-                disabled={syncingDelivery || !deliveryEligibility.eligible}
+                disabled={syncingDelivery || !deliveryEligibility.eligible || hasDeliveryWaybill}
                 className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-sm bg-gold px-4 font-display text-xs font-semibold tracking-[0.08em] text-charcoal transition-colors hover:bg-gold-light disabled:cursor-not-allowed disabled:opacity-60 xl:w-auto"
               >
                 <RefreshCw className={`h-4 w-4 ${syncingDelivery ? "animate-spin" : ""}`} />
-                {syncingDelivery ? "Manifesting…" : "Manifest Order"}
+                {syncingDelivery ? "Manifesting…" : hasDeliveryWaybill ? "Manifested" : "Manifest Order"}
+              </button>
+              {/* Re-manifest (req 7): only meaningful once a waybill exists. */}
+              <button
+                type="button"
+                onClick={handleRemanifest}
+                disabled={remanifesting || !hasDeliveryWaybill || isTerminalOrder}
+                title={hasDeliveryWaybill ? "Book a new shipment — use when the delivery was missed or the waybill is dead" : "Manifest the order first"}
+                className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-sm border border-gold/35 px-4 font-display text-xs font-semibold tracking-[0.08em] text-gold transition-colors hover:bg-gold/10 disabled:cursor-not-allowed disabled:opacity-60 xl:w-auto"
+              >
+                <RotateCw className={`h-4 w-4 ${remanifesting ? "animate-spin" : ""}`} />
+                {remanifesting ? "Re-manifesting…" : "Re-manifest"}
               </button>
               <button
                 type="button"
@@ -1088,6 +1136,28 @@ const AdminOrderDetail = () => {
                 </div>
               ))}
             </div>
+
+            {/* Shipments this order has already burned through (req 7) */}
+            {(order.delivery?.previousShipments?.length || 0) > 0 && (
+              <div className="mt-4 rounded-lg border border-amber-300/60 bg-amber-50 p-3 sm:p-4">
+                <p className="font-body text-xs font-semibold uppercase tracking-[0.14em] text-amber-700">
+                  Replaced shipments
+                </p>
+                <p className="mt-1 font-body text-xs text-amber-800">
+                  This order was re-manifested. The waybills below are no longer live.
+                </p>
+                <div className="mt-2 space-y-1.5">
+                  {(order.delivery?.previousShipments || []).map((shipment, index) => (
+                    <div key={`${shipment.trackingNumber || "awb"}-${index}`} className="font-body text-xs text-amber-900">
+                      <span className="font-semibold">Attempt {shipment.attempt || index + 1}:</span>{" "}
+                      AWB {shipment.trackingNumber || "—"}
+                      {shipment.providerStatus ? ` · ${shipment.providerStatus}` : ""}
+                      {shipment.reason ? ` · ${shipment.reason}` : ""}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Manifest package data */}
             <div className="mt-4 rounded-lg border border-gold/20 bg-background p-3 sm:p-4">

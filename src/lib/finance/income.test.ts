@@ -114,7 +114,7 @@ describe("splitOrderIncomeInPaise", () => {
         { itemType: "course", lineTotalInPaise: 40000 },
       ] },
     ];
-    expect(splitOrderIncomeInPaise(orders)).toEqual({ productIncomeInPaise: 60000, courseIncomeInPaise: 40000 });
+    expect(splitOrderIncomeInPaise(orders)).toEqual({ productIncomeInPaise: 60000, courseIncomeInPaise: 40000, rentalIncomeInPaise: 0 });
   });
 
   it("treats item-less or unpaid orders as product income / zero", () => {
@@ -122,7 +122,7 @@ describe("splitOrderIncomeInPaise", () => {
       { totalInPaise: 50000, payment: { status: "paid" } },                 // no items → product
       { totalInPaise: 99999, payment: { status: "pending" }, items: [{ itemType: "course", lineTotalInPaise: 99999 }] }, // unpaid → 0
     ];
-    expect(splitOrderIncomeInPaise(orders)).toEqual({ productIncomeInPaise: 50000, courseIncomeInPaise: 0 });
+    expect(splitOrderIncomeInPaise(orders)).toEqual({ productIncomeInPaise: 50000, courseIncomeInPaise: 0, rentalIncomeInPaise: 0 });
   });
 
   it("always sums back to the collected total", () => {
@@ -134,6 +134,32 @@ describe("splitOrderIncomeInPaise", () => {
     ];
     const { productIncomeInPaise, courseIncomeInPaise } = splitOrderIncomeInPaise(orders);
     expect(productIncomeInPaise + courseIncomeInPaise).toBe(77777);
+  });
+
+  // Rentals are their own bucket (req 6) and must not quietly inflate products.
+  it("separates rental lines and still sums back to the collected total", () => {
+    const orders = [
+      { totalInPaise: 100000, payment: { status: "paid" }, items: [
+        { itemType: "product", lineTotalInPaise: 25000 },
+        { itemType: "rental", lineTotalInPaise: 50000 },
+        { itemType: "course", lineTotalInPaise: 25000 },
+      ] },
+    ];
+    const split = splitOrderIncomeInPaise(orders);
+    expect(split).toEqual({ productIncomeInPaise: 25000, courseIncomeInPaise: 25000, rentalIncomeInPaise: 50000 });
+    expect(split.productIncomeInPaise + split.courseIncomeInPaise + split.rentalIncomeInPaise).toBe(100000);
+  });
+
+  it("gives the rounding remainder to products on an awkward split", () => {
+    const orders = [
+      { totalInPaise: 77777, payment: { status: "paid" }, items: [
+        { itemType: "product", lineTotalInPaise: 11111 },
+        { itemType: "rental", lineTotalInPaise: 33333 },
+        { itemType: "course", lineTotalInPaise: 33333 },
+      ] },
+    ];
+    const split = splitOrderIncomeInPaise(orders);
+    expect(split.productIncomeInPaise + split.courseIncomeInPaise + split.rentalIncomeInPaise).toBe(77777);
   });
 });
 

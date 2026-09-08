@@ -20,6 +20,7 @@ import {
   type CartItem,
   type Product,
   type ProductCategory,
+  type RentalSelection,
 } from "@/lib/ecommerce";
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
@@ -30,7 +31,25 @@ const normalizeStoredCartItem = (value: unknown, fallbackProductId?: string): Ca
 
   const productId = typeof value.productId === "string" ? value.productId : fallbackProductId;
   const sourceId = typeof value.sourceId === "string" ? value.sourceId : productId;
-  const itemType = value.itemType === "course" ? "course" : "product";
+  const itemType: CartItem["itemType"] = value.itemType === "course"
+    ? "course"
+    : value.itemType === "rental" ? "rental" : "product";
+  // A rental line is only a rental while it still carries its terms — the
+  // dates and the 24-hour price are what the booking is rebuilt from (req 3).
+  // Losing them here is how a hire silently became an outright sale.
+  const rental = isRecord(value.rental)
+    && typeof value.rental.startAt === "string"
+    && typeof value.rental.dueAt === "string"
+    ? {
+      startAt: value.rental.startAt,
+      dueAt: value.rental.dueAt,
+      days: Math.max(1, Math.round(Number(value.rental.days) || 1)),
+      pricePerDayInPaise: Math.max(0, Math.round(Number(value.rental.pricePerDayInPaise) || 0)),
+      ...(value.rental.fulfilment === "pickup" || value.rental.fulfilment === "delivery"
+        ? { fulfilment: value.rental.fulfilment as "pickup" | "delivery" }
+        : {}),
+    } satisfies RentalSelection
+    : undefined;
   const name = typeof value.name === "string" ? value.name : null;
   const rawCategory = value.category;
   const category: ProductCategory = isProductCategory(rawCategory) ? rawCategory : itemType === "course" ? "course" : "clothing";
@@ -53,6 +72,7 @@ const normalizeStoredCartItem = (value: unknown, fallbackProductId?: string): Ca
     stockStatus: normalizeProductStockStatus(typeof value.stockStatus === "string" ? value.stockStatus : undefined),
     allowedPaymentMethods: itemType === "course" ? ["razorpay"] : normalizeAllowedPaymentMethods(Array.isArray(value.allowedPaymentMethods) ? value.allowedPaymentMethods : undefined),
     maxQuantity: typeof value.maxQuantity === "number" ? value.maxQuantity : undefined,
+    ...(itemType === "rental" && rental ? { rental } : {}),
     addedAt: value.addedAt,
     updatedAt: value.updatedAt,
   };
@@ -152,6 +172,9 @@ const cartItemToFirestore = (item: CartItem): Record<string, unknown> => {
   if (item.image) data.image = item.image;
   if (item.allowedPaymentMethods) data.allowedPaymentMethods = item.allowedPaymentMethods;
   if (typeof item.maxQuantity === "number") data.maxQuantity = item.maxQuantity;
+  // The rental terms must survive the round trip to Firestore, or the cart
+  // comes back as an ordinary purchase (req 3).
+  if (item.itemType === "rental" && item.rental) data.rental = item.rental;
   data.addedAt = item.addedAt || serverTimestamp();
 
   return data;

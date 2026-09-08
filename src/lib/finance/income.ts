@@ -61,22 +61,33 @@ const lineTotalOf = (item: OrderLineItem): number =>
  */
 export const splitOrderIncomeInPaise = (
   orders: SplittableOrder[],
-): { productIncomeInPaise: number; courseIncomeInPaise: number } => {
+): { productIncomeInPaise: number; courseIncomeInPaise: number; rentalIncomeInPaise: number } => {
   let productIncomeInPaise = 0;
   let courseIncomeInPaise = 0;
+  let rentalIncomeInPaise = 0;
   for (const order of orders) {
     const collected = orderCollectedInPaise(order);
     if (collected <= 0) continue;
     const items = order.items || [];
     const courseLine = items.filter((it) => it.itemType === "course").reduce((s, it) => s + lineTotalOf(it), 0);
-    const productLine = items.filter((it) => it.itemType !== "course").reduce((s, it) => s + lineTotalOf(it), 0);
-    const lineSum = courseLine + productLine;
+    // Rentals are their own kind of money (req 6): the same costume can be
+    // sold outright or hired for a weekend, and the office needs to see which
+    // paid the rent this month.
+    const rentalLine = items.filter((it) => it.itemType === "rental").reduce((s, it) => s + lineTotalOf(it), 0);
+    const productLine = items
+      .filter((it) => it.itemType !== "course" && it.itemType !== "rental")
+      .reduce((s, it) => s + lineTotalOf(it), 0);
+    const lineSum = courseLine + productLine + rentalLine;
     if (lineSum <= 0) { productIncomeInPaise += collected; continue; }
+    // Apportion by line total, giving the remainder to products, so the three
+    // buckets always sum back to exactly what the order collected.
     const courseShare = Math.round((collected * courseLine) / lineSum);
+    const rentalShare = Math.round((collected * rentalLine) / lineSum);
     courseIncomeInPaise += courseShare;
-    productIncomeInPaise += collected - courseShare;
+    rentalIncomeInPaise += rentalShare;
+    productIncomeInPaise += collected - courseShare - rentalShare;
   }
-  return { productIncomeInPaise, courseIncomeInPaise };
+  return { productIncomeInPaise, courseIncomeInPaise, rentalIncomeInPaise };
 };
 
 const clampPct = (value: unknown): number => Math.max(0, Math.min(100, num(value)));

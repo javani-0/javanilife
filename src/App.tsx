@@ -39,6 +39,7 @@ import AccountClassRoom from "./pages/account/ClassRoom";
 import Grading from "./pages/Grading";
 import Gallery from "./pages/Gallery";
 import Products from "./pages/Products";
+import Vestra from "./pages/Vestra";
 import Cart from "./pages/Cart";
 import Checkout from "./pages/Checkout";
 import AccountProfile from "./pages/account/Profile";
@@ -105,6 +106,7 @@ const AdminAcademics = lazyWithRetry(() => import("./pages/admin/AdminAcademics"
 const AdminFeeCollections = lazyWithRetry(() => import("./pages/admin/AdminFeeCollections"));
 const AdminGallery = lazyWithRetry(() => import("./pages/admin/AdminGallery"));
 const AdminProducts = lazyWithRetry(() => import("./pages/admin/AdminProducts"));
+const AdminRentals = lazyWithRetry(() => import("./pages/admin/AdminRentals"));
 const AdminCoupons = lazyWithRetry(() => import("./pages/admin/AdminCoupons"));
 const AdminOrders = lazyWithRetry(() => import("./pages/admin/AdminOrders"));
 const AdminOrderDetail = lazyWithRetry(() => import("./pages/admin/AdminOrderDetail"));
@@ -222,6 +224,8 @@ const App = () => {
                     <Route path="/grading" element={<Grading />} />
                     <Route path="/gallery" element={<Gallery />} />
                     <Route path="/products" element={<Products />} />
+                    {/* VESTRA — buy or rent (req 2 + 4) */}
+                    <Route path="/vestra" element={<Vestra />} />
                     <Route path="/cart" element={<Cart />} />
                     <Route path="/checkout" element={<Checkout />} />
                     <Route path="/account" element={<AccountRoute><AccountProfile /></AccountRoute>} />
@@ -269,6 +273,7 @@ const App = () => {
                       <Route path="payment-settings" element={<AdminPaymentSettings />} />
                       <Route path="gallery" element={<AdminGallery />} />
                       <Route path="products" element={<AdminProducts />} />
+                      <Route path="rentals" element={<AdminRentals />} />
                       <Route path="coupons" element={<AdminCoupons />} />
                       <Route path="delivery-settings" element={<AdminDeliverySettings />} />
                       <Route path="orders" element={<AdminOrders />} />

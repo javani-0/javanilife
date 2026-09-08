@@ -12,6 +12,7 @@ import {
 } from "../_lib/fee-store.js";
 import { sendClassFeeNotifications } from "../_lib/notify.js";
 import { getWhatsAppConfigStatus } from "../_lib/whatsapp.js";
+import { sweepOverdueRentals } from "../_lib/rental-overdue.js";
 
 const getString = (value: unknown, fallback = "") => (typeof value === "string" ? value : fallback);
 
@@ -143,6 +144,17 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     }
   }
 
+  // Overdue RENTALS ride along on this daily run (req 3). Vercel's Hobby plan
+  // caps both cron entries and serverless functions, and this job already has
+  // the WhatsApp path warmed up. The Rental Desk can also trigger it on demand
+  // via /api/razorpay?action=rental-overdue, and shows live figures regardless.
+  let rentalSweep: Awaited<ReturnType<typeof sweepOverdueRentals>> | null = null;
+  try {
+    rentalSweep = await sweepOverdueRentals(db, { now });
+  } catch (error) {
+    console.error("Rental overdue sweep failed", error);
+  }
+
   sendJson(response, 200, {
     ok: true,
     monthKey,
@@ -153,5 +165,8 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     remindersSent: reminderResults.filter((result) => result.status === "sent").length,
     overdueMarked,
     reminderResults,
+    rentals: rentalSweep
+      ? { checked: rentalSweep.checked, overdue: rentalSweep.overdue, notified: rentalSweep.notified }
+      : { error: "sweep failed — see logs" },
   });
 }

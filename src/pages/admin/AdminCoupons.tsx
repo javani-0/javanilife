@@ -29,7 +29,7 @@ interface CouponFormState {
   startsAt: string;
   expiresAt: string;
   maxRedemptions: string;
-  applicableItemScope: "all" | "product" | "course";
+  applicableItemScope: "all" | "product" | "course" | "rental";
   applicableCategoryIds: string;
   applicableProductIds: string;
 }
@@ -288,6 +288,7 @@ const AdminCoupons = () => {
                 <option value="all">Products, courses & classes</option>
                 <option value="product">Products only</option>
                 <option value="course">Courses & classes only</option>
+                <option value="rental">Rentals only</option>
               </select>
             </label>
             <label className={labelClass}>Category IDs

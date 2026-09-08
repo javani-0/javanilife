@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { findBrokenEnrollments, suggestClassFor } from "./brokenEnrollments";
+import { buildStudentClaimIndex, findBrokenEnrollments, suggestClassFor } from "./brokenEnrollments";
 import type { EnrollmentDoc } from "@/lib/classes";
 
 const enrollment = (id: string, classId: string, className: string, status = "active"): EnrollmentDoc => ({
@@ -79,5 +79,43 @@ describe("suggestClassFor", () => {
 
   it("suggests nothing when the enrolment remembers no name", () => {
     expect(suggestClassFor({ rememberedClassName: "" }, classes)).toBeNull();
+  });
+});
+
+// ── Enrolments left behind by a DELETED student (req 2) ───────────────────
+
+describe("buildStudentClaimIndex / studentDeleted", () => {
+  const student = (over: Record<string, unknown> = {}) => ({
+    enrollmentIds: ["e-live"],
+    userUid: "uid-live",
+    courses: [{ enrollmentId: "e-course" }],
+    ...over,
+  });
+
+  it("collects every id a live profile claims — legacy, array and course rows", () => {
+    const index = buildStudentClaimIndex([student({ enrollmentId: "e-legacy" })]);
+    expect([...index.enrollmentIds].sort()).toEqual(["e-course", "e-legacy", "e-live"]);
+    expect([...index.userUids]).toEqual(["uid-live"]);
+  });
+
+  it("flags an enrolment nobody claims", () => {
+    const index = buildStudentClaimIndex([student()]);
+    const [claimed, orphan] = findBrokenEnrollments(
+      [enrollment("e-live", "gone", "X"), enrollment("e-ghost", "gone", "X")],
+      [],
+      index,
+    );
+    expect(claimed.studentDeleted).toBe(false);
+    expect(orphan.studentDeleted).toBe(true);
+  });
+
+  it("claims an enrolment through the parent's login when the id isn't listed", () => {
+    const index = buildStudentClaimIndex([{ userUid: "uid" }]);
+    // The shared fixture's enrolments all carry parentUserId "uid".
+    expect(findBrokenEnrollments([enrollment("e-x", "gone", "X")], [], index)[0].studentDeleted).toBe(false);
+  });
+
+  it("never claims a student is gone when no student list was supplied", () => {
+    expect(findBrokenEnrollments([enrollment("e-x", "gone", "X")], [])[0].studentDeleted).toBe(false);
   });
 });

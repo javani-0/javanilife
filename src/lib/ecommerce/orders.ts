@@ -45,5 +45,9 @@ export const createOrderItemFromCartItem = (cartItem: CartItem, deliveryProfile?
     allowedPaymentMethods: cartItem.allowedPaymentMethods,
     delivery: normalizedDeliveryProfile,
     shipmentWeightInGrams: getBillableWeight(cartItem, { [cartItem.productId]: normalizedDeliveryProfile }),
+    // Rental terms travel with the order line so a booking can be rebuilt from
+    // the order alone (req 3). Firestore rejects `undefined`, so the key is
+    // omitted entirely on a normal purchase.
+    ...(cartItem.itemType === "rental" && cartItem.rental ? { rental: cartItem.rental } : {}),
   };
 };

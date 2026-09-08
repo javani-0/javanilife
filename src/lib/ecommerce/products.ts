@@ -1,6 +1,6 @@
 import { formatPaiseAsRupees, parsePriceToPaise } from "./pricing";
 import { normalizeAllowedPaymentMethods } from "./paymentEligibility";
-import { PRODUCT_CATEGORIES, PRODUCT_CATEGORY_LABELS, type Product, type ProductCategory, type ProductStockStatus } from "./types";
+import { PRODUCT_CATEGORIES, PRODUCT_CATEGORY_LABELS, type Product, type ProductCategory, type ProductRentalConfig, type ProductStockStatus } from "./types";
 
 export const isProductCategory = (value: unknown): value is ProductCategory => (
   typeof value === "string" && value.trim().length > 0
@@ -53,6 +53,25 @@ export const isProductPurchasable = (
   return getProductAmountInPaise(product) > 0;
 };
 
+/**
+ * A rental config is only real when it is switched on AND carries a 24-hour
+ * price — a half-filled form must never make an item look rentable for ₹0.
+ */
+export const normalizeProductRental = (raw: unknown): ProductRentalConfig | undefined => {
+  if (!raw || typeof raw !== "object") return undefined;
+  const data = raw as Record<string, unknown>;
+  const pricePerDayInPaise = Math.max(0, Math.round(Number(data.pricePerDayInPaise) || 0));
+  const enabled = data.enabled === true && pricePerDayInPaise > 0;
+  if (!enabled && pricePerDayInPaise <= 0) return undefined;
+  return {
+    enabled,
+    pricePerDayInPaise,
+    maxDays: Math.max(0, Math.round(Number(data.maxDays) || 0)),
+    units: Math.max(0, Math.round(Number(data.units) || 0)),
+    terms: typeof data.terms === "string" ? data.terms : "",
+  };
+};
+
 export const normalizeProduct = (id: string, data: Partial<Product> & { category?: string }): Product => {
   const category = isProductCategory(data.category) ? data.category : "clothing";
   const amountInPaise = getProductAmountInPaise(data);
@@ -84,6 +103,11 @@ export const normalizeProduct = (id: string, data: Partial<Product> & { category
     rating: data.rating,
     reviewCount: data.reviewCount,
     delivery: data.delivery,
+    // VESTRA + rentals (req 2-4). A field written to Firestore is invisible
+    // until it is mapped here, so both live in the normalizer from day one.
+    vestra: data.vestra === true,
+    purchasable: data.purchasable !== false,
+    rental: normalizeProductRental(data.rental),
     createdAt: data.createdAt,
     updatedAt: data.updatedAt,
   };

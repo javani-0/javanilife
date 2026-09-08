@@ -13,4 +13,7 @@ export * from "./paymentEligibility";
 export * from "./payments";
 export * from "./pricing";
 export * from "./products";
+export * from "./rentals";
+export * from "./rentalBookings";
+export * from "./rentalMessages";
 export * from "./types";

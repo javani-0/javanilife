@@ -391,7 +391,15 @@ const requireDeliveryOneApiConfig = () => {
   return { token, pickupLocation };
 };
 
-export const createDeliveryOneShipmentPayload = (orderDocumentId: string, order: DeliveryOneOrderSnapshot): DeliveryOneShipmentPayload => {
+/**
+ * Delhivery rejects a second shipment carrying a reference it has already seen,
+ * so a RE-manifest (attempt 2+) ships as "JV-1234-R2". Attempt 1 keeps the bare
+ * order number, exactly as before.
+ */
+export const shipmentReference = (orderNumber: string, attempt = 1): string =>
+  (attempt > 1 ? `${orderNumber}-R${attempt}` : orderNumber);
+
+export const createDeliveryOneShipmentPayload = (orderDocumentId: string, order: DeliveryOneOrderSnapshot, attempt = 1): DeliveryOneShipmentPayload => {
   const address = getRecord(order.address);
   const paymentMethod = getString(order.payment?.method, "cod");
   const isCod = paymentMethod === "cod";
@@ -404,7 +412,7 @@ export const createDeliveryOneShipmentPayload = (orderDocumentId: string, order:
     shipments: [
       {
         name: sanitizeDelhiveryText(address.fullName, sanitizeDelhiveryText(order.customerName, "Customer")),
-        order: sanitizeDelhiveryText(order.orderNumber, orderDocumentId),
+        order: shipmentReference(sanitizeDelhiveryText(order.orderNumber, orderDocumentId), attempt),
         phone,
         add: joinAddress(address),
         pin: sanitizeDigits(address.pincode),
@@ -431,7 +439,7 @@ export const createDeliveryOneShipmentPayload = (orderDocumentId: string, order:
         seller_add: sanitizeDelhiveryText(getFirstEnvValue(["DELIVERY_ONE_SELLER_ADDRESS", "DELHIVERY_SELLER_ADDRESS"])),
         return_name: sanitizeDelhiveryText(getFirstEnvValue(["DELIVERY_ONE_RETURN_NAME", "DELHIVERY_RETURN_NAME", "DELIVERY_ONE_SELLER_NAME", "DELHIVERY_SELLER_NAME"])),
         return_address: sanitizeDelhiveryText(getFirstEnvValue(["DELIVERY_ONE_RETURN_ADDRESS", "DELHIVERY_RETURN_ADDRESS"])),
-        seller_inv: sanitizeDelhiveryText(order.orderNumber, orderDocumentId),
+        seller_inv: shipmentReference(sanitizeDelhiveryText(order.orderNumber, orderDocumentId), attempt),
         quantity: getTotalQuantity(order.items),
         waybill: "",
         hsn_code: getFirstEnvValue(["DELIVERY_ONE_HSN_CODE", "DELHIVERY_HSN_CODE"]),

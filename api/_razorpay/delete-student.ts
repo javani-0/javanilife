@@ -4,11 +4,19 @@ import { getBearerToken, readJsonBody, requirePost, sendError, sendJson, type Ap
 // ---------------------------------------------------------------------------
 // POST /api/razorpay/delete-student   (ADMIN ONLY — danger zone)
 // ---------------------------------------------------------------------------
-// Permanently removes every trace of an admin-created student (req — used for
-// test logins etc.): the fee ledger, enrollment, onboarding link, credentials,
-// student profile, users doc and the Firebase Auth login. Deliberately NOT
-// available to managers. The auth account is only deleted when it's a plain
-// "user" role (never an admin/manager/partner that happened to share an email).
+// Permanently removes a student and EVERY trace of them (req 3): all of their
+// enrolments — including ones the student profile has forgotten — plus the fee
+// ledger, attendance, progress reports, assignment submissions, certificates,
+// bills, the onboarding link, stored credentials, the users doc and the
+// Firebase Auth login.
+//
+// "Only that student", strictly: records are found through this student's
+// enrolments and, when the login belongs to them alone, through that uid. If a
+// parent shares one login across two children, the uid sweeps are skipped and
+// the sibling keeps everything, login included.
+//
+// Deliberately NOT available to managers. The auth account is only deleted when
+// it is a plain "user" role (never an admin/manager/partner sharing an email).
 // ---------------------------------------------------------------------------
 
 interface DeleteBody {
@@ -32,6 +40,40 @@ const deleteQueryDocs = async (
   }
   return count;
 };
+
+// ---------------------------------------------------------------------------
+// Everything a student leaves behind (req 3: "delete the student, delete their
+// related content from anywhere — and only that student's").
+//
+// Two keys reach the same rows: the ENROLMENT id (how the academic records are
+// filed) and the student's LOGIN uid (how the portal wrote anything before an
+// enrolment existed). Both are swept, because a row missed here is exactly what
+// turns into a ghost enrolment pointing at a deleted class later on.
+// ---------------------------------------------------------------------------
+const BY_ENROLLMENT: { collection: string; label: string }[] = [
+  { collection: "feePayments", label: "fee record" },
+  { collection: "attendance", label: "attendance day" },
+  { collection: "progressReports", label: "progress report" },
+  { collection: "assignmentSubmissions", label: "assignment submission" },
+  { collection: "certificates", label: "certificate" },
+  { collection: "bills", label: "bill" },
+];
+
+const BY_STUDENT_UID: { collection: string; field: string; label: string }[] = [
+  { collection: "attendance", field: "studentUid", label: "attendance day" },
+  { collection: "progressReports", field: "studentUid", label: "progress report" },
+  { collection: "assignmentSubmissions", field: "studentUid", label: "assignment submission" },
+  { collection: "certificates", field: "studentUid", label: "certificate" },
+  { collection: "feePayments", field: "parentUserId", label: "fee record" },
+];
+// Push tokens and browsing history hang off the LOGIN, so they are cleared in
+// step 3 instead — only when that login turns out to be a plain student account.
+
+/** "3 fee records, 1 certificate" from a {label: count} tally. */
+const describeTally = (tally: Record<string, number>): string[] =>
+  Object.entries(tally)
+    .filter(([, count]) => count > 0)
+    .map(([label, count]) => `${count} ${label}${count === 1 ? "" : "s"}`);
 
 export default async function handler(request: ApiRequest, response: ApiResponse) {
   if (!requirePost(request, response)) return;
@@ -70,7 +112,7 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     // EVERY class this student took (req: a student may hold several). Collects
     // the legacy singular id, the enrollmentIds array, and any id still only on
     // a course row — deduped, so nothing is left orphaned.
-    const enrollmentIds = Array.from(new Set([
+    const recordedIds = [
       getString(student.enrollmentId),
       ...(Array.isArray(student.enrollmentIds)
         ? (student.enrollmentIds as unknown[]).map((value) => getString(value))
@@ -78,19 +120,62 @@ export default async function handler(request: ApiRequest, response: ApiResponse
       ...(Array.isArray(student.courses)
         ? (student.courses as Record<string, unknown>[]).map((course) => getString(course.enrollmentId))
         : []),
-    ].filter(Boolean)));
-    const removed: string[] = [];
+    ].filter(Boolean);
 
-    // 1. Fee ledger + enrollments — one set per class.
-    let feeCount = 0;
+    // Is this login this student's alone? A parent who enrolled two children
+    // from one account shares it — and then anything found by uid belongs to a
+    // sibling as much as to this student, so the uid sweeps are skipped and
+    // only records tied to THIS student profile are removed (req 3: "only that
+    // student").
+    let uidIsExclusive = Boolean(uid);
+    if (uid) {
+      const sharing = await db.collection("students").where("userUid", "==", uid).get();
+      uidIsExclusive = sharing.docs.every((docSnap) => docSnap.id === studentDocId);
+    }
+    const sweepUid = uidIsExclusive ? uid : "";
+
+    // Enrolments the student doc has FORGOTTEN are the dangerous ones: they
+    // survive the delete and later surface as "points at a deleted class" with
+    // no student to re-link. Query for them by both keys an enrolment carries.
+    const discovered: string[] = [];
+    for (const [field, value] of [["studentDocId", studentDocId], ["parentUserId", sweepUid]] as [string, string][]) {
+      if (!value) continue;
+      const snapshot = await db.collection("enrollments").where(field, "==", value).get();
+      for (const docSnap of snapshot.docs) discovered.push(docSnap.id);
+    }
+
+    const enrollmentIds = Array.from(new Set([...recordedIds, ...discovered]));
+    const removed: string[] = [];
+    const tally: Record<string, number> = {};
+
+    // 1. Every class record — fees, attendance, progress, submissions,
+    //    certificates and bills — then the enrolment itself, LAST, so a
+    //    failure part-way still leaves the id that identifies the leftovers.
     for (const enrollmentId of enrollmentIds) {
-      feeCount += await deleteQueryDocs(db, "feePayments", "enrollmentId", enrollmentId);
+      for (const linked of BY_ENROLLMENT) {
+        tally[linked.label] = (tally[linked.label] || 0)
+          + await deleteQueryDocs(db, linked.collection, "enrollmentId", enrollmentId);
+      }
       await db.collection("enrollments").doc(enrollmentId).delete();
     }
-    if (feeCount > 0) removed.push(`${feeCount} fee record${feeCount > 1 ? "s" : ""}`);
     if (enrollmentIds.length > 0) {
       removed.push(`${enrollmentIds.length} enrollment${enrollmentIds.length > 1 ? "s" : ""}`);
     }
+
+    // 1b. Anything the portal filed under the LOGIN rather than an enrolment —
+    //     only when that login belongs to this student alone.
+    if (sweepUid) {
+      for (const linked of BY_STUDENT_UID) {
+        tally[linked.label] = (tally[linked.label] || 0)
+          + await deleteQueryDocs(db, linked.collection, linked.field, sweepUid);
+      }
+    } else if (uid) {
+      removed.push("shared login — only this student's own records removed");
+    }
+    // Bills are also addressed by the student profile itself.
+    tally.bill = (tally.bill || 0) + await deleteQueryDocs(db, "bills", "studentDocId", studentDocId);
+
+    removed.push(...describeTally(tally));
 
     // 2. Onboarding link + stored credentials.
     if (linkToken) {
@@ -101,7 +186,11 @@ export default async function handler(request: ApiRequest, response: ApiResponse
 
     // 3. The login: users doc (with subcollections) + push tokens + history +
     //    the Auth account itself — but never a privileged account.
-    if (uid) {
+    if (uid && !uidIsExclusive) {
+      // Another student profile still signs in with this account — the login
+      // and its history stay.
+      removed.push("login kept (shared with another student)");
+    } else if (uid) {
       const userSnap = await db.doc(`users/${uid}`).get();
       const role = getString(userSnap.data()?.role, "user");
       if (role === "user") {

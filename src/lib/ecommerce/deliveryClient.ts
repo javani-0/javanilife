@@ -99,6 +99,21 @@ export const refreshDeliveryOneTracking = (idToken: string, orderId: string): Pr
   postOrderDeliveryAction(idToken, "/api/orders/sync-delivery", { orderId, action: "track" }, "Unable to refresh Delivery One tracking.")
 );
 
+export interface DeliveryOneRemanifestResponse extends DeliveryOneSyncResponse {
+  attempt?: number;
+  previousTrackingNumber?: string;
+}
+
+/**
+ * Book a FRESH Delhivery shipment for an order that was already manifested —
+ * the missed-delivery / lost-waybill case (req 7). The old AWB is archived on
+ * the order, never overwritten silently.
+ */
+export const remanifestDeliveryOneOrder = (idToken: string, orderId: string, reason: string): Promise<DeliveryOneRemanifestResponse> => (
+  postOrderDeliveryAction(idToken, "/api/orders/sync-delivery", { orderId, action: "re-manifest", reason }, "Unable to re-manifest this order.")
+);
+
+
 export interface DeliveryOneLabelResponse {
   ok: boolean;
   orderId: string;

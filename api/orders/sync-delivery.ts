@@ -18,7 +18,9 @@ import { runOrderAutomation, type OrderStatus } from "./notify.js";
 
 interface SyncDeliveryBody {
   orderId?: string;
-  action?: "sync" | "label" | "pickup" | "cancel-pickup" | "mark-pickup-cancelled" | "track";
+  action?: "sync" | "re-manifest" | "label" | "pickup" | "cancel-pickup" | "mark-pickup-cancelled" | "track";
+  /** Why the shipment is being re-booked (req 7). */
+  reason?: string;
   pdfSize?: string;
   pickupDate?: string;
   pickupTime?: string;
@@ -54,7 +56,7 @@ export default async function handler(request: ApiRequest, response: ApiResponse
   try {
     const body = await readJsonBody<SyncDeliveryBody>(request);
     const orderId = getString(body.orderId).trim();
-    const action = getString(body.action, "sync") as "sync" | "label" | "pickup" | "cancel-pickup" | "mark-pickup-cancelled" | "track";
+    const action = getString(body.action, "sync") as "sync" | "re-manifest" | "label" | "pickup" | "cancel-pickup" | "mark-pickup-cancelled" | "track";
     if (!orderId) {
       sendError(response, 400, "orderId is required.");
       return;
@@ -100,6 +102,112 @@ export default async function handler(request: ApiRequest, response: ApiResponse
         )),
       });
       sendJson(response, 200, { ok: true, orderId, pickupId, pickupCancellationStatus: "cancelled", message });
+      return;
+    }
+
+    // ── Re-manifest (req 7) ────────────────────────────────────────────────
+    // A manifested shipment that never arrived — a missed pickup, an RTO, a
+    // waybill the carrier lost — used to be a dead end: "Manifest Order" saw the
+    // saved AWB and just handed it back. This books a FRESH shipment for the
+    // same order: the old waybill is archived on the order (never silently
+    // overwritten), every derived field is cleared, and Delhivery is given a new
+    // reference ("JV-1234-R2") because it rejects one it has already seen.
+    if (action === "re-manifest") {
+      const delivery = getRecord(order.delivery);
+      const previousWaybill = getString(delivery.trackingNumber).trim();
+      const previousProviderOrderId = getString(delivery.providerOrderId).trim();
+      if (!previousWaybill && !previousProviderOrderId) {
+        sendError(response, 409, "This order has not been manifested yet — use Manifest Order.");
+        return;
+      }
+      if (!hasDeliveryOneApiConfig()) {
+        sendError(response, 409, "Delivery One API credentials are not configured, so a new shipment cannot be booked.");
+        return;
+      }
+      assertDeliveryOneEligible(order);
+
+      const reason = getString(body.reason).trim() || "Delivery was missed — shipment re-booked.";
+      const attempt = Math.max(1, Math.floor(getNumber(delivery.manifestAttempt, 1))) + 1;
+      const archived = {
+        attempt: attempt - 1,
+        trackingNumber: previousWaybill,
+        providerOrderId: previousProviderOrderId,
+        providerStatus: getString(delivery.providerStatus),
+        lifecycleStatus: getString(delivery.lifecycleStatus),
+        pickupId: getString(delivery.pickupId),
+        reason,
+        archivedAt: new Date().toISOString(),
+      };
+
+      const payload = createDeliveryOneShipmentPayload(orderId, order, attempt);
+
+      try {
+        const providerResult = await pushDeliveryOneOrder(payload);
+        await orderSnapshot.ref.update({
+          "delivery.previousShipments": FieldValue.arrayUnion(archived),
+          "delivery.manifestAttempt": attempt,
+          "delivery.remanifestReason": reason,
+          "delivery.remanifestedAt": FieldValue.serverTimestamp(),
+          "delivery.provider": "delivery-one",
+          "delivery.syncStatus": "synced",
+          "delivery.providerOrderId": providerResult.providerOrderId || FieldValue.delete(),
+          "delivery.trackingNumber": providerResult.trackingNumber || FieldValue.delete(),
+          "delivery.trackingUrl": providerResult.trackingUrl || FieldValue.delete(),
+          "delivery.providerStatus": providerResult.providerStatus || FieldValue.delete(),
+          "delivery.lifecycleStatus": "ready-to-ship",
+          "delivery.manifestedAt": FieldValue.serverTimestamp(),
+          "delivery.lastSyncedAt": FieldValue.serverTimestamp(),
+          "delivery.lastSyncError": FieldValue.delete(),
+          // The new shipment carries none of the old one's paperwork.
+          "delivery.labelUrl": FieldValue.delete(),
+          "delivery.labelFetchedAt": FieldValue.delete(),
+          "delivery.pickupId": FieldValue.delete(),
+          "delivery.pickupRequestStatus": FieldValue.delete(),
+          "delivery.pickupRequestMessage": FieldValue.delete(),
+          "delivery.pickupDate": FieldValue.delete(),
+          "delivery.pickupTime": FieldValue.delete(),
+          "delivery.ndrReason": FieldValue.delete(),
+          "delivery.rtoReason": FieldValue.delete(),
+          updatedAt: FieldValue.serverTimestamp(),
+          timeline: FieldValue.arrayUnion(createTimelineEvent(
+            order,
+            `Order re-manifested (attempt ${attempt})`,
+            `${reason} Previous AWB ${previousWaybill || "—"} replaced by ${providerResult.trackingNumber || "a new waybill"}.`,
+            decoded.uid,
+          )),
+        });
+
+        sendJson(response, 200, {
+          ok: true,
+          orderId,
+          syncStatus: "synced",
+          mode: "api-sync",
+          lifecycleStatus: "ready-to-ship",
+          attempt,
+          previousTrackingNumber: previousWaybill,
+          providerOrderId: providerResult.providerOrderId,
+          trackingNumber: providerResult.trackingNumber,
+          trackingUrl: providerResult.trackingUrl,
+          providerStatus: providerResult.providerStatus,
+          message: `New shipment booked. AWB ${providerResult.trackingNumber || "pending"} replaces ${previousWaybill || "the old shipment"}.`,
+        });
+      } catch (remanifestError) {
+        const message = remanifestError instanceof Error ? remanifestError.message : "Delivery One re-manifest failed.";
+        console.error("[sync-delivery] re-manifest failed for order", orderId, "—", message);
+        // NOTHING is cleared on failure: the old waybill is still the live one.
+        await orderSnapshot.ref.update({
+          "delivery.lastSyncError": message,
+          "delivery.lastSyncedAt": FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
+          timeline: FieldValue.arrayUnion(createTimelineEvent(
+            order,
+            "Re-manifest failed",
+            `${message} The existing AWB ${previousWaybill || "—"} is unchanged.`,
+            decoded.uid,
+          )),
+        });
+        sendError(response, 502, `Delhivery refused the new shipment: ${message}`);
+      }
       return;
     }
 

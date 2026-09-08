@@ -289,6 +289,21 @@ service cloud.firestore {
       allow write: if staffAny(['students', 'fee-collections']);
     }
 
+    // Rentals (req 3). One row per rented item: what is out, when it is due
+    // back and what the late hours have cost. Staff work them from the Rental
+    // Desk; a customer may read their OWN bookings (their account page shows
+    // the return date), and writes are staff-only — a customer must never be
+    // able to mark their own item returned or wipe a late fee.
+    match /rentals/{id} {
+      allow read: if staffAny(['rentals', 'orders', 'products', 'finance'])
+        || (signedIn() && resource.data.customerId == request.auth.uid);
+      // Placing an order creates the booking client-side, so the owner may
+      // create their own row; everything after that is staff-only.
+      allow create: if staffAny(['rentals', 'orders'])
+        || (signedIn() && request.resource.data.customerId == request.auth.uid);
+      allow update, delete: if staffAny(['rentals', 'orders']);
+    }
+
     // Server-only counters (e.g. counters/studentIds → next STU id). No client
     // access; the Admin SDK bypasses these rules.
     match /counters/{id} {

@@ -5,15 +5,18 @@ import { db } from "@/lib/firebase";
 import { CLOUDINARY_CLOUD_NAME, CLOUDINARY_UPLOAD_PRESET } from "@/lib/cloudinary";
 import { openSquareCropper } from "@/components/SquareImageCropper";
 import CategoryManager from "@/components/admin/CategoryManager";
+import ProductExportDialog from "@/components/admin/ProductExportDialog";
 import {
   AlertTriangle,
   BadgeIndianRupee,
   Banknote,
   Boxes,
   CheckCircle2,
+  Clock,
   CreditCard,
   Eye,
   EyeOff,
+  FileSpreadsheet,
   ImagePlus,
   LayoutGrid,
   List,
@@ -79,6 +82,14 @@ interface ProductFormState {
   freeDeliveryEligible: boolean;
   allowCod: boolean;
   allowOnline: boolean;
+  // VESTRA + rentals (req 2-4)
+  vestra: boolean;
+  purchasable: boolean;
+  rentalEnabled: boolean;
+  rentalPriceRupees: string;
+  rentalMaxDays: string;
+  rentalUnits: string;
+  rentalTerms: string;
 }
 
 const emptyForm: ProductFormState = {
@@ -103,6 +114,13 @@ const emptyForm: ProductFormState = {
   freeDeliveryEligible: false,
   allowCod: true,
   allowOnline: true,
+  vestra: false,
+  purchasable: true,
+  rentalEnabled: false,
+  rentalPriceRupees: "",
+  rentalMaxDays: "",
+  rentalUnits: "",
+  rentalTerms: "",
 };
 
 const createEmptyForm = (categories: ManagedCategoryOption[]): ProductFormState => {
@@ -210,6 +228,8 @@ const AdminProducts = () => {
   const [editing, setEditing] = useState<string | null>(null);
   const [form, setForm] = useState<ProductFormState>(emptyForm);
   const [viewMode, setViewMode] = useState<"grid" | "table">("grid");
+  // Download the catalogue as a spreadsheet (req 5).
+  const [exportOpen, setExportOpen] = useState(false);
   const [imageUploading, setImageUploading] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const imageRef = useRef<HTMLInputElement>(null);
@@ -289,6 +309,13 @@ const AdminProducts = () => {
       freeDeliveryEligible: product.delivery?.freeDeliveryEligible === true,
       allowCod: allowedPaymentMethods.includes("cod"),
       allowOnline: allowedPaymentMethods.includes("razorpay"),
+      vestra: product.vestra === true,
+      purchasable: product.purchasable !== false,
+      rentalEnabled: product.rental?.enabled === true,
+      rentalPriceRupees: product.rental?.pricePerDayInPaise ? String(product.rental.pricePerDayInPaise / 100) : "",
+      rentalMaxDays: product.rental?.maxDays ? String(product.rental.maxDays) : "",
+      rentalUnits: product.rental?.units ? String(product.rental.units) : "",
+      rentalTerms: product.rental?.terms || "",
     });
     setEditing(product.id);
     setShowModal(true);
@@ -385,6 +412,17 @@ const AdminProducts = () => {
       whatsappEnquiry: form.whatsappEnquiry,
       allowedPaymentMethods: [form.allowCod ? "cod" : null, form.allowOnline ? "razorpay" : null].filter(Boolean),
       delivery,
+      // VESTRA + rentals (req 2-4). `rental` is always written as an object so
+      // switching renting OFF actually clears it on the live product.
+      vestra: form.vestra,
+      purchasable: form.purchasable,
+      rental: {
+        enabled: form.rentalEnabled,
+        pricePerDayInPaise: parsePriceToPaise(form.rentalPriceRupees) || 0,
+        maxDays: parseOptionalPositiveInteger(form.rentalMaxDays) || 0,
+        units: parseOptionalPositiveInteger(form.rentalUnits) || 0,
+        terms: form.rentalTerms.trim(),
+      },
       updatedAt: serverTimestamp(),
     };
 
@@ -418,6 +456,13 @@ const AdminProducts = () => {
 
   return (
     <div className="space-y-6">
+      <ProductExportDialog
+        open={exportOpen}
+        onClose={() => setExportOpen(false)}
+        products={products}
+        categoryLabel={(id) => getCategoryLabel(productCategories, id, id)}
+      />
+
       <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
         <div>
           <p className="font-body text-sm font-semibold uppercase tracking-[0.2em] text-gold">Inventory</p>
@@ -429,6 +474,9 @@ const AdminProducts = () => {
             <button type="button" onClick={() => setViewMode("grid")} className={`p-2.5 ${viewMode === "grid" ? "bg-gold text-gold-foreground" : "bg-card text-muted-foreground hover:text-foreground"}`} aria-label="Grid view"><LayoutGrid className="h-4 w-4" /></button>
             <button type="button" onClick={() => setViewMode("table")} className={`p-2.5 ${viewMode === "table" ? "bg-gold text-gold-foreground" : "bg-card text-muted-foreground hover:text-foreground"}`} aria-label="Table view"><List className="h-4 w-4" /></button>
           </div>
+          <button type="button" onClick={() => setExportOpen(true)} className="flex items-center gap-2 rounded-md border border-gold/40 px-4 py-2.5 font-body text-[0.85rem] font-medium text-gold hover:bg-gold/10">
+            <FileSpreadsheet className="h-4 w-4" /> Export Excel
+          </button>
           <button type="button" onClick={openAdd} className="flex items-center gap-2 rounded-md bg-gradient-primary px-4 py-2.5 font-body text-[0.85rem] font-medium text-primary-foreground hover:brightness-110">
             <Plus className="h-4 w-4" /> Add Product
           </button>
@@ -668,6 +716,62 @@ const AdminProducts = () => {
                   <span className="flex items-center gap-2"><Ruler className="h-4 w-4 text-gold" /> Free delivery eligible</span>
                   <input type="checkbox" checked={form.freeDeliveryEligible} onChange={(event) => setForm({ ...form, freeDeliveryEligible: event.target.checked })} />
                 </label>
+              </div>
+
+              {/* VESTRA & rentals (req 2-4) */}
+              <div className="rounded-xl border border-gold/25 bg-gold/5 p-4 sm:col-span-2">
+                <p className="font-body text-[0.7rem] font-semibold uppercase tracking-[0.14em] text-gold">VESTRA &amp; rentals</p>
+                <p className="mt-1 font-body text-xs text-muted-foreground">
+                  VESTRA items appear on the /vestra page. Type what <strong>24 hours</strong> costs and the site does the rest:
+                  a booking of N days is N × that, and every hour past the return time is billed at a 24th of it.
+                </p>
+
+                <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <label className="flex cursor-pointer items-center justify-between gap-3 rounded-lg border border-border bg-card px-3 py-2.5 font-body text-sm font-semibold text-foreground">
+                    <span className="flex items-center gap-2"><Sparkles className="h-4 w-4 text-gold" /> Show in VESTRA</span>
+                    <input type="checkbox" checked={form.vestra} onChange={(event) => setForm({ ...form, vestra: event.target.checked })} />
+                  </label>
+                  <label className="flex cursor-pointer items-center justify-between gap-3 rounded-lg border border-border bg-card px-3 py-2.5 font-body text-sm font-semibold text-foreground">
+                    <span className="flex items-center gap-2"><BadgeIndianRupee className="h-4 w-4 text-gold" /> Can be bought</span>
+                    <input type="checkbox" checked={form.purchasable} onChange={(event) => setForm({ ...form, purchasable: event.target.checked })} />
+                  </label>
+                  <label className="flex cursor-pointer items-center justify-between gap-3 rounded-lg border border-border bg-card px-3 py-2.5 font-body text-sm font-semibold text-foreground sm:col-span-2">
+                    <span className="flex items-center gap-2"><Clock className="h-4 w-4 text-gold" /> Can be rented</span>
+                    <input type="checkbox" checked={form.rentalEnabled} onChange={(event) => setForm({ ...form, rentalEnabled: event.target.checked })} />
+                  </label>
+                </div>
+
+                {form.rentalEnabled && (
+                  <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                    <div>
+                      <label className={labelClass}>Price per 24 hours (₹) *</label>
+                      <input
+                        value={form.rentalPriceRupees}
+                        onChange={(event) => setForm({ ...form, rentalPriceRupees: event.target.value })}
+                        className={inputClass}
+                        inputMode="decimal"
+                        placeholder="e.g. 500"
+                      />
+                      {form.rentalPriceRupees && (
+                        <p className="mt-1 font-body text-[0.7rem] text-muted-foreground">
+                          Late time: {formatPaiseAsRupees(Math.round((parsePriceToPaise(form.rentalPriceRupees) || 0) / 24))} per hour
+                        </p>
+                      )}
+                    </div>
+                    <div>
+                      <label className={labelClass}>Max days per booking</label>
+                      <input value={form.rentalMaxDays} onChange={(event) => setForm({ ...form, rentalMaxDays: event.target.value.replace(/[^0-9]/g, "") })} className={inputClass} inputMode="numeric" placeholder="Blank = no limit" />
+                    </div>
+                    <div>
+                      <label className={labelClass}>Units available</label>
+                      <input value={form.rentalUnits} onChange={(event) => setForm({ ...form, rentalUnits: event.target.value.replace(/[^0-9]/g, "") })} className={inputClass} inputMode="numeric" placeholder="Blank = untracked" />
+                    </div>
+                    <div className="sm:col-span-3">
+                      <label className={labelClass}>Rental terms shown to the customer</label>
+                      <input value={form.rentalTerms} onChange={(event) => setForm({ ...form, rentalTerms: event.target.value })} className={inputClass} placeholder="e.g. ID proof required · dry-clean before return" />
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="sm:col-span-2">
