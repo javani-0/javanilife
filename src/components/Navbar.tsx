@@ -13,7 +13,7 @@ const navLinks = [
   { label: "Home", path: "/" },
   { label: "Courses", path: "/courses" },
   { label: "Classes", path: "/classes" },
-  { label: "Products", path: "/products" },
+  { label: "Vastra", path: "/products" },
   { label: "Contact", path: "/contact" },
 ];
 

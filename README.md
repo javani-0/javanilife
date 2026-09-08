@@ -158,13 +158,15 @@ If a class was ever deleted, the students attached to it are stranded — they c
    shows you the matching per-hour rate for late returns. Optionally cap the days, say how many pieces you
    own, and add your terms
 
-**What the customer sees** — on the **normal product page**, no separate section:
-1. ✅ **Size** buttons above the buttons. Add to Cart and Buy Now ask for a size first if the piece has them
-2. ✅ Under Add to Cart / Buy Now, a **full-width "Rent This — ₹500 / 24 hours"** button
+**What the customer sees** — in the **shop itself**, no separate section. The menu item is now
+**Vastra** (it still opens the same shop):
+1. ✅ **Size** buttons on the product **card** and on the product page. Add to Cart and Buy Now ask for
+   a size first when the piece has them
+2. ✅ Under Add to Cart / Buy Now — **on the card and on the product page** — a full-width
+   **"Rent This — ₹500 / 24h"** button
 3. Tapping it opens a popup: **From**, **To**, **Days**, **Pieces** (and Size if not already chosen)
 4. ✅ Moving the To date moves the days and the price together — *"3 days × ₹500 = ₹1,500 · Return by…"*
 5. **Add rental** puts it in the normal cart; checkout offers store pickup or delivery as usual
-6. ✅ Product cards in the shop show *"Sizes: S · M · L — also on rent"*
 
 **Running it:** **Rental Desk** in the sidebar.
 1. ✅ Tiles show what is out, what is overdue, and the late fees still to collect

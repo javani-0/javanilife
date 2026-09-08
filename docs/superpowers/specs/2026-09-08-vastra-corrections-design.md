@@ -14,8 +14,14 @@ come in. (3) Wherever an admin screen filters by date, offer a **From–To range
 `/vestra` is gone: the page, the route and the nav link. `src/components/RentProductDialog.tsx` now
 carries the whole booking panel and opens from the product page, where the customer already is.
 
-The button sits **below Add to Cart and Buy Now at full width** (measured 780 px against the 385 px
-buy buttons) and reads *"Rent This — ₹500 / 24 hours"*, so the price is visible before the popup.
+The button sits **below Add to Cart and Buy Now at full width**, on the **product card in the grid
+and on the product page** (measured 374 px against 181 px on a card, 780 px against 385 px on the
+page), and reads *"Rent This — ₹500 / 24h"*, so the price is visible before the popup. Sizes are
+picked on the card too, and the card refuses to add a sized piece to the cart without one — opening
+the product just to say "M" would defeat the point of putting the button there.
+
+The public menu item is **Vastra** (the route stays `/products`, so every existing link and shared
+URL keeps working), and the shop hero is labelled VASTRA to match.
 
 The popup asks **From** and **To** rather than a bare day count, because that is how a customer thinks
 about a hire. Days are whole 24-hour blocks (`rentalDaysBetween`, tested): part of a day is a day,

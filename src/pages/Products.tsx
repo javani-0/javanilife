@@ -9,9 +9,11 @@ import SectionLabel from "@/components/SectionLabel";
 import SEO from "@/components/SEO";
 import ShareButton from "@/components/ShareButton";
 import { useCart } from "@/contexts/cart-context";
+import RentProductDialog from "@/components/RentProductDialog";
 import { useWishlist } from "@/hooks/useWishlist";
 import { useToast } from "@/hooks/use-toast";
 import {
+  formatPaiseAsRupees,
   getProductDisplayPrice,
   getActiveCategories,
   isProductActive,
@@ -25,6 +27,7 @@ import {
 import { useProductCategories } from "@/hooks/useManagedCategories";
 import {
   AlertCircle,
+  CalendarClock,
   CheckCircle2,
   ChevronDown,
   Heart,
@@ -136,6 +139,10 @@ const ProductCard = ({
   const [imgLoaded, setImgLoaded] = useState(false);
   const [qty, setQty] = useState(1);
   const [pendingAction, setPendingAction] = useState<"cart" | "buy-now" | null>(null);
+  // Sizes and renting are decided on the card itself — a shopper should not
+  // have to open the product to hire it or to say which size they want.
+  const [selectedSize, setSelectedSize] = useState(() => (product.sizes?.length === 1 ? product.sizes[0] : ""));
+  const [rentOpen, setRentOpen] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
   const { addProduct, openCart, setBuyNowProduct } = useCart();
@@ -151,6 +158,9 @@ const ProductCard = ({
   const purchasable = isProductPurchasable(product);
   const canIncrease = !maxQuantity || qty < maxQuantity;
   const openProductDetail = () => navigate(`/products/${product.id}`);
+  const sizes = product.sizes || [];
+  const needsSize = sizes.length > 0 && !selectedSize;
+  const rentable = Boolean(product.rental?.enabled && (product.rental.pricePerDayInPaise || 0) > 0);
   const listingCaption = product.shortDescription || product.description || "Curated by Javani Spiritual Hub for practice and performance.";
 
   useEffect(() => {
@@ -177,10 +187,14 @@ const ProductCard = ({
   const handleAddToCart = async (event: MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation();
     if (!purchasable || pendingAction) return;
+    if (needsSize) {
+      toast({ title: "Choose a size first", description: `${product.name} comes in ${sizes.join(", ")}.`, variant: "destructive" });
+      return;
+    }
 
     setPendingAction("cart");
     try {
-      await addProduct(product, qty);
+      await addProduct(product, qty, selectedSize);
       openCart();
     } catch {
       toast({ title: "Unable to add item", description: "Please try again.", variant: "destructive" });
@@ -192,11 +206,15 @@ const ProductCard = ({
   const handleBuyNow = async (event: MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation();
     if (!purchasable || pendingAction) return;
+    if (needsSize) {
+      toast({ title: "Choose a size first", description: `${product.name} comes in ${sizes.join(", ")}.`, variant: "destructive" });
+      return;
+    }
 
     setPendingAction("buy-now");
     try {
-      setBuyNowProduct(product, qty);
-      await addProduct(product, qty);
+      setBuyNowProduct(product, qty, selectedSize);
+      await addProduct(product, qty, selectedSize);
       toast({ title: "Buy Now item selected", description: `${product.name} is ready for checkout.` });
       navigate("/checkout");
     } catch {
@@ -261,16 +279,25 @@ const ProductCard = ({
 
           <p className="mt-2.5 line-clamp-1 font-body text-[0.92rem] leading-relaxed text-muted-foreground sm:text-sm lg:mt-3 lg:text-[1rem]">{listingCaption}</p>
 
-          {/* Sizes + hire price at a glance (req 2) — the card should say a
-              dress comes in sizes before the customer opens it. */}
-          {((product.sizes?.length || 0) > 0 || product.rental?.enabled) && (
-            <p className="mt-1.5 font-body text-[0.72rem] text-muted-foreground sm:text-xs">
-              {(product.sizes?.length || 0) > 0 && (
-                <span className="font-semibold text-foreground">Sizes: {(product.sizes || []).join(" · ")}</span>
-              )}
-              {(product.sizes?.length || 0) > 0 && product.rental?.enabled && " — "}
-              {product.rental?.enabled && <span>also on rent</span>}
-            </p>
+          {/* Sizes are chosen right here — the card must not be able to put a
+              sized dress in the cart without saying which size. */}
+          {sizes.length > 0 && (
+            <div className="mt-2.5" onClick={(event) => event.stopPropagation()}>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="font-body text-[0.7rem] font-semibold text-muted-foreground sm:text-xs">Size</span>
+                {sizes.map((size) => (
+                  <button
+                    key={size}
+                    type="button"
+                    onClick={() => setSelectedSize(size)}
+                    aria-pressed={selectedSize === size}
+                    className={`min-h-8 rounded-md border px-2.5 font-body text-[0.72rem] font-bold transition-colors sm:text-xs ${selectedSize === size ? "border-primary bg-primary text-primary-foreground" : "border-border bg-card text-muted-foreground hover:border-primary hover:text-primary"}`}
+                  >
+                    {size}
+                  </button>
+                ))}
+              </div>
+            </div>
           )}
 
           <div className="mt-4 flex items-center justify-between gap-3 lg:mt-5">
@@ -302,9 +329,34 @@ const ProductCard = ({
                 <Zap className="h-4 w-4" /> {pendingAction === "buy-now" ? "Ready" : "Buy Now"}
               </button>
             </div>
+
+            {/* Rent This — on the CARD, not only inside the product page. Full
+                width under the two buy buttons, as on the detail page. */}
+            {rentable && (
+              <button
+                type="button"
+                onClick={(event) => { event.stopPropagation(); setRentOpen(true); }}
+                className="mt-2 inline-flex h-10 w-full items-center justify-center gap-1.5 rounded-sm border-2 border-primary bg-card px-2.5 font-body text-[0.74rem] font-bold text-primary transition-colors hover:bg-primary hover:text-primary-foreground sm:h-11 sm:text-sm lg:h-12 lg:text-[0.95rem]"
+              >
+                <CalendarClock className="h-4 w-4" />
+                Rent This — {formatPaiseAsRupees(product.rental?.pricePerDayInPaise || 0)} / 24h
+              </button>
+            )}
           </div>
         </div>
       </div>
+
+      {rentable && (
+        <div onClick={(event) => event.stopPropagation()}>
+          <RentProductDialog
+            open={rentOpen}
+            onClose={() => setRentOpen(false)}
+            product={product}
+            size={selectedSize}
+            sizes={sizes}
+          />
+        </div>
+      )}
     </article>
   );
 };
@@ -401,7 +453,7 @@ const Products = () => {
         description="Shop authentic costumes, instruments, books, and practice accessories curated by Javani Spiritual Hub faculty."
       />
       <main>
-        <PageHero backgroundImages={[heroDancer1, heroTemple, carnaticMusic]} label="OUR PRODUCTS" heading="Artistry Begins With the Right Tools" subtext="Authentic costumes, instruments, and learning materials curated for practice and performance." size="compact" />
+        <PageHero backgroundImages={[heroDancer1, heroTemple, carnaticMusic]} label="VASTRA" heading="Artistry Begins With the Right Tools" subtext="Authentic costumes, instruments, and learning materials curated for practice and performance." size="compact" />
 
         <div className="z-[500] border-y border-gold/15 bg-background py-3 sm:sticky sm:top-[80px] sm:py-4 shadow-[0_10px_30px_rgba(51,35,20,0.08)]">
           <div className="mx-auto grid max-w-7xl gap-2.5 px-4 sm:px-6 sm:gap-3 lg:grid-cols-[1fr_240px_220px]">
