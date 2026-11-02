@@ -348,10 +348,9 @@ const StudentFeeCollections = ({ students, adminUid }: StudentFeeCollectionsProp
     }
   };
 
-  // Fees due within the reminder window (5 days before the due date → 5 after),
-  // across every loaded student, not yet reminded today. Same selection the
-  // cron uses — this button is a reliable manual trigger (req: reminders for
-  // every student based on the admin's due date, from 5 days before).
+  // Fees due a reminder today (first day inside the 5-day window, the due date,
+  // or 3 days late), across every loaded student, not yet reminded today. Same
+  // selection the cron uses — this button is a reliable manual trigger.
   const dueForReminder = useMemo(() => {
     const all: FeePaymentDoc[] = [];
     for (const fees of feesByStudent.values()) all.push(...fees);
@@ -360,7 +359,7 @@ const StudentFeeCollections = ({ students, adminUid }: StudentFeeCollectionsProp
 
   const sendDueReminders = async () => {
     if (!user) return;
-    if (dueForReminder.length === 0) { toast({ title: "No reminders due right now", description: "No student has a fee due within the next 5 days that hasn't already been reminded today." }); return; }
+    if (dueForReminder.length === 0) { toast({ title: "No reminders due right now", description: "Each fee gets 3 reminders: 5 days before, on the due date and 3 days late. None is due today." }); return; }
     setBulkReminding(true);
     let sent = 0; let failed = 0; let firstError = "";
     try {

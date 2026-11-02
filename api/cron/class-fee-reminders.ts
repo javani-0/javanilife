@@ -80,8 +80,8 @@ export default async function handler(request: ApiRequest, response: ApiResponse
   }
 
   // --- Steps B & C: scan pending + overdue fees for reminders ---------------
-  // Overdue fees keep getting the daily nudge for OVERDUE_REMINDER_GRACE_DAYS
-  // after the due date (collectDueReminders enforces the window). Two queries
+  // Overdue fees get one more nudge OVERDUE_REMINDER_GRACE_DAYS after the due
+  // date (collectDueReminders picks the days). Two queries
   // share the existing (status, dueDate) composite index.
   const [pendingSnapshot, overdueSnapshot] = await Promise.all([
     db.collection(FEE_PAYMENTS_COLLECTION).where("status", "==", "pending").orderBy("dueDate", "asc").limit(limit).get(),

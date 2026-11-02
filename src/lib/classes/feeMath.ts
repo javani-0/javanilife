@@ -303,19 +303,18 @@ export interface FeeReminderCandidate {
   reminders?: { preDebitMonthKey?: string; preDebitDateKey?: string };
 }
 
-// After the due date passes, keep nudging daily for this many days, then stop
-// (avoids nagging forever; the admin can still Remind manually). Req 2: the
-// window is the 5 days before the due date PLUS the 5 days after it.
-export const OVERDUE_REMINDER_GRACE_DAYS = 5;
+// One overdue nudge this many days after the due date, then stop (the admin can
+// still Remind manually). 2026-11-02: daily nudges (5 before + 5 after) were
+// too many WhatsApp messages; now 3 per fee: before, on the day, once late.
+export const OVERDUE_REMINDER_GRACE_DAYS = 3;
 
 /**
- * Select fee docs to remind today (req 6). We send a daily "pay in N days"
- * countdown across the whole window — from `daysBefore` days before the due
- * date through OVERDUE_REMINDER_GRACE_DAYS past it — and stop once paid. A
- * per-calendar-day guard (`reminders.preDebitDateKey`) makes each day's run
- * idempotent, so the cron can run repeatedly without spamming. Fees already
- * submitted for approval ("processing") or settled are skipped. Mirrored in
- * api/_lib/class-fees.ts — keep the two in sync.
+ * Select fee docs to remind today. Three WhatsApp reminders per fee at most:
+ * once on the first day inside the `daysBefore` window ("pay in N days"), once
+ * on the due date, and once OVERDUE_REMINDER_GRACE_DAYS past it. A
+ * per-calendar-day guard (`reminders.preDebitDateKey`) keeps each day's run
+ * idempotent. Fees already submitted for approval ("processing") or settled
+ * are skipped. Mirrored in api/_lib/class-fees.ts — keep the two in sync.
  */
 export const collectDueReminders = <T extends FeeReminderCandidate>(
   docs: T[],
@@ -326,7 +325,9 @@ export const collectDueReminders = <T extends FeeReminderCandidate>(
   return docs.filter((doc) => {
     if (doc.status !== "pending" && doc.status !== "overdue") return false;
     const remaining = daysUntil(doc.dueDate || "", now);
-    if (remaining === null || remaining < -OVERDUE_REMINDER_GRACE_DAYS || remaining > daysBefore) return false;
-    return doc.reminders?.preDebitDateKey !== todayKey;
+    if (remaining === null || doc.reminders?.preDebitDateKey === todayKey) return false;
+    // Before the due date: one reminder, the first day inside the window.
+    if (remaining > 0) return remaining <= daysBefore && doc.reminders?.preDebitMonthKey !== doc.monthKey;
+    return remaining === 0 || remaining === -OVERDUE_REMINDER_GRACE_DAYS;
   });
 };

@@ -159,15 +159,14 @@ export interface FeeReminderCandidate {
   reminders?: { preDebitMonthKey?: string; preDebitDateKey?: string };
 }
 
-// After the due date passes, keep nudging daily for this many days, then stop
-// (avoids nagging forever; the admin can still Remind manually). Req 2: the
-// window is the 5 days before the due date PLUS the 5 days after it.
-export const OVERDUE_REMINDER_GRACE_DAYS = 5;
+// One overdue nudge this many days after the due date, then stop (the admin can
+// still Remind manually). 2026-11-02: daily nudges (5 before + 5 after) were
+// too many WhatsApp messages; now 3 per fee: before, on the day, once late.
+export const OVERDUE_REMINDER_GRACE_DAYS = 3;
 
-// Mirror of src/lib/classes/feeMath.ts collectDueReminders (req 6): send a daily
-// "pay in N days" countdown across the whole window — daysBefore days ahead of
-// the due date through OVERDUE_REMINDER_GRACE_DAYS past it — and stop once
-// paid/waived/processing, using a per-calendar-day idempotency guard. Keep the
+// Mirror of src/lib/classes/feeMath.ts collectDueReminders: at most three
+// reminders per fee (first day inside the daysBefore window, the due date, and
+// OVERDUE_REMINDER_GRACE_DAYS past it), with a per-calendar-day guard. Keep the
 // two in sync.
 export const collectDueReminders = <T extends FeeReminderCandidate>(
   docs: T[],
@@ -178,7 +177,9 @@ export const collectDueReminders = <T extends FeeReminderCandidate>(
   return docs.filter((doc) => {
     if (doc.status !== "pending" && doc.status !== "overdue") return false;
     const remaining = daysUntil(doc.dueDate || "", now);
-    if (remaining === null || remaining < -OVERDUE_REMINDER_GRACE_DAYS || remaining > daysBefore) return false;
-    return doc.reminders?.preDebitDateKey !== todayKey;
+    if (remaining === null || doc.reminders?.preDebitDateKey === todayKey) return false;
+    // Before the due date: one reminder, the first day inside the window.
+    if (remaining > 0) return remaining <= daysBefore && doc.reminders?.preDebitMonthKey !== doc.monthKey;
+    return remaining === 0 || remaining === -OVERDUE_REMINDER_GRACE_DAYS;
   });
 };

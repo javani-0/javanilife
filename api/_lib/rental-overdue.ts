@@ -17,7 +17,8 @@ import { getWhatsAppEnvValue, sendWhatsAppTemplate, sendWhatsAppText, type Whats
 // ---------------------------------------------------------------------------
 
 const MS_PER_HOUR = 60 * 60 * 1000;
-const ESCALATION_HOURS = 12;
+// Every 3 days while still out (2026-11-02: 12 h meant a WhatsApp every day).
+const ESCALATION_HOURS = 72;
 
 export interface OverdueRentalRecord {
   id: string;

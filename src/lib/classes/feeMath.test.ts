@@ -159,24 +159,29 @@ describe("computeBillingPeriod", () => {
 describe("collectDueReminders", () => {
   const now = new Date("2026-06-01T08:00:00Z"); // today = 2026-06-01
 
-  it("selects pending fees anywhere in the 5-day window (5 days out → due today)", () => {
+  it("reminds once before the due date, the first day inside the 5-day window", () => {
     const docs = [
-      { id: "a", monthKey: "2026-06", status: "pending", dueDate: "2026-06-06" }, // 5 days out
-      { id: "b", monthKey: "2026-06", status: "pending", dueDate: "2026-06-03" }, // 2 days out
-      { id: "c", monthKey: "2026-06", status: "pending", dueDate: "2026-06-01" }, // due today
+      { id: "a", monthKey: "2026-06", status: "pending", dueDate: "2026-06-06" }, // 5 days out, not reminded yet
+      { id: "b", monthKey: "2026-06", status: "pending", dueDate: "2026-06-03", reminders: { preDebitMonthKey: "2026-06", preDebitDateKey: "2026-05-29" } }, // already reminded for this fee
+      { id: "b2", monthKey: "2026-06", status: "pending", dueDate: "2026-06-03" }, // joined late: first reminder now
+      { id: "d", monthKey: "2026-06", status: "pending", dueDate: "2026-06-07" }, // 6 days out — too early
     ];
-    expect(collectDueReminders(docs, now).map((d) => d.id)).toEqual(["a", "b", "c"]);
+    expect(collectDueReminders(docs, now).map((d) => d.id)).toEqual(["a", "b2"]);
   });
 
-  it("keeps nudging overdue fees for up to 5 days past due, then stops", () => {
+  it("reminds on the due date even after the early reminder", () => {
+    const docs = [{ id: "c", monthKey: "2026-06", status: "pending", dueDate: "2026-06-01", reminders: { preDebitMonthKey: "2026-06", preDebitDateKey: "2026-05-27" } }];
+    expect(collectDueReminders(docs, now).map((d) => d.id)).toEqual(["c"]);
+  });
+
+  it("nudges an overdue fee once, 3 days past due, then stops", () => {
     const docs = [
-      { id: "d", monthKey: "2026-06", status: "pending", dueDate: "2026-06-07" }, // 6 days out — too early
-      { id: "e", monthKey: "2026-05", status: "overdue", dueDate: "2026-05-28" }, // 4 days past — still nudged
-      { id: "g", monthKey: "2026-05", status: "overdue", dueDate: "2026-05-27" }, // 5 days past — last nudge
-      { id: "h", monthKey: "2026-05", status: "overdue", dueDate: "2026-05-26" }, // 6 days past — stopped
-      { id: "f", monthKey: "2026-05", status: "overdue", dueDate: "2026-05-20" }, // 12 days past — stopped
+      { id: "e", monthKey: "2026-05", status: "overdue", dueDate: "2026-05-31" }, // 1 day past — quiet
+      { id: "g", monthKey: "2026-05", status: "overdue", dueDate: "2026-05-29" }, // 3 days past — nudge
+      { id: "h", monthKey: "2026-05", status: "overdue", dueDate: "2026-05-28" }, // 4 days past — quiet
+      { id: "f", monthKey: "2026-05", status: "overdue", dueDate: "2026-05-20" }, // 12 days past — quiet
     ];
-    expect(collectDueReminders(docs, now).map((d) => d.id)).toEqual(["e", "g"]);
+    expect(collectDueReminders(docs, now).map((d) => d.id)).toEqual(["g"]);
   });
 
   it("skips fees under UPI approval (processing) and settled fees", () => {
@@ -190,10 +195,9 @@ describe("collectDueReminders", () => {
 
   it("sends at most once per calendar day (per-day idempotency)", () => {
     const docs = [
-      { id: "i", monthKey: "2026-06", status: "pending", dueDate: "2026-06-06", reminders: { preDebitDateKey: "2026-06-01" } },
-      { id: "j", monthKey: "2026-06", status: "pending", dueDate: "2026-06-06", reminders: { preDebitDateKey: "2026-05-31" } },
+      { id: "i", monthKey: "2026-06", status: "pending", dueDate: "2026-06-01", reminders: { preDebitDateKey: "2026-06-01" } },
+      { id: "j", monthKey: "2026-06", status: "pending", dueDate: "2026-06-01", reminders: { preDebitDateKey: "2026-05-31" } },
     ];
-    // i was already reminded today → skipped; j was reminded yesterday → sent again today.
     expect(collectDueReminders(docs, now).map((d) => d.id)).toEqual(["j"]);
   });
 
