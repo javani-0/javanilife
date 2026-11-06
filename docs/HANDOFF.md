@@ -8,20 +8,19 @@ Last updated: 2026-11-06 (SEO deployed and verified live; GSC sitemap submitted)
 
 - **SEO is LIVE** (pushed `ae5bf53` to GitHub 2026-11-06; Vercel project **`javanilife`** in team "javani-0's projects" (Hobby) auto-deploys `main`. The local `.vercel/project.json` points to the old `javani-sprirtual` project; ignore it).
 - Live curl checks pass: 10 pages (1 title, 1 H1, canonical, JSON-LD), `/sitemap.xml` 16 URLs, robots.txt, `/classes/:id` HTML, 404+noindex for missing items. Full results in `docs/seo/SEO-2026-11-06.md`.
-- **Search Console** (javani Chrome `07389126…`, javni.education@gmail.com): verified, sitemap submitted (Success, 16), indexing requested for `/` and `/classes`.
-- **Bing Webmaster:** site imported from GSC.
+- **Search Console** (javani Chrome `07389126…`, javni.education@gmail.com): verified, sitemap submitted (Success, 16), indexing requested for `/`, `/classes`, `/courses`, `/about`, `/contact`. Rich Results Test passes on `/` and a class page.
+- **Bing Webmaster:** site imported from GSC, sitemap submitted.
 - Tests: 565/570 (the 5 failures are older: course-installments, delivery-flow-ui).
 
 ## Next steps (in order)
 
 | # | Step | Effort |
 |---|---|---|
-| 1 | Request indexing in GSC for `/courses`, `/about`, `/contact`, `/products`, `/grading` (the tab froze during `/courses`); submit the sitemap in Bing too; Rich Results Test on `/` and one `/classes/:id` | Low |
-| 2 | Act on the client's [NEED] answers (report file) | Medium |
-| 3 | Day 3/7/14/30 checks from the monitoring plan in the report | Low |
-| 4 | Optional speed work: main JS 357 KB gzip (Firebase + React); hero typing text is the LCP element | High |
+| 1 | Act on the client's [NEED] answers (report file) | Medium |
+| 2 | Day 3/7/14/30 checks from the monitoring plan in the report | Low |
+| 3 | Optional speed work: main JS 357 KB gzip (Firebase + React); hero typing text is the LCP element | High |
 
-**Message for the next chat:** `Read javanilife/docs/HANDOFF.md and do Next step 1.`
+**Message for the next chat:** `Read javanilife/docs/HANDOFF.md and do Next step 2 (day-3 Search Console check).`
 
 ## Waiting on the client or the user
 
