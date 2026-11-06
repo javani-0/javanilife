@@ -2,35 +2,42 @@
 
 Javani Spiritual Hub (www.javanilife.com): a classical dance/music academy + shop. React 18 + Vite SPA, Firebase, Vercel (project `javani-sprirtual`), Razorpay.
 
-Last updated: 2026-11-06 (SEO step 1 audit written)
+Last updated: 2026-11-06 (SEO steps 2-5 built and committed; Search Console waiting on the GoDaddy step)
 
 ## State
 
-- **Branch and last commit:** `a55db98` (WhatsApp fee reminders). Nothing committed for SEO yet.
-- **Done:** SEO audit → `docs/seo/SEO-2026-11-06.md` (ranked findings, keyword table, NEED list).
-- **Unfinished or uncommitted work:** `docs/seo/`, `docs/HANDOFF.md` (new, untracked).
-- **How to run and check it:** `npm run build`; Lighthouse via `npx -y lighthouse@12.6.0 <url> --form-factor=mobile` with `CHROME_PATH` = Playwright Chromium (the PSI API daily quota was exhausted).
+- **Last commits:** `ec6febf` SEO (prerender, sitemap, JSON-LD, canonicals, WebP images, private routes lazy) and `6ffa564` (template-fetch host fix). Local only, NOT pushed or deployed.
+- **Verified locally:** build OK; the prerender writes 10 pages + shell (1 title, 1 H1, canonical, valid JSON-LD each); 565/570 tests pass. The 5 failures (course-installments, delivery-flow-ui) also fail on the old HEAD, so they are older failures, not caused by this work. Lighthouse mobile on the local build: SEO 100, LCP 17.2 s → 5.1 s, performance 30 → 35 (TBT is noisy locally).
+- **Search Console:** a Domain property `javanilife.com` was added in the "javani" Chrome (`07389126-21df…`) but is NOT verified yet. The domain's DNS is at GoDaddy; the user must click START VERIFICATION and do the GoDaddy login/Allow.
+- **How to check:** `npm run build`; `npx vite preview --port 4173`; Lighthouse via `npx -y lighthouse@12.6.0 <url> --form-factor=mobile` with `CHROME_PATH` = Playwright Chromium.
 
 ## Next steps (in order)
 
-| # | Step | Ultracode? | Effort |
-|---|---|---|---|
-| 1 | Wait for the user's OK on the audit, then SEO steps 2-5 in the order at the end of the SEO report | No | High |
-| 2 | Step 7 Search Console + Bing in the "javani" Chrome (`07389126…`); logins and Allow screens are the user's | No | Medium |
-| 3 | Step 8 live checks after the user's deploy yes | No | Medium |
+| # | Step | Effort |
+|---|---|---|
+| 1 | After the user verifies on GoDaddy: Bing Webmaster (import from GSC) | Medium |
+| 2 | User's deploy yes → push/deploy → step 8 live checks (curl every page head, /sitemap.xml, a /classes/:id page, Rich Results test) → submit the sitemap in GSC + Bing, request indexing | Medium |
+| 3 | Step 6 local/off-site list + step 9 monitoring plan into `docs/seo/SEO-2026-11-06.md` | Medium |
+| 4 | Optional speed work: the main JS is still 357 KB gzip (Firebase + React); the hero typing animation is the LCP element | High |
 
-**Message for the next chat:** `Read javanilife/docs/HANDOFF.md and docs/seo/SEO-2026-11-06.md, then do SEO step 2 onwards.`
+**Message for the next chat:** `Read javanilife/docs/HANDOFF.md and continue from Next step 1.`
 
 ## Waiting on the client or the user
 
-- See the NEED list in `docs/seo/SEO-2026-11-06.md`.
+- Search Console: START VERIFICATION → GoDaddy login → Allow.
+- A deploy yes.
+- Permission to delete the 48 sample testimonial docs in Firestore (the code already hides them).
+- The hero stats "500+ Students / 15+ Courses / 12+ Years" need proof or removal. The rest of the NEED list is in `docs/seo/SEO-2026-11-06.md`.
 
 ## Decisions (and why)
 
-- 2026-11-06: no new Vercel function for SEO. The sitemap and detail-page HTML go into `api/share-page.ts` via rewrites. Why: there are already 12 functions (the Hobby limit) until the plan is confirmed.
+- 2026-11-06: no new Vercel function for SEO. The sitemap and detail-page HTML go into `api/share-page.ts` via a `mode` param. Why: there are already 12 functions (the Hobby limit).
+- 2026-11-06: public pages stay in the main bundle (the code's own rule: no Suspense flash); only private pages are lazy.
+- 2026-11-06: the sample testimonials are filtered out by their exact text; the section hides when no real ones exist.
 
 ## Gotchas
 
-- The SPA catch-all rewrite in `vercel.json` (`/((?!api/|…|.*\..*).*)` → `/`) must stay LAST; `/sitemap.xml` has a dot, so it is not caught, but it 404s until a rewrite is added above it.
-- `TestimonialsSection` auto-writes sample testimonials into Firestore when the collection is empty.
+- `vercel.json`: the SPA catch-all → `/_seo/shell.html` (noindex) must stay LAST.
+- SEO text for each page lives in `api/_lib/seo.ts` (`STATIC_PAGES`); `src/test/seo.test.ts` enforces the lengths.
+- `vite preview` doesn't apply the Vercel rewrites (every path shows the home HTML locally).
 - The `ss/` folder next to `javanilife/` is the old base copy; don't edit it.
