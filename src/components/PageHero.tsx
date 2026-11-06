@@ -1,3 +1,4 @@
+import { optimizeImageUrl } from "@/lib/cloudinary";
 import { useState, useEffect, useCallback } from "react";
 import SectionLabel from "@/components/SectionLabel";
 
@@ -35,7 +36,7 @@ const PageHero = ({ backgroundImages = [], label, heading, subtext, breadcrumb, 
           key={i}
           className="absolute inset-0 bg-cover bg-center"
           style={{
-            backgroundImage: `url(${img})`,
+            backgroundImage: `url(${optimizeImageUrl(img, 1920)})`,
             opacity: currentIndex === i && loadedImages.has(i) ? 1 : 0,
             transform: currentIndex === i ? "scale(1.05)" : "scale(1)",
             transition: "opacity 1s ease-in-out, transform 6s ease-out",
@@ -47,7 +48,7 @@ const PageHero = ({ backgroundImages = [], label, heading, subtext, breadcrumb, 
       {backgroundImages.map((img, i) => (
         <img
           key={`preload-${i}`}
-          src={img}
+          src={optimizeImageUrl(img, 1920)}
           alt=""
           className="hidden"
           onLoad={() => setLoadedImages((prev) => new Set(prev).add(i))}

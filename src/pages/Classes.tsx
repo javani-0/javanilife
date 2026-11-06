@@ -1,9 +1,10 @@
+import { optimizeImageUrl } from "@/lib/cloudinary";
 import { useEffect, useMemo, useState, type KeyboardEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { CalendarDays, GraduationCap, Search, Users } from "lucide-react";
 import Footer from "@/components/Footer";
 import PageHero from "@/components/PageHero";
-import SEO from "@/components/SEO";
+import { PageSEO } from "@/components/SEO";
 import ShareButton from "@/components/ShareButton";
 import { classOffersMonthly, classOffersTerm, getAutopayFeeLabel, getClassFeeLabel, getTermPayFullOfferLabel, hasAutopayDiscount, hasTermPayFullOffer, isClassEnrollable, subscribeToActiveClasses, type ClassDoc } from "@/lib/classes";
 
@@ -48,7 +49,7 @@ const ClassCard = ({ classDoc }: { classDoc: ClassDoc }) => {
   <div role="link" tabIndex={0} onClick={openEnrol} onKeyDown={handleKeyDown} className="group flex h-full cursor-pointer flex-col overflow-hidden rounded-lg border border-gold/15 bg-card shadow-[0_10px_28px_rgba(51,35,20,0.07)] transition-all duration-300 hover:-translate-y-1 hover:border-gold/40 hover:shadow-[0_14px_38px_rgba(51,35,20,0.12)] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold focus-visible:ring-offset-2">
     <div className="relative aspect-square overflow-hidden bg-muted">
       {classDoc.image ? (
-        <img src={classDoc.image} alt={classDoc.name} loading="lazy" className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.035]" />
+        <img src={optimizeImageUrl(classDoc.image, 800)} alt={classDoc.name} loading="lazy" className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.035]" />
       ) : (
         <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-gold/10 to-primary/10">
           <GraduationCap className="h-12 w-12 text-gold/50" />
@@ -127,10 +128,7 @@ const Classes = () => {
 
   return (
     <>
-      <SEO
-        title="Classes | Monthly Fee Classes & Autopay | Javani Spiritual Hub"
-        description="Enrol your child in our monthly classical arts classes. Pay monthly fees online with autopay, get reminders, and track payment history."
-      />
+      <PageSEO path="/classes" />
       <main>
         <PageHero
           backgroundImages={[heroDancer1, heroDancer2, heroDancer3]}

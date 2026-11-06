@@ -10,15 +10,15 @@ import PageHero from "@/components/PageHero";
 import SectionLabel from "@/components/SectionLabel";
 import GoldDivider from "@/components/GoldDivider";
 import PrimaryButton from "@/components/PrimaryButton";
-import SEO from "@/components/SEO";
+import { PageSEO } from "@/components/SEO";
 import { ChevronDown, ChevronLeft, ChevronRight, Crown } from "lucide-react";
 import { useScrollAnimation } from "@/hooks/useScrollAnimation";
 import heroDancer1 from "@/assets/hero-dancer-1.jpg";
 import heroDancer2 from "@/assets/hero-dancer-2.jpg";
 import heroTemple from "@/assets/hero-temple.jpg";
-import dancerPortrait from "@/assets/grading-main.jpg";
-import dancerCloseup from "@/assets/grading-closeup.jpg";
-import danceDetailFeet from "@/assets/grading-feet.jpg";
+import dancerPortrait from "@/assets/grading-main.webp";
+import dancerCloseup from "@/assets/grading-closeup.webp";
+import danceDetailFeet from "@/assets/grading-feet.webp";
 
 /* ───── Intro ───── */
 const IntroSection = () => {
@@ -509,10 +509,7 @@ const FAQSection = () => {
 /* ───── Main Page ───── */
 const Grading = () => (
   <>
-    <SEO
-      title="Grading System & Certification | Javani Spiritual Hub"
-      description="Understand our university-linked certification and grade-based progression system. From foundation level to Senior Diploma and Arangetram."
-    />
+    <PageSEO path="/grading" />
     <main>
       <PageHero
         backgroundImages={[heroDancer2, heroTemple, heroDancer1]}

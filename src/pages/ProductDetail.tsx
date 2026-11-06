@@ -1,9 +1,11 @@
+import { optimizeImageUrl } from "@/lib/cloudinary";
 import { useState, useEffect } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { doc, getDoc, collection, getDocs } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import Footer from "@/components/Footer";
 import SEO from "@/components/SEO";
+import { breadcrumbJsonLd, graph, productJsonLd } from "../../api/_lib/seo";
 import ImageViewer from "@/components/ImageViewer";
 import ShareButton from "@/components/ShareButton";
 import { useCart } from "@/contexts/cart-context";
@@ -21,8 +23,8 @@ import {
   type ProductStockStatus,
 } from "@/lib/ecommerce";
 import { AlertCircle, ArrowLeft, CalendarClock, CheckCircle2, ChevronRight, Clock, CreditCard, Heart, Minus, Plus, ShieldCheck, ShoppingBag, Truck, Zap, type LucideIcon } from "lucide-react";
-import productDetailBg from "@/assets/product-detail-bg.png";
-import productDetailBgMobile from "@/assets/product-detail-bg-mobile.png";
+import productDetailBg from "@/assets/product-detail-bg.webp";
+import productDetailBgMobile from "@/assets/product-detail-bg-mobile.webp";
 
 interface StockMeta {
   label: string;
@@ -282,6 +284,7 @@ const ProductDetail = () => {
   if (!product) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center gap-4 px-4" style={{ background: "#F5D5BC" }}>
+        <SEO title="Product not found | Javani Spiritual Hub" description="This product is not available." noindex />
         <h1 className="font-display text-2xl text-[#3D1A0E]">Product not found</h1>
         <Link to="/products" className="text-[#8B1A1A] hover:underline font-body text-sm">← Back to Products</Link>
       </div>
@@ -293,9 +296,15 @@ const ProductDetail = () => {
   return (
     <>
       <SEO
-        title={`${product.name} | Javani Spiritual Hub`}
-        description={product.description}
-        ogImage={currentImage}
+        title={`${product.name} | Buy Online | Javani Spiritual Hub`}
+        description={product.shortDescription || product.description || `Buy ${product.name} online from Javani Spiritual Hub, Secunderabad.`}
+        canonical={`/products/${product.id}`}
+        ogImage={allImages[0] || currentImage}
+        ogType="product"
+        jsonLd={graph(
+          productJsonLd({ id: product.id, name: product.name, description: product.description || product.shortDescription, images: allImages, amountInPaise: product.amountInPaise, sku: product.sku, stockStatus: product.stockStatus, category: product.categoryLabel }),
+          breadcrumbJsonLd([{ name: "Products", path: "/products" }, { name: product.name, path: `/products/${product.id}` }]),
+        )}
       />
 
       <ImageViewer
@@ -378,7 +387,7 @@ const ProductDetail = () => {
                     <div className="absolute inset-0 animate-pulse" style={{ background: "#E8C8AD" }} />
                   )}
                   <img
-                    src={currentImage}
+                    src={optimizeImageUrl(currentImage, 1200)}
                     alt={product.name}
                     onLoad={() => setImgLoaded(true)}
                     className={`w-full h-full object-cover transition-all duration-500 group-hover:scale-105 ${imgLoaded ? "opacity-100" : "opacity-0"}`}
@@ -406,7 +415,7 @@ const ProductDetail = () => {
                         style={{ borderRadius: "4px" }}
                       >
                         <img
-                          src={img}
+                          src={optimizeImageUrl(img, 200)}
                           alt={`${product.name} ${idx + 1}`}
                           className="w-full h-full object-cover"
                         />
@@ -423,7 +432,7 @@ const ProductDetail = () => {
                       style={{ borderRadius: "4px", background: "#E8C8AD", width: "72px" }}
                     >
                       <img
-                        src={product.image}
+                        src={optimizeImageUrl(product.image, 200)}
                         alt={product.name}
                         className="w-full h-full object-cover"
                       />
@@ -657,7 +666,7 @@ const ProductDetail = () => {
                 >
                   <div className="aspect-square overflow-hidden bg-[#EDD4BE] relative">
                     <img
-                      src={rp.image}
+                      src={optimizeImageUrl(rp.image, 600)}
                       alt={rp.name}
                       className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                     />

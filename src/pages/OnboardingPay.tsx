@@ -22,7 +22,7 @@ import {
   verifyOnboardingPayment,
   type OnboardingLinkDoc,
 } from "@/lib/students";
-import logo from "@/assets/logo-white.png";
+import logo from "@/assets/logo-white.webp";
 
 // "pay" is the declare-a-payment panel: the UPI QR (when enabled + configured),
 // an OPTIONAL screenshot, an optional UTR, and the submit button. It doubles as

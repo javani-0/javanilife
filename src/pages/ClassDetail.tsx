@@ -1,3 +1,4 @@
+import { optimizeImageUrl } from "@/lib/cloudinary";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams, Link } from "react-router-dom";
 import { useForm } from "react-hook-form";
@@ -7,6 +8,7 @@ import { ArrowLeft, CalendarDays, Check, CheckCircle2, GraduationCap, Loader2, M
 import Footer from "@/components/Footer";
 import PageHero from "@/components/PageHero";
 import SEO from "@/components/SEO";
+import { breadcrumbJsonLd, courseJsonLd, graph } from "../../api/_lib/seo";
 import ShareButton from "@/components/ShareButton";
 import ImageViewer from "@/components/ImageViewer";
 import { useToast } from "@/hooks/use-toast";
@@ -191,6 +193,7 @@ const ClassDetail = () => {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-background px-6 text-center">
         <GraduationCap className="h-12 w-12 text-gold/60" />
+        <SEO title="Class not found | Javani Spiritual Hub" description="This class is not available." noindex />
         <h1 className="font-display text-2xl text-foreground">Class not found</h1>
         <p className="font-body text-sm text-muted-foreground">This class may be inactive or no longer available.</p>
         <Link to="/classes" className="rounded-sm bg-gradient-primary px-5 py-2.5 font-body text-sm font-semibold text-primary-foreground hover:brightness-110">Browse classes</Link>
@@ -200,7 +203,16 @@ const ClassDetail = () => {
 
   return (
     <>
-      <SEO title={`Enrol — ${classDoc.name} | Javani Spiritual Hub`} description={classDoc.description || `Enrol in ${classDoc.name} at Javani Spiritual Hub.`} />
+      <SEO
+        title={`${classDoc.name} Classes | Javani Spiritual Hub`}
+        description={classDoc.description || `Enrol in ${classDoc.name} monthly classes at Javani Spiritual Hub, Yapral, Secunderabad. Enrol online and pay the class fee monthly.`}
+        canonical={`/classes/${classDoc.id}`}
+        ogImage={classDoc.image}
+        jsonLd={graph(
+          courseJsonLd({ path: `/classes/${classDoc.id}`, name: classDoc.name, description: classDoc.description, image: classDoc.image }),
+          breadcrumbJsonLd([{ name: "Classes", path: "/classes" }, { name: classDoc.name, path: `/classes/${classDoc.id}` }]),
+        )}
+      />
       <main>
         <PageHero backgroundImages={[heroTemple]} label="ENROLMENT" heading={classDoc.name} subtext={getClassFeeLabel(classDoc)} size="compact" breadcrumb={[{ label: "Home", path: "/" }, { label: "Classes", path: "/classes" }, { label: "Enrol" }]} />
 
@@ -402,7 +414,7 @@ const ClassDetail = () => {
             <aside className="h-fit min-w-0 rounded-2xl border border-gold/15 bg-card p-5 shadow-card lg:sticky lg:top-28">
               {classDoc.image && (
                 <div className="group relative mb-4 cursor-zoom-in overflow-hidden rounded-lg" onClick={() => setViewerOpen(true)}>
-                  <img src={classDoc.image} alt={classDoc.name} className="aspect-square w-full object-cover" />
+                  <img src={optimizeImageUrl(classDoc.image, 1000)} alt={classDoc.name} className="aspect-square w-full object-cover" />
                   <span className="pointer-events-none absolute bottom-3 right-3 flex items-center gap-1 rounded-full bg-black/55 px-2.5 py-1 font-body text-[0.7rem] text-white opacity-0 transition-opacity group-hover:opacity-100">
                     <Maximize2 className="h-3.5 w-3.5" /> View full
                   </span>

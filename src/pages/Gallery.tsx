@@ -1,3 +1,4 @@
+import { optimizeImageUrl } from "@/lib/cloudinary";
 import { useState, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { collection, onSnapshot } from "firebase/firestore";
@@ -8,7 +9,7 @@ import heroDancer3 from "@/assets/hero-dancer-3.jpg";
 
 import Footer from "@/components/Footer";
 import PageHero from "@/components/PageHero";
-import SEO from "@/components/SEO";
+import { PageSEO } from "@/components/SEO";
 import { ZoomIn, X, ChevronLeft, ChevronRight } from "lucide-react";
 import { useScrollAnimation } from "@/hooks/useScrollAnimation";
 
@@ -84,10 +85,7 @@ const Gallery = () => {
 
   return (
     <>
-      <SEO
-        title="Gallery | Performances & Student Moments | Javani Spiritual Hub"
-        description="Browse photos from performances, workshops, certifications, and behind-the-scenes moments at Javani Spiritual Hub."
-      />
+      <PageSEO path="/gallery" />
       <main>
         <PageHero backgroundImages={galleryHeroBgs} label="OUR GALLERY" heading="Gallery of Art & Expression" subtext="Every photograph tells the story of a student's devotion." />
 
@@ -122,7 +120,7 @@ const Gallery = () => {
                   >
                     {!loaded.has(i) && <div className="aspect-[4/3] skeleton-shimmer" />}
                     <img
-                      src={img.src}
+                      src={optimizeImageUrl(img.src, 800)}
                       alt={`Gallery image ${i + 1}`}
                       onLoad={() => setLoaded((p) => new Set(p).add(i))}
                       onError={() => setLoaded((p) => new Set(p).add(i))}
@@ -145,7 +143,7 @@ const Gallery = () => {
           <button className="absolute top-4 right-4 sm:top-6 sm:right-6 w-10 h-10 rounded-full bg-white/20 flex items-center justify-center text-white hover:bg-white/30 transition-colors z-10" onClick={(e) => { e.stopPropagation(); closeLightbox(); }}><X className="w-6 h-6" /></button>
           <button className="absolute left-2 sm:left-4 md:left-8 top-1/2 -translate-y-1/2 w-10 sm:w-12 h-10 sm:h-12 rounded-full bg-white/20 flex items-center justify-center text-white hover:bg-white/30 transition-colors z-10" onClick={(e) => { e.stopPropagation(); prev(); }}><ChevronLeft className="w-6 h-6" /></button>
           <button className="absolute right-2 sm:right-4 md:right-8 top-1/2 -translate-y-1/2 w-10 sm:w-12 h-10 sm:h-12 rounded-full bg-white/20 flex items-center justify-center text-white hover:bg-white/30 transition-colors z-10" onClick={(e) => { e.stopPropagation(); next(); }}><ChevronRight className="w-6 h-6" /></button>
-          <img src={filtered[lightboxIndex].src} alt={`Gallery ${lightboxIndex + 1}`} className="max-h-[90vh] max-w-[90vw] object-contain rounded" onClick={(e) => e.stopPropagation()} />
+          <img src={optimizeImageUrl(filtered[lightboxIndex].src, 1600)} alt={`Gallery ${lightboxIndex + 1}`} className="max-h-[90vh] max-w-[90vw] object-contain rounded" onClick={(e) => e.stopPropagation()} />
           <p className="absolute bottom-4 sm:bottom-6 left-1/2 -translate-x-1/2 font-body font-light text-[0.8rem] sm:text-[0.875rem] text-white/60">Image {lightboxIndex + 1} of {filtered.length}</p>
         </div>,
         document.body

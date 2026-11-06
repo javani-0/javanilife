@@ -1,3 +1,4 @@
+import { optimizeImageUrl } from "@/lib/cloudinary";
 import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { collection, getDocs } from "firebase/firestore";
@@ -93,7 +94,7 @@ const CoursesPreview = () => {
               <div className="flex h-full flex-col bg-card shadow-card rounded-lg overflow-hidden transition-all duration-300 hover:-translate-y-1.5 hover:shadow-hero group">
                 <div className="aspect-square relative overflow-hidden">
                   {<div className="absolute inset-0 skeleton-shimmer peer" />}
-                  <img src={c.image} alt={c.title} loading="lazy" onLoad={(e) => { (e.target as HTMLElement).previousElementSibling?.remove(); }} className="w-full h-full object-cover transition-all duration-500 group-hover:scale-[1.06]" />
+                  <img src={optimizeImageUrl(c.image, 800)} alt={c.title} loading="lazy" onLoad={(e) => { (e.target as HTMLElement).previousElementSibling?.remove(); }} className="w-full h-full object-cover transition-all duration-500 group-hover:scale-[1.06]" />
                 </div>
                 <div className="flex flex-1 flex-col p-5 sm:p-6">
                   <span className={`inline-block w-fit px-3 py-1 text-xs font-body font-medium rounded-full mb-3 ${badgeStyles[c.badgeColor] || badgeStyles.red}`}>{c.badge}</span>

@@ -1,34 +1,159 @@
 {
+  "trailingSlash": false,
   "redirects": [
     {
       "source": "/",
-      "has": [{ "type": "host", "value": "javanailife.store" }],
+      "has": [
+        {
+          "type": "host",
+          "value": "javanailife.store"
+        }
+      ],
       "destination": "/products",
       "permanent": false
     },
     {
       "source": "/",
-      "has": [{ "type": "host", "value": "www.javanailife.store" }],
+      "has": [
+        {
+          "type": "host",
+          "value": "www.javanailife.store"
+        }
+      ],
       "destination": "/products",
       "permanent": false
     }
   ],
+  "headers": [
+    {
+      "source": "/assets/(.*)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=31536000, immutable"
+        }
+      ]
+    },
+    {
+      "source": "/(favicon-48.png|apple-touch-icon.png|og-default.jpg|logo-512.png)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=604800"
+        }
+      ]
+    }
+  ],
   "rewrites": [
-    { "source": "/api/partner/summary", "destination": "/api/razorpay?action=partner-summary" },
-    { "source": "/api/webhook", "destination": "/api/razorpay?action=webhook" },
-    { "source": "/api/cron/rental-overdue", "destination": "/api/razorpay?action=rental-overdue" },
-    { "source": "/api/razorpay/create-emi-subscription", "destination": "/api/razorpay?action=create-emi-subscription" },
-    { "source": "/api/razorpay/pay-emi-installment", "destination": "/api/razorpay?action=pay-emi-installment" },
-    { "source": "/api/razorpay/:action", "destination": "/api/razorpay?action=:action" },
-    { "source": "/api/(.*)", "destination": "/api/$1" },
-    { "source": "/share/products/:id", "destination": "/api/share-page?type=product&id=:id" },
-    { "source": "/share/courses/:id", "destination": "/api/share-page?type=course&id=:id" },
-    { "source": "/share/classes/:id", "destination": "/api/share-page?type=class&id=:id" },
-    { "source": "/((?!api/|@vite/|@react-refresh|.*\\..*).*)", "destination": "/" }
+    {
+      "source": "/api/partner/summary",
+      "destination": "/api/razorpay?action=partner-summary"
+    },
+    {
+      "source": "/api/webhook",
+      "destination": "/api/razorpay?action=webhook"
+    },
+    {
+      "source": "/api/cron/rental-overdue",
+      "destination": "/api/razorpay?action=rental-overdue"
+    },
+    {
+      "source": "/api/razorpay/create-emi-subscription",
+      "destination": "/api/razorpay?action=create-emi-subscription"
+    },
+    {
+      "source": "/api/razorpay/pay-emi-installment",
+      "destination": "/api/razorpay?action=pay-emi-installment"
+    },
+    {
+      "source": "/api/razorpay/:action",
+      "destination": "/api/razorpay?action=:action"
+    },
+    {
+      "source": "/api/(.*)",
+      "destination": "/api/$1"
+    },
+    {
+      "source": "/share/products/:id",
+      "destination": "/api/share-page?type=product&id=:id"
+    },
+    {
+      "source": "/share/courses/:id",
+      "destination": "/api/share-page?type=course&id=:id"
+    },
+    {
+      "source": "/share/classes/:id",
+      "destination": "/api/share-page?type=class&id=:id"
+    },
+    {
+      "source": "/sitemap.xml",
+      "destination": "/api/share-page?mode=sitemap"
+    },
+    {
+      "source": "/products/:id",
+      "destination": "/api/share-page?mode=page&type=product&id=:id"
+    },
+    {
+      "source": "/courses/:id",
+      "destination": "/api/share-page?mode=page&type=course&id=:id"
+    },
+    {
+      "source": "/classes/:id",
+      "destination": "/api/share-page?mode=page&type=class&id=:id"
+    },
+    {
+      "source": "/about",
+      "destination": "/_seo/about.html"
+    },
+    {
+      "source": "/courses",
+      "destination": "/_seo/courses.html"
+    },
+    {
+      "source": "/classes",
+      "destination": "/_seo/classes.html"
+    },
+    {
+      "source": "/products",
+      "destination": "/_seo/products.html"
+    },
+    {
+      "source": "/gallery",
+      "destination": "/_seo/gallery.html"
+    },
+    {
+      "source": "/grading",
+      "destination": "/_seo/grading.html"
+    },
+    {
+      "source": "/guru-bandhu",
+      "destination": "/_seo/guru-bandhu.html"
+    },
+    {
+      "source": "/contact",
+      "destination": "/_seo/contact.html"
+    },
+    {
+      "source": "/terms-and-conditions",
+      "destination": "/_seo/terms-and-conditions.html"
+    },
+    {
+      "source": "/((?!api/|@vite/|@react-refresh|.*\\..*).*)",
+      "destination": "/_seo/shell.html"
+    }
   ],
   "crons": [
-    { "path": "/api/cron/delivery-tracking", "schedule": "0 2 * * *" },
-    { "path": "/api/cron/course-installments", "schedule": "0 5 * * *" },
-    { "path": "/api/cron/class-fee-reminders", "schedule": "0 4 * * *" }
+    {
+      "path": "/api/cron/delivery-tracking",
+      "schedule": "0 2 * * *"
+    },
+    {
+      "path": "/api/cron/course-installments",
+      "schedule": "0 5 * * *"
+    },
+    {
+      "path": "/api/cron/class-fee-reminders",
+      "schedule": "0 4 * * *"
+    }
   ]
 }

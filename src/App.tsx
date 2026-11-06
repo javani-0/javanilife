@@ -28,35 +28,15 @@ import About from "./pages/About";
 import Courses from "./pages/Courses";
 import Classes from "./pages/Classes";
 import ClassDetail from "./pages/ClassDetail";
-import AccountClasses from "./pages/account/Classes";
-import StudentDashboard from "./pages/account/StudentDashboard";
-import AccountProgress from "./pages/account/Progress";
-import AccountAssignments from "./pages/account/Assignments";
-import AccountExams from "./pages/account/Exams";
-import AccountHallTicket from "./pages/account/HallTicket";
-import AccountCertificates from "./pages/account/Certificates";
-import AccountClassRoom from "./pages/account/ClassRoom";
 import Grading from "./pages/Grading";
 import Gallery from "./pages/Gallery";
 import Products from "./pages/Products";
-import Cart from "./pages/Cart";
-import Checkout from "./pages/Checkout";
-import AccountProfile from "./pages/account/Profile";
-import AccountOrders from "./pages/account/Orders";
-import AccountOrderDetail from "./pages/account/OrderDetail";
-import AccountWishlist from "./pages/account/Wishlist";
-import AccountAddresses from "./pages/account/Addresses";
-import AccountEmiDashboard from "./pages/account/EmiDashboard";
 import Contact from "./pages/Contact";
 import GuruBandhu from "./pages/GuruBandhu";
 import NotFound from "./pages/NotFound";
-import Login from "./pages/Login";
-import Signup from "./pages/Signup";
 import ProductDetail from "./pages/ProductDetail";
 import CourseDetail from "./pages/CourseDetail";
 import TermsAndConditions from "./pages/TermsAndConditions";
-import OnboardingPay from "./pages/OnboardingPay";
-import Bill from "./pages/Bill";
 
 /**
  * `lazy()` that survives a failed chunk fetch.
@@ -91,6 +71,29 @@ const lazyWithRetry = <T extends ComponentType<unknown>>(factory: () => Promise<
       }
     }
   });
+
+// Private pages (account, cart, checkout, sign-in, payment links) — lazy loaded so the
+// public site's first download stays small. Public pages stay eager (no Suspense flash).
+const AccountClasses = lazyWithRetry(() => import("./pages/account/Classes"));
+const StudentDashboard = lazyWithRetry(() => import("./pages/account/StudentDashboard"));
+const AccountProgress = lazyWithRetry(() => import("./pages/account/Progress"));
+const AccountAssignments = lazyWithRetry(() => import("./pages/account/Assignments"));
+const AccountExams = lazyWithRetry(() => import("./pages/account/Exams"));
+const AccountHallTicket = lazyWithRetry(() => import("./pages/account/HallTicket"));
+const AccountCertificates = lazyWithRetry(() => import("./pages/account/Certificates"));
+const AccountClassRoom = lazyWithRetry(() => import("./pages/account/ClassRoom"));
+const Cart = lazyWithRetry(() => import("./pages/Cart"));
+const Checkout = lazyWithRetry(() => import("./pages/Checkout"));
+const AccountProfile = lazyWithRetry(() => import("./pages/account/Profile"));
+const AccountOrders = lazyWithRetry(() => import("./pages/account/Orders"));
+const AccountOrderDetail = lazyWithRetry(() => import("./pages/account/OrderDetail"));
+const AccountWishlist = lazyWithRetry(() => import("./pages/account/Wishlist"));
+const AccountAddresses = lazyWithRetry(() => import("./pages/account/Addresses"));
+const AccountEmiDashboard = lazyWithRetry(() => import("./pages/account/EmiDashboard"));
+const Login = lazyWithRetry(() => import("./pages/Login"));
+const Signup = lazyWithRetry(() => import("./pages/Signup"));
+const OnboardingPay = lazyWithRetry(() => import("./pages/OnboardingPay"));
+const Bill = lazyWithRetry(() => import("./pages/Bill"));
 
 // Admin pages — lazy loaded (separate section, accessed infrequently)
 const AdminLogin = lazyWithRetry(() => import("./pages/admin/AdminLogin"));

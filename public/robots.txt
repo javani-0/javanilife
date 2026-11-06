@@ -1,14 +1,18 @@
-User-agent: Googlebot
-Allow: /
-
-User-agent: Bingbot
-Allow: /
-
-User-agent: Twitterbot
-Allow: /
-
-User-agent: facebookexternalhit
-Allow: /
-
+# Javani Spiritual Hub — https://www.javanilife.com
 User-agent: *
 Allow: /
+Disallow: /admin
+Disallow: /account
+Disallow: /cart
+Disallow: /checkout
+Disallow: /login
+Disallow: /signup
+Disallow: /pay/
+Disallow: /bill/
+Disallow: /partner
+Disallow: /history
+Disallow: /share/
+Disallow: /api/
+Disallow: /_seo/
+
+Sitemap: https://www.javanilife.com/sitemap.xml

@@ -1,3 +1,4 @@
+import { optimizeImageUrl } from "@/lib/cloudinary";
 import { useState } from "react";
 import PrimaryButton from "./PrimaryButton";
 
@@ -23,7 +24,7 @@ const CourseCard = ({ image, title, description, badge, badgeColor = "red" }: Co
       <div className="aspect-square relative overflow-hidden">
         {!imgLoaded && <div className="absolute inset-0 skeleton-shimmer" />}
         <img
-          src={image}
+          src={optimizeImageUrl(image, 800)}
           alt={title}
           loading="lazy"
           onLoad={() => setImgLoaded(true)}

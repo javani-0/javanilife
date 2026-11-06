@@ -3,6 +3,7 @@ import PrimaryButton from "@/components/PrimaryButton";
 import GoldOutlineButton from "@/components/GoldOutlineButton";
 import { useLocation } from "react-router-dom";
 import { useEffect } from "react";
+import SEO from "@/components/SEO";
 
 const NotFound = () => {
   const location = useLocation();
@@ -12,6 +13,8 @@ const NotFound = () => {
   }, [location.pathname]);
 
   return (
+    <>
+    <SEO title="Page not found | Javani Spiritual Hub" description="This page does not exist. Go back to the Javani Spiritual Hub home page." noindex />
     <div className="flex min-h-screen items-center justify-center bg-background px-6">
       <div className="text-center max-w-lg">
         <p className="font-display font-bold text-[8rem] leading-none text-primary/15 mb-4">404</p>
@@ -32,6 +35,7 @@ const NotFound = () => {
         </div>
       </div>
     </div>
+    </>
   );
 };
 

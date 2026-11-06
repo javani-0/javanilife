@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import logoWhiteMobile from "@/assets/logo-white-mobile.png";
+import logoWhiteMobile from "@/assets/logo-white-mobile.webp";
 
 const PageLoader = () => {
   const [progress, setProgress] = useState(0);

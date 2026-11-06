@@ -6,7 +6,7 @@ import heroTemple from "@/assets/hero-temple.jpg";
 import heroDancer1 from "@/assets/hero-dancer-1.jpg";
 import carnaticMusic from "@/assets/carnatic-music.jpg";
 import logoBrown from "@/assets/logo-brown.png";
-import logoWhite from "@/assets/logo-white.png";
+import logoWhite from "@/assets/logo-white.webp";
 
 interface AuthShellProps {
   eyebrow: string;

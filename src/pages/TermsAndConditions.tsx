@@ -1,5 +1,5 @@
 import Footer from "@/components/Footer";
-import SEO from "@/components/SEO";
+import { PageSEO } from "@/components/SEO";
 import SectionLabel from "@/components/SectionLabel";
 import { useScrollAnimation } from "@/hooks/useScrollAnimation";
 
@@ -17,10 +17,7 @@ const TermsAndConditions = () => {
 
   return (
     <>
-      <SEO
-        title="Terms & Conditions | Javani Spiritual Hub"
-        description="Terms and conditions, refund and cancellation policy for Javani Spiritual Hub programs and services."
-      />
+      <PageSEO path="/terms-and-conditions" />
       <main>
         {/* Header */}
         <section className="bg-[#1A0A0A] pt-28 pb-12 sm:pt-32 sm:pb-16">

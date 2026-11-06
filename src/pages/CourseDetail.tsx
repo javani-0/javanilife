@@ -1,3 +1,4 @@
+import { optimizeImageUrl } from "@/lib/cloudinary";
 import { useState, useEffect } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { doc, getDoc } from "firebase/firestore";
@@ -8,6 +9,7 @@ import { useCart } from "@/contexts/cart-context";
 import { useToast } from "@/hooks/use-toast";
 import Footer from "@/components/Footer";
 import SEO from "@/components/SEO";
+import { breadcrumbJsonLd, courseJsonLd, graph } from "../../api/_lib/seo";
 import ShareButton from "@/components/ShareButton";
 import PrimaryButton from "@/components/PrimaryButton";
 import ImageViewer from "@/components/ImageViewer";
@@ -60,6 +62,7 @@ const CourseDetail = () => {
   if (!course) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center gap-4 bg-background px-4">
+        <SEO title="Course not found | Javani Spiritual Hub" description="This course is not available." noindex />
         <h1 className="font-display text-2xl text-foreground">Course not found</h1>
         <Link to="/courses" className="text-gold hover:underline font-body text-sm">← Back to Courses</Link>
       </div>
@@ -87,9 +90,14 @@ const CourseDetail = () => {
   return (
     <>
       <SEO
-        title={`${course.title} | Javani Spiritual Hub`}
-        description={course.description}
+        title={`${course.title} Course | Javani Spiritual Hub`}
+        description={course.description || `${course.title} course at Javani Spiritual Hub, Secunderabad.`}
+        canonical={`/courses/${course.id}`}
         ogImage={course.image}
+        jsonLd={graph(
+          courseJsonLd({ path: `/courses/${course.id}`, name: course.title, description: course.description, image: course.image }),
+          breadcrumbJsonLd([{ name: "Courses", path: "/courses" }, { name: course.title, path: `/courses/${course.id}` }]),
+        )}
       />
       <main className="min-h-screen bg-background pt-[80px]">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 py-10 sm:py-16">
@@ -109,7 +117,7 @@ const CourseDetail = () => {
             <div className="group relative cursor-zoom-in rounded-2xl overflow-hidden aspect-square bg-muted" onClick={() => course.image && setViewerOpen(true)}>
               {!imgLoaded && <div className="absolute inset-0 skeleton-shimmer" />}
               <img
-                src={course.image}
+                src={optimizeImageUrl(course.image, 1200)}
                 alt={course.title}
                 onLoad={() => setImgLoaded(true)}
                 className={`w-full h-full object-cover transition-opacity duration-500 ${imgLoaded ? "opacity-100" : "opacity-0"}`}

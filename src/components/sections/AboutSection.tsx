@@ -6,9 +6,9 @@ import SectionLabel from "../SectionLabel";
 import GoldDivider from "../GoldDivider";
 import GoldOutlineButton from "../GoldOutlineButton";
 import { useScrollAnimation } from "@/hooks/useScrollAnimation";
-import dancerPortrait from "@/assets/ISW_5259.jpg";
-import templeGopuram from "@/assets/_W0A7189.jpg";
-import danceDetailFeet from "@/assets/6W0A5840.jpg";
+import dancerPortrait from "@/assets/ISW_5259.webp";
+import templeGopuram from "@/assets/_W0A7189.webp";
+import danceDetailFeet from "@/assets/6W0A5840.webp";
 
 const features = [
   { icon: "🎭", title: "Nationally Accredited Curriculum", desc: "Recognized by leading cultural institutions" },

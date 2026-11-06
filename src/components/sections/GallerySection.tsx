@@ -1,3 +1,4 @@
+import { optimizeImageUrl } from "@/lib/cloudinary";
 import { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { Link } from "react-router-dom";
@@ -10,7 +11,7 @@ import { useScrollAnimation } from "@/hooks/useScrollAnimation";
 import heroDancer1 from "@/assets/hero-dancer-1.jpg";
 import heroDancer2 from "@/assets/hero-dancer-2.jpg";
 import heroDancer3 from "@/assets/hero-dancer-3.jpg";
-import dancerPortrait from "@/assets/dancer-portrait-1.jpg";
+import dancerPortrait from "@/assets/dancer-portrait-1.webp";
 import dancerCloseup from "@/assets/dancer-closeup.jpg";
 import danceDetail from "@/assets/dance-detail-feet.jpg";
 import danceClass from "@/assets/dance-class.jpg";
@@ -76,7 +77,8 @@ const GallerySection = () => {
             >
               {!loaded.has(i) && <div className="aspect-[4/3] skeleton-shimmer" />}
               <img
-                src={src}
+                src={optimizeImageUrl(src, 800)}
+                loading="lazy"
                 alt={`Gallery image ${i + 1}`}
                 onLoad={() => setLoaded((p) => new Set(p).add(i))}
                 className={`w-full object-cover transition-all duration-500 group-hover:scale-[1.04] ${loaded.has(i) ? "opacity-100" : "opacity-0 absolute inset-0"}`}
@@ -98,7 +100,7 @@ const GallerySection = () => {
           <button className="absolute top-4 right-4 sm:top-6 sm:right-6 text-white" onClick={() => setLightbox(null)}>
             <X className="w-8 h-8" />
           </button>
-          <img src={lightbox} alt="Full gallery view" className="max-w-full max-h-[85vh] object-contain rounded" />
+          <img src={optimizeImageUrl(lightbox, 1600)} alt="Full gallery view" className="max-w-full max-h-[85vh] object-contain rounded" />
         </div>,
         document.body
       )}

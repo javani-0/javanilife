@@ -5,9 +5,9 @@ import { ChevronDown, GraduationCap, Heart, MapPin, Menu, PackageCheck, X, User,
 import PrimaryButton from "./PrimaryButton";
 import { useAuth } from "@/contexts/AuthContext";
 import { useCart } from "@/contexts/cart-context";
-import logoWhite from "@/assets/logo-white.png";
+import logoWhite from "@/assets/logo-white.webp";
 import logoBrown from "@/assets/logo-brown.png";
-import logoWhiteMobile from "@/assets/logo-white-mobile.png";
+import logoWhiteMobile from "@/assets/logo-white-mobile.webp";
 
 const navLinks = [
   { label: "Home", path: "/" },

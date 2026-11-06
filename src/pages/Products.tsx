@@ -1,3 +1,4 @@
+import { optimizeImageUrl } from "@/lib/cloudinary";
 import { useState, useEffect, useMemo, type KeyboardEvent, type MouseEvent } from "react";
 import { collection, onSnapshot } from "firebase/firestore";
 import { db } from "@/lib/firebase";
@@ -6,7 +7,7 @@ import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import Footer from "@/components/Footer";
 import PageHero from "@/components/PageHero";
 import SectionLabel from "@/components/SectionLabel";
-import SEO from "@/components/SEO";
+import { PageSEO } from "@/components/SEO";
 import ShareButton from "@/components/ShareButton";
 import { useCart } from "@/contexts/cart-context";
 import RentProductDialog from "@/components/RentProductDialog";
@@ -247,7 +248,7 @@ const ProductCard = ({
         <div className="relative aspect-square overflow-hidden bg-muted">
           {!imgLoaded && <div className="absolute inset-0 skeleton-shimmer" />}
           <img
-            src={imageUrl}
+            src={optimizeImageUrl(imageUrl, 600)}
             alt={product.name}
             loading="lazy"
             onLoad={() => setImgLoaded(true)}
@@ -448,10 +449,7 @@ const Products = () => {
 
   return (
     <>
-      <SEO
-        title="Products & Materials | Costumes, Instruments | Javani Spiritual Hub"
-        description="Shop authentic costumes, instruments, books, and practice accessories curated by Javani Spiritual Hub faculty."
-      />
+      <PageSEO path="/products" />
       <main>
         <PageHero backgroundImages={[heroDancer1, heroTemple, carnaticMusic]} label="VASTRA" heading="Artistry Begins With the Right Tools" subtext="Authentic costumes, instruments, and learning materials curated for practice and performance." size="compact" />
 

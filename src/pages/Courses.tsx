@@ -1,3 +1,4 @@
+import { optimizeImageUrl } from "@/lib/cloudinary";
 import { useState, useEffect, useMemo, type KeyboardEvent, type MouseEvent } from "react";
 import { collection, onSnapshot, query } from "firebase/firestore";
 import { db } from "@/lib/firebase";
@@ -7,7 +8,7 @@ import Footer from "@/components/Footer";
 import PageHero from "@/components/PageHero";
 import SectionLabel from "@/components/SectionLabel";
 import PrimaryButton from "@/components/PrimaryButton";
-import SEO from "@/components/SEO";
+import { PageSEO } from "@/components/SEO";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useScrollAnimation } from "@/hooks/useScrollAnimation";
 import { MessageCircle, Search, ShoppingBag, SlidersHorizontal } from "lucide-react";
@@ -96,7 +97,7 @@ const ExtCourseCard = ({ course, delay = 0 }: { course: Course; delay?: number }
       <div role="link" tabIndex={0} onClick={openDetail} onKeyDown={handleCardKeyDown} className="group flex h-full cursor-pointer flex-col overflow-hidden rounded-lg border border-gold/15 bg-card shadow-[0_10px_28px_rgba(51,35,20,0.07)] transition-all duration-300 hover:-translate-y-1 hover:border-gold/40 hover:shadow-[0_14px_38px_rgba(51,35,20,0.12)] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold focus-visible:ring-offset-2 lg:rounded-[1.1rem] lg:shadow-[0_18px_48px_rgba(51,35,20,0.08)]">
         <div className="relative aspect-square overflow-hidden bg-muted">
           {!imgLoaded && <div className="absolute inset-0 skeleton-shimmer" />}
-          <img src={course.image} alt={course.title} loading="lazy" onLoad={() => setImgLoaded(true)} className={`h-full w-full object-cover transition-all duration-500 group-hover:scale-[1.035] ${imgLoaded ? "opacity-100" : "opacity-0"}`} />
+          <img src={optimizeImageUrl(course.image, 800)} alt={course.title} loading="lazy" onLoad={() => setImgLoaded(true)} className={`h-full w-full object-cover transition-all duration-500 group-hover:scale-[1.035] ${imgLoaded ? "opacity-100" : "opacity-0"}`} />
           {course.status === "inactive" && (
             <div className="absolute top-3 right-3 bg-red-500 text-white px-3 py-1 text-xs font-body font-semibold rounded-full shadow-lg">
               Not Available
@@ -311,10 +312,7 @@ const Courses = () => {
 
   return (
     <>
-      <SEO
-        title="Courses | Bharatanatyam, Kuchipudi, Carnatic Music & More | Javani Spiritual Hub"
-        description="Explore grades, diploma, pre-grade, masterclass & workshops, yoga, and konnakol courses in classical Indian arts including Bharatanatyam, Kuchipudi, Carnatic Music, and more at Javani Spiritual Hub."
-      />
+      <PageSEO path="/courses" />
       <main>
         <PageHero backgroundImages={[heroDancer1, heroDancer2, heroDancer3]} label="OUR COURSES" heading="Our Sacred Courses" subtext="Classical arts for every soul — from first steps to national certification." size="compact" />
 

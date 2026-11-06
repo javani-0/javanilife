@@ -8,13 +8,13 @@ import Footer from "@/components/Footer";
 import PageHero from "@/components/PageHero";
 import SectionLabel from "@/components/SectionLabel";
 import GoldDivider from "@/components/GoldDivider";
-import SEO from "@/components/SEO";
+import { PageSEO } from "@/components/SEO";
 import { Eye, Flame, Sparkles, Instagram, Youtube, X } from "lucide-react";
 import { useScrollAnimation } from "@/hooks/useScrollAnimation";
 import heroDancer1 from "@/assets/hero-dancer-1.jpg";
 import heroDancer3 from "@/assets/hero-dancer-3.jpg";
 import heroTemple from "@/assets/hero-temple.jpg";
-import founderPhoto from "@/assets/ISW_4737.jpg";
+import founderPhoto from "@/assets/ISW_4737.webp";
 
 /* ───── Fallback data ───── */
 const fallbackHeroImages = [heroDancer1, heroTemple, heroDancer3];
@@ -344,10 +344,7 @@ const About = () => {
 
   return (
     <>
-      <SEO
-        title="About Us | Javani Spiritual Hub — 12+ Years of Classical Arts Excellence"
-        description="Learn about Javani Spiritual Hub — our story, our founder, our faculty, and our 12+ year journey of preserving and teaching India's classical performing arts."
-      />
+      <PageSEO path="/about" />
       <main>
         <PageHero backgroundImages={heroImages} label="OUR STORY" heading="The Soul Behind Javani" breadcrumb={[{ label: "Home" }, { label: "About Us" }]} />
         <FounderSection founderImage={founderImage} />

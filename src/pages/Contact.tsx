@@ -7,7 +7,7 @@ import SectionLabel from "@/components/SectionLabel";
 import GoldDivider from "@/components/GoldDivider";
 import PrimaryButton from "@/components/PrimaryButton";
 import GoldOutlineButton from "@/components/GoldOutlineButton";
-import SEO from "@/components/SEO";
+import { PageSEO } from "@/components/SEO";
 import { Phone, Mail, MapPin, Clock, Instagram, Youtube, Facebook, MessageCircle, Check } from "lucide-react";
 import { collection, addDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "@/lib/firebase";
@@ -124,10 +124,7 @@ const Contact = () => {
 
   return (
     <>
-      <SEO
-        title="Enquire Now | Javani Spiritual Hub | Secunderabad"
-        description="Submit a detailed enquiry to Javani Spiritual Hub. We offer free initial counselling and guide you to the perfect course for your age and experience level."
-      />
+      <PageSEO path="/contact" />
       <main>
         <PageHero
           backgroundImages={[heroDancer3, heroTemple, heroDancer1]}

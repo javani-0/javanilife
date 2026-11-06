@@ -7,7 +7,7 @@ import SectionLabel from "@/components/SectionLabel";
 import GoldDivider from "@/components/GoldDivider";
 import PrimaryButton from "@/components/PrimaryButton";
 import GoldOutlineButton from "@/components/GoldOutlineButton";
-import SEO from "@/components/SEO";
+import { PageSEO } from "@/components/SEO";
 import PartnersSection from "@/components/PartnersSection";
 import { GraduationCap, Monitor, BookOpen, IndianRupee, Sparkles, Trophy, Theater, Heart, Briefcase, MessageCircle } from "lucide-react";
 import { useScrollAnimation } from "@/hooks/useScrollAnimation";
@@ -15,7 +15,7 @@ import { useContactInfo } from "@/hooks/useContactInfo";
 import heroDancer1 from "@/assets/hero-dancer-1.jpg";
 import heroDancer2 from "@/assets/hero-dancer-2.jpg";
 import heroTemple from "@/assets/hero-temple.jpg";
-import dancerPortrait from "@/assets/dancer-portrait-1.jpg";
+import dancerPortrait from "@/assets/dancer-portrait-1.webp";
 
 /* ───── Program Overview ───── */
 const OverviewSection = () => {
@@ -378,10 +378,7 @@ const CTASection = () => {
 /* ───── Main Page ───── */
 const GuruBandhu = () => (
   <>
-    <SEO
-      title="Guru Bandhu | Javani Bandhathuvum Program | Javani Spiritual Hub"
-      description="The Javani Bandhathuvum Program empowers classical arts academies with certification support, digital management, product distribution, workshops, and Guru recognition — all under Javani Spiritual Hub."
-    />
+    <PageSEO path="/guru-bandhu" />
     <main>
       <PageHero
         backgroundImages={[heroDancer1, heroTemple, heroDancer2]}

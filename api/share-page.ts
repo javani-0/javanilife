@@ -12,6 +12,8 @@ import {
   type ShareDocumentData,
   type SharePageType,
 } from "./_lib/share-page.js";
+import { SEO_COLLECTIONS, isSeoDetailType, isTrustedHost, renderDetailPage, renderSitemap, type SitemapDoc } from "./_lib/seo-pages.js";
+import { SITE_URL } from "./_lib/seo.js";
 
 interface SharePageRequest extends ApiRequest {
   query?: Record<string, string | string[] | undefined>;
@@ -100,10 +102,88 @@ const isSocialCrawler = (request: ApiRequest) => {
   return CRAWLER_PATTERNS.some((pattern) => pattern.test(ua));
 };
 
+
+// ---------- SEO: /sitemap.xml and server-rendered /products/:id, /courses/:id, /classes/:id ----------
+// Folded into this function on purpose: the project is at the 12-function Hobby limit.
+
+const EDGE_CACHE = "public, max-age=0, s-maxage=600, stale-while-revalidate=86400";
+const TEMPLATE_TTL_MS = 10 * 60 * 1000;
+let templateCache: { origin: string; html: string; at: number } | null = null;
+
+const getTemplate = async (request: ApiRequest) => {
+  const host = getHeader(request, "x-forwarded-host") || getHeader(request, "host") || "";
+  const origin = isTrustedHost(host) ? `${/^localhost/i.test(host) ? "http" : "https"}://${host}` : SITE_URL;
+  if (templateCache && templateCache.origin === origin && Date.now() - templateCache.at < TEMPLATE_TTL_MS) return templateCache.html;
+  const res = await fetch(`${origin}/_seo/shell.html`, { signal: AbortSignal.timeout(5000) });
+  if (!res.ok) throw new Error(`shell template ${res.status}`);
+  const html = await res.text();
+  templateCache = { origin, html, at: Date.now() };
+  return html;
+};
+
+const send = (response: HtmlApiResponse, status: number, contentType: string, body: string, cache: string) => {
+  response.setHeader?.("Content-Type", contentType);
+  response.setHeader?.("Cache-Control", cache);
+  response.status(status);
+  if (response.send) response.send(body);
+  else response.end?.(body);
+};
+
+const handleSitemap = async (response: HtmlApiResponse) => {
+  const db = getFirebaseAdminDb();
+  const [products, courses, classes] = await Promise.all([
+    db.collection("products").select("active", "name").get(),
+    db.collection("courses").select("status", "title").get(),
+    db.collection("classes").where("active", "==", true).select("active", "name").get(),
+  ]);
+  const docs: SitemapDoc[] = [
+    ...products.docs.map((d) => ({ type: "product" as const, id: d.id, data: d.data(), updated: d.updateTime?.toDate() })),
+    ...courses.docs.map((d) => ({ type: "course" as const, id: d.id, data: d.data(), updated: d.updateTime?.toDate() })),
+    ...classes.docs.map((d) => ({ type: "class" as const, id: d.id, data: d.data(), updated: d.updateTime?.toDate() })),
+  ];
+  send(response, 200, "application/xml; charset=utf-8", renderSitemap(docs), "public, max-age=0, s-maxage=3600, stale-while-revalidate=86400");
+};
+
+const handleDetailPage = async (request: SharePageRequest, response: HtmlApiResponse) => {
+  const type = getQueryValue(request, "type");
+  const id = getQueryValue(request, "id");
+  if (!isSeoDetailType(type) || !id || id.length > 200 || id.includes("/")) {
+    const template = await getTemplate(request);
+    const result = renderDetailPage(template, "product", id || "unknown", null);
+    send(response, 404, "text/html; charset=utf-8", result.html, EDGE_CACHE);
+    return;
+  }
+  const template = await getTemplate(request);
+  let data: Record<string, unknown> | null = null;
+  try {
+    const snapshot = await getFirebaseAdminDb().collection(SEO_COLLECTIONS[type]).doc(id).get();
+    data = snapshot.exists ? (snapshot.data() as Record<string, unknown>) : null;
+  } catch (error) {
+    // Database trouble must not break the page for visitors: serve the plain app shell (noindex), not cached.
+    console.error("SEO detail lookup failed", error);
+    send(response, 200, "text/html; charset=utf-8", template, "no-store");
+    return;
+  }
+  const result = renderDetailPage(template, type, id, data);
+  send(response, result.status, "text/html; charset=utf-8", result.html, EDGE_CACHE);
+};
+
 export default async function handler(request: SharePageRequest, response: HtmlApiResponse) {
   if (request.method && !["GET", "HEAD"].includes(request.method)) {
     response.setHeader?.("Allow", "GET, HEAD");
     sendError(response, 405, "Method not allowed");
+    return;
+  }
+
+  const mode = getQueryValue(request, "mode");
+  if (mode === "sitemap" || mode === "page") {
+    try {
+      if (mode === "sitemap") await handleSitemap(response);
+      else await handleDetailPage(request, response);
+    } catch (error) {
+      console.error(`SEO ${mode} failed`, error);
+      sendError(response, 503, "Temporarily unavailable");
+    }
     return;
   }
 

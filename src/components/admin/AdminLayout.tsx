@@ -8,7 +8,7 @@ import {
   ChevronLeft, ChevronRight, TicketPercent, Truck,
   GraduationCap, PiggyBank, QrCode, UserCog, UserPlus, ScrollText, CalendarClock,
 } from "lucide-react";
-import logoWhite from "@/assets/logo-white.png";
+import logoWhite from "@/assets/logo-white.webp";
 
 const allNavItems = [
   { label: "Dashboard", icon: LayoutDashboard, path: "/admin/dashboard" },

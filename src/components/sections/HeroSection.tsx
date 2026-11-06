@@ -1,3 +1,4 @@
+import { optimizeImageUrl } from "@/lib/cloudinary";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { collection, doc, getDoc, setDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
@@ -91,7 +92,7 @@ const HeroSection = () => {
           key={i}
           className="absolute inset-0 bg-cover bg-center"
           style={{
-            backgroundImage: `url(${img})`,
+            backgroundImage: `url(${optimizeImageUrl(img, 1920)})`,
             opacity: currentImage === i && loadedImages.has(i) ? 1 : 0,
             transform: currentImage === i ? "scale(1.08)" : "scale(1)",
             transition: "opacity 1.2s ease-in-out, transform 7s ease-out",
@@ -103,7 +104,7 @@ const HeroSection = () => {
       {heroImages.map((img, i) => (
         <img
           key={`preload-${i}`}
-          src={img}
+          src={optimizeImageUrl(img, 1920)}
           alt=""
           className="absolute w-0 h-0 overflow-hidden opacity-0 pointer-events-none"
           onLoad={() => setLoadedImages((prev) => new Set(prev).add(i))}
