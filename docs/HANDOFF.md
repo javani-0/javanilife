@@ -8,23 +8,23 @@ Last updated: 2026-11-06 (SEO steps 2-5 built and committed; Search Console wait
 
 - **Last commits:** `ec6febf` SEO (prerender, sitemap, JSON-LD, canonicals, WebP images, private routes lazy) and `6ffa564` (template-fetch host fix). Local only, NOT pushed or deployed.
 - **Verified locally:** build OK; the prerender writes 10 pages + shell (1 title, 1 H1, canonical, valid JSON-LD each); 565/570 tests pass. The 5 failures (course-installments, delivery-flow-ui) also fail on the old HEAD, so they are older failures, not caused by this work. Lighthouse mobile on the local build: SEO 100, LCP 17.2 s → 5.1 s, performance 30 → 35 (TBT is noisy locally).
-- **Search Console:** a Domain property `javanilife.com` was added in the "javani" Chrome (`07389126-21df…`) but is NOT verified yet. The domain's DNS is at GoDaddy; the user must click START VERIFICATION and do the GoDaddy login/Allow.
+- **Search Console:** Domain property `javanilife.com` VERIFIED (GoDaddy DNS) in the "javani" Chrome (`07389126-21df…`, account javni.education@gmail.com).
+- **Bing Webmaster:** site `https://javanilife.com/` imported from GSC (2026-11-06). No sitemap submitted yet anywhere: live /sitemap.xml is 404 until the deploy.
 - **How to check:** `npm run build`; `npx vite preview --port 4173`; Lighthouse via `npx -y lighthouse@12.6.0 <url> --form-factor=mobile` with `CHROME_PATH` = Playwright Chromium.
 
 ## Next steps (in order)
 
 | # | Step | Effort |
 |---|---|---|
-| 1 | After the user verifies on GoDaddy: Bing Webmaster (import from GSC) | Medium |
+| 1 | ~~GSC verify + Bing import~~ done 2026-11-06 | — |
 | 2 | User's deploy yes → push/deploy → step 8 live checks (curl every page head, /sitemap.xml, a /classes/:id page, Rich Results test) → submit the sitemap in GSC + Bing, request indexing | Medium |
 | 3 | Step 6 local/off-site list + step 9 monitoring plan into `docs/seo/SEO-2026-11-06.md` | Medium |
 | 4 | Optional speed work: the main JS is still 357 KB gzip (Firebase + React); the hero typing animation is the LCP element | High |
 
-**Message for the next chat:** `Read javanilife/docs/HANDOFF.md and continue from Next step 1.`
+**Message for the next chat:** `Read javanilife/docs/HANDOFF.md and continue from Next step 2 (needs the user's deploy yes).`
 
 ## Waiting on the client or the user
 
-- Search Console: START VERIFICATION → GoDaddy login → Allow.
 - A deploy yes.
 - Permission to delete the 48 sample testimonial docs in Firestore (the code already hides them).
 - The hero stats "500+ Students / 15+ Courses / 12+ Years" need proof or removal. The rest of the NEED list is in `docs/seo/SEO-2026-11-06.md`.
