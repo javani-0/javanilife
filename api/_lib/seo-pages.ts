@@ -120,7 +120,9 @@ export const renderSitemap = (docs: SitemapDoc[]) => {
   return buildSitemapXml(entries);
 };
 
-/** Hosts we trust for fetching our own static template (never an arbitrary Host header). */
-export const isTrustedHost = (host: string) => /^(www\.)?javanilife\.com$/i.test(host) || /^[a-z0-9-]+\.vercel\.app$/i.test(host) || /^localhost(:\d+)?$/i.test(host);
+/** Hosts we trust for fetching our own static template: our domain, or this exact deployment's
+ *  own VERCEL_URL (set by the platform, not by the client). Never a wildcard or an arbitrary Host. */
+export const isTrustedHost = (host: string, deploymentHost?: string) =>
+  /^(www\.)?javanilife\.com$/i.test(host) || (!!deploymentHost && host.toLowerCase() === deploymentHost.toLowerCase());
 
 export { escapeHtml };

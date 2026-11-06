@@ -112,7 +112,7 @@ let templateCache: { origin: string; html: string; at: number } | null = null;
 
 const getTemplate = async (request: ApiRequest) => {
   const host = getHeader(request, "x-forwarded-host") || getHeader(request, "host") || "";
-  const origin = isTrustedHost(host) ? `${/^localhost/i.test(host) ? "http" : "https"}://${host}` : SITE_URL;
+  const origin = isTrustedHost(host, process.env.VERCEL_URL) ? `https://${host}` : SITE_URL;
   if (templateCache && templateCache.origin === origin && Date.now() - templateCache.at < TEMPLATE_TTL_MS) return templateCache.html;
   const res = await fetch(`${origin}/_seo/shell.html`, { signal: AbortSignal.timeout(5000) });
   if (!res.ok) throw new Error(`shell template ${res.status}`);

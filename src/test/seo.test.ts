@@ -123,7 +123,10 @@ describe("helpers", () => {
 
   it("only trusts our own hosts for the template fetch", () => {
     expect(isTrustedHost("www.javanilife.com")).toBe(true);
-    expect(isTrustedHost("javani-sprirtual-abc.vercel.app")).toBe(true);
+    expect(isTrustedHost("javani-sprirtual-abc.vercel.app", "javani-sprirtual-abc.vercel.app")).toBe(true);
+    expect(isTrustedHost("attacker-app.vercel.app", "javani-sprirtual-abc.vercel.app")).toBe(false);
+    expect(isTrustedHost("localhost:3000")).toBe(false);
+    expect(isTrustedHost("wwwxjavanilifexcom")).toBe(false);
     expect(isTrustedHost("evil.com")).toBe(false);
     expect(isTrustedHost("www.javanilife.com.evil.com")).toBe(false);
   });
