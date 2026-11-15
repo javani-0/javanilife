@@ -4,16 +4,16 @@ import { useEffect, useState } from "react";
 // splash to this loader shows the logo continuously (no fade, no second download).
 const logoWhiteMobile = "/brand/logo-white-mobile.webp";
 
-const PageLoader = () => {
-  const [progress, setProgress] = useState(0);
+const PageLoader = ({ done = false }: { done?: boolean }) => {
+  const [fill, setFill] = useState(0);
 
   useEffect(() => {
-    // Simulate loading progress
+    // Fill to 90% over ~1.1 s, then hold there until the first page is ready.
     const interval = setInterval(() => {
-      setProgress((prev) => {
-        if (prev >= 100) {
+      setFill((prev) => {
+        if (prev >= 90) {
           clearInterval(interval);
-          return 100;
+          return 90;
         }
         return prev + 2;
       });
@@ -21,6 +21,8 @@ const PageLoader = () => {
 
     return () => clearInterval(interval);
   }, []);
+
+  const progress = done ? 100 : fill;
 
   return (
     <div

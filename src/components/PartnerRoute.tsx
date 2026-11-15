@@ -1,20 +1,12 @@
 import { Navigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
+import AuthLoader from "@/components/AuthLoader";
 
 // Guard for the partner area. Admins are allowed through too (they own the data).
 const PartnerRoute = ({ children }: { children: React.ReactNode }) => {
   const { user, userProfile, loading } = useAuth();
 
-  if (loading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-background">
-        <div className="text-center">
-          <h1 className="font-accent text-[1.4rem] text-gold mb-2">Javani</h1>
-          <div className="mx-auto h-8 w-8 animate-spin rounded-full border-2 border-gold border-t-transparent" />
-        </div>
-      </div>
-    );
-  }
+  if (loading) return <AuthLoader />;
 
   if (!user) return <Navigate to="/login?redirect=%2Fpartner" replace />;
 

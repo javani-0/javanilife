@@ -17,6 +17,7 @@ import ProtectedRoute from "./components/admin/ProtectedRoute";
 import PartnerRoute from "./components/PartnerRoute";
 import AdminLayout from "./components/admin/AdminLayout";
 import PageLoader from "./components/PageLoader";
+import { useBootPending, useHoldBoot } from "./lib/bootGate";
 import ConfirmDialogHost from "./components/ConfirmDialogHost";
 import NotificationPermissionPrompt from "./components/NotificationPermissionPrompt";
 import WhatsAppPromptModal from "./components/WhatsAppPromptModal";
@@ -175,14 +176,17 @@ const PublicNavbar = () => {
   return <Navbar />;
 };
 
-const SuspenseLoader = () => (
-  <div className="min-h-screen flex items-center justify-center bg-background">
-    <div className="text-center">
-      <div className="w-8 h-8 border-2 border-gold border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-      <p className="font-body text-sm text-muted-foreground">Loading...</p>
+const SuspenseLoader = () => {
+  useHoldBoot();
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-background">
+      <div className="text-center">
+        <div className="w-8 h-8 border-2 border-gold border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+        <p className="font-body text-sm text-muted-foreground">Loading...</p>
+      </div>
     </div>
-  </div>
-);
+  );
+};
 
 const SharePreviewRedirect = ({ collection }: { collection: "products" | "courses" }) => {
   const { id } = useParams();
@@ -190,16 +194,38 @@ const SharePreviewRedirect = ({ collection }: { collection: "products" | "course
 };
 
 const App = () => {
+  // Boot loader: shown for at least ~1.3 s, then until no interim loader (lazy
+  // route chunk, auth check) is still mounted for 150 ms, capped at 10 s.
+  const bootPending = useBootPending();
+  const [minDone, setMinDone] = useState(false);
+  const [capDone, setCapDone] = useState(false);
+  const [settled, setSettled] = useState(false);
   const [showLoader, setShowLoader] = useState(true);
 
   useEffect(() => {
-    // Hide loader after it completes (1.3s for progress + 0.2s fade)
-    const timer = setTimeout(() => {
-      setShowLoader(false);
-    }, 1500);
-
-    return () => clearTimeout(timer);
+    const a = setTimeout(() => setMinDone(true), 1300);
+    const b = setTimeout(() => setCapDone(true), 10000);
+    return () => { clearTimeout(a); clearTimeout(b); };
   }, []);
+
+  useEffect(() => {
+    if (bootPending > 0) { setSettled(false); return; }
+    const t = setTimeout(() => setSettled(true), 150);
+    return () => clearTimeout(t);
+  }, [bootPending]);
+
+  const bootReady = minDone && (settled || capDone);
+
+  useEffect(() => {
+    if (!bootReady) return;
+    // Let PageLoader's 300 ms fade finish, then unmount it and drop the
+    // dark html background that index.html sets for the boot splash.
+    const t = setTimeout(() => {
+      setShowLoader(false);
+      document.documentElement.setAttribute("data-booted", "");
+    }, 350);
+    return () => clearTimeout(t);
+  }, [bootReady]);
 
   return (
     <QueryClientProvider client={queryClient}>
@@ -210,7 +236,7 @@ const App = () => {
             <Toaster />
             <Sonner />
             <ConfirmDialogHost />
-            {showLoader && <PageLoader />}
+            {showLoader && <PageLoader done={bootReady} />}
             <BrowserRouter>
               <ScrollToTop />
               <MetaPixelPageViews />

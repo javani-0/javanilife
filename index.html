@@ -14,7 +14,9 @@
       /* Boot splash: before React mounts, the page (empty root, or the prerendered
          crawler text) must look exactly like the first frame of <PageLoader />, so a
          reload never flashes raw text or a blank cream page. The crawler text stays in
-         the DOM, visually hidden. Keep in sync with src/components/PageLoader.tsx. */
+         the DOM, visually hidden. Keep in sync with src/components/PageLoader.tsx.
+         html stays dark until App sets data-booted (covers paints before #root parses). */
+      html:not([data-booted]){background:#1A0A0A}
       #root:empty,[data-seo-prerender]{position:fixed;inset:0;z-index:9999;
         background:url(/brand/logo-white-mobile.webp) no-repeat center calc(50% - 46px)/auto 80px,
           linear-gradient(rgba(201,165,79,.2),rgba(201,165,79,.2)) no-repeat center calc(50% + 44px)/256px 4px,#1A0A0A}
