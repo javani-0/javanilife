@@ -88,6 +88,12 @@ export interface ElearnEnrollment {
   upiRef?: string;
   rejectReason?: string;
   reviewedBy?: string;
+  /** The status before the latest change, e.g. "rejected" on a resubmitted QR proof. */
+  previousStatus?: ElearnEnrollmentStatus;
+  previousRejectReason?: string;
+  /** Razorpay payment ids received for this purchase; any beyond razorpayPaymentId must be refunded. */
+  extraPaymentIds?: string[];
+  refundedAt?: TimestampLike;
   submittedAt: TimestampLike;
   activatedAt: TimestampLike;
   /** null = lifetime. */
