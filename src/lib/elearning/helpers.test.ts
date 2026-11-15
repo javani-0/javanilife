@@ -330,3 +330,11 @@ describe("publishProblems", () => {
     expect(publishProblems(c).some((p) => p.includes("Intro"))).toBe(true);
   });
 });
+
+describe("normalizeEnrollment proof link", () => {
+  it("drops a proof URL that is not our Cloudinary image", () => {
+    expect(normalizeEnrollment("e", { upiProofUrl: "javascript:alert(1)" }).upiProofUrl).toBeUndefined();
+    const ok = `https://res.cloudinary.com/${CLOUDINARY_CLOUD_NAME}/image/upload/v1/a.jpg`;
+    expect(normalizeEnrollment("e", { upiProofUrl: ok }).upiProofUrl).toBe(ok);
+  });
+});

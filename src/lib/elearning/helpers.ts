@@ -5,6 +5,7 @@ import {
   ELEARN_ENROLLMENT_STATUSES,
   ELEARN_MAX_ACCESS_DAYS,
   hasActiveAccess,
+  isAllowedProofUrl,
   toMillis,
 } from "../../../api/_lib/elearn-core";
 import type {
@@ -315,7 +316,8 @@ export const normalizeEnrollment = (id: string, data: Data = {}): ElearnEnrollme
     amountInPaise: nonNegInt(data.amountInPaise),
     ...optional("razorpayOrderId"),
     ...optional("razorpayPaymentId"),
-    ...optional("upiProofUrl"),
+    // Only an https image on our Cloudinary cloud is ever rendered as a link.
+    ...(isAllowedProofUrl(data.upiProofUrl) ? { upiProofUrl: str(data.upiProofUrl) } : {}),
     ...optional("upiRef"),
     ...optional("rejectReason"),
     ...optional("reviewedBy"),
