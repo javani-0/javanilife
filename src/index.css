@@ -2,6 +2,10 @@
 @tailwind components;
 @tailwind utilities;
 
+/* While a Radix modal (dialog, sheet, alert) is open, drop the fixed site bar
+   under its z-50 overlay so it is dimmed and never covers the dialog's top. */
+body[data-scroll-locked] .site-navbar { z-index: 40 !important; }
+
 /* ── Admin page transition ── */
 /* The end state MUST be `transform: none`, not `translateY(0)`: with
    `animation-fill-mode: forwards` the final keyframe sticks, and any transform

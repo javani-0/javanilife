@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Link, NavLink } from "react-router-dom";
+import { Link, NavLink, useLocation } from "react-router-dom";
 import { ArrowLeft, Award, ClipboardList, GraduationCap, Ticket, Heart, LayoutDashboard, MapPin, PackageCheck, TrendingUp, UserRound, CalendarDays, PlayCircle } from "lucide-react";
 import { useStudentPortal } from "@/contexts/StudentPortalContext";
 import Footer from "@/components/Footer";
@@ -41,6 +41,8 @@ const AccountLayout = ({ title, description, children }: AccountLayoutProps) => 
   // Students see their portal links first; everyone keeps the shop links.
   const { isStudent } = useStudentPortal();
   const accountLinks = isStudent ? [...studentLinks, ...shopLinks] : shopLinks;
+  const onLearning = useLocation().pathname.startsWith("/account/learning");
+  const back = onLearning ? { to: "/learn", label: "Back to online courses" } : { to: "/products", label: "Back to products" };
 
   return (
   // overflow-x-CLIP (not hidden): hidden creates a scroll container that
@@ -57,8 +59,8 @@ const AccountLayout = ({ title, description, children }: AccountLayoutProps) => 
     />
 
     <main className="mx-auto max-w-7xl overflow-x-clip px-4 py-6 sm:px-6 sm:py-10 lg:py-12">
-      <Link to="/products" className="mb-6 inline-flex items-center gap-2 rounded-sm border border-gold/40 bg-card px-4 py-2 font-body text-sm font-semibold text-gold transition-colors hover:bg-gold hover:text-white">
-        <ArrowLeft className="h-4 w-4" /> Back to products
+      <Link to={back.to} className="mb-6 inline-flex items-center gap-2 rounded-sm border border-gold/40 bg-card px-4 py-2 font-body text-sm font-semibold text-gold transition-colors hover:bg-gold hover:text-white">
+        <ArrowLeft className="h-4 w-4" /> {back.label}
       </Link>
 
       <div className="grid gap-4 lg:grid-cols-[250px_1fr] lg:gap-6">

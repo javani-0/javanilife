@@ -26,6 +26,12 @@ const defaults: ContactInfo = {
   facebookUrl: "",
 };
 
+/** Digits only, with India's 91 added to a bare 10-digit mobile number. */
+export const toWaDigits = (raw: unknown): string => {
+  const digits = String(raw ?? "").replace(/\D/g, "");
+  return digits.length === 10 ? `91${digits}` : digits;
+};
+
 let cached: ContactInfo | null = null;
 
 export const useContactInfo = () => {
@@ -37,7 +43,8 @@ export const useContactInfo = () => {
       if (snap.exists()) {
         const data = snap.data();
         const info: ContactInfo = {
-          whatsappNumber: data.whatsappNumber || defaults.whatsappNumber,
+          // wa.me needs digits only ("+91 90302 00263" breaks the link).
+          whatsappNumber: toWaDigits(data.whatsappNumber) || defaults.whatsappNumber,
           orderNotificationPhone: data.orderNotificationPhone || "",
           phone: data.phone || defaults.phone,
           email: data.email || defaults.email,

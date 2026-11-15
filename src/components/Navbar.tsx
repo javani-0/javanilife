@@ -81,7 +81,8 @@ const Navbar = () => {
     }, 300);
   }, []);
 
-  const isSolid = scrolled;
+  // Pages with no dark hero at the top (the lesson player) need a solid bar from the start.
+  const isSolid = scrolled || /\/watch\/?$/.test(location.pathname);
 
   const navBgClass = isSolid
     ? "backdrop-blur-xl shadow-card"
@@ -105,7 +106,7 @@ const Navbar = () => {
   return (
     <>
       <nav
-        className={`fixed top-0 left-0 right-0 z-[1000] transition-all duration-300 ${navBgClass}`}
+        className={`site-navbar fixed top-0 left-0 right-0 z-[1000] transition-all duration-300 ${navBgClass}`}
         style={{ height: "80px", ...navBgStyle }}
       >
         <div className="max-w-7xl mx-auto px-4 sm:px-6 h-full flex items-center justify-between">
