@@ -82,7 +82,7 @@ const Navbar = () => {
   }, []);
 
   // Pages with no dark hero at the top (the lesson player) need a solid bar from the start.
-  const isSolid = scrolled || /\/watch\/?$/.test(location.pathname);
+  const isSolid = scrolled || /\/watch(\/|$)/.test(location.pathname);
 
   const navBgClass = isSolid
     ? "backdrop-blur-xl shadow-card"

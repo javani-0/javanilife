@@ -1,5 +1,8 @@
 import { useEffect, useState } from "react";
-import logoWhiteMobile from "@/assets/logo-white-mobile.webp";
+
+// Same file the index.html boot splash preloads, so the hand-off from the static
+// splash to this loader shows the logo continuously (no fade, no second download).
+const logoWhiteMobile = "/brand/logo-white-mobile.webp";
 
 const PageLoader = () => {
   const [progress, setProgress] = useState(0);
@@ -25,7 +28,7 @@ const PageLoader = () => {
       style={{ opacity: progress === 100 ? 0 : 1, pointerEvents: progress === 100 ? 'none' : 'auto' }}
     >
       {/* Logo */}
-      <div className="text-center mb-12 animate-fade-in">
+      <div className="text-center mb-12">
         <img 
           src={logoWhiteMobile} 
           alt="Javani Spiritual Hub" 
