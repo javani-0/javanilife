@@ -15,7 +15,7 @@ export interface ContactInfo {
 }
 
 const defaults: ContactInfo = {
-  whatsappNumber: "919876543210",
+  whatsappNumber: "919030200263",
   orderNotificationPhone: "",
   phone: "+91 9030200263",
   email: "seva@javanilife.com, spiritualhub@javanilife.com",

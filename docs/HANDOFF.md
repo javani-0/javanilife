@@ -2,7 +2,7 @@
 
 Javani Spiritual Hub (www.javanilife.com): a classical dance/music academy + shop. React 18 + Vite SPA, Firebase, Vercel (project `javanilife`), Razorpay.
 
-Last updated: 2026-11-16 (all pushed; live e-learning test done; reload-flash fixes live)
+Last updated: 2026-11-16 night (step 1 checked: blocked on the client; WhatsApp fallback fixed)
 
 ## State
 
@@ -24,12 +24,13 @@ Last updated: 2026-11-16 (all pushed; live e-learning test done; reload-flash fi
 
 | # | Step | Effort |
 |---|---|---|
-| 1 | When the client adds the first real course: one UPI buy (₹ real, client's own phone) + approve in admin; check `/account/learning` + watch page | Medium |
+| 1 | **Blocked on the client** (checked 2026-11-16 night: live admin shows only our TEST course in draft, 0 published; UPI ID + QR are set). When the client adds the first real course: one UPI buy (₹ real, client's own phone) + approve in admin; check `/account/learning` + watch page | Medium |
 | 2 | Any later rules change: publish via the Firebase console in the javani Chrome (paste `firestore.rules`), run the emulator tests first | Low |
 | 3 | SEO day 3/7/14/30 checks (report file) | Low |
-| 4 | `useContactInfo` fallback whatsappNumber is still the placeholder 919876543210 (only used if Firestore contact info is missing); set the real number | Low |
 
-**Message for the next chat:** `Read javanilife/docs/HANDOFF.md and do Next step 1 (first real course buy test).`
+**Message for the next chat:** `Read javanilife/docs/HANDOFF.md and do Next step 1 (first real course buy test) once the client has published a real course.`
+
+- 2026-11-16 night: `useContactInfo` fallback whatsappNumber set to the live number 919030200263 (was placeholder 919876543210).
 
 ## Waiting on the client or the user
 
