@@ -68,10 +68,22 @@ service cloud.firestore {
       return isTeacher() && resource != null && teachesClass(resource.data.get('classId', ''));
     }
 
+    // The profile email must be the signed-in account's own email (any case):
+    // partner access is granted by email lookup, so a user must never be able
+    // to put someone else's address on their profile.
+    function ownEmailOrAbsent() {
+      return !('email' in request.resource.data)
+        || (request.resource.data.email is string
+            && request.resource.data.email.lower() == request.auth.token.get('email', '').lower());
+    }
+
     function isSafeOwnUserProfileWrite(userId) {
       return isOwner(userId)
         && request.resource.data.uid == userId
-        && request.resource.data.role == 'user'
+        // Signup.tsx / Checkout inline signup omit `role`; a missing role reads
+        // as a plain user everywhere (hasRole compares data.role).
+        && request.resource.data.get('role', 'user') == 'user'
+        && ownEmailOrAbsent()
         && request.resource.data.keys().hasOnly([
           'uid',
           'username',
@@ -91,8 +103,14 @@ service cloud.firestore {
         // asks the admin for changes (the portal hides editing too).
         && resource.data.get('managedByAdmin', false) != true
         && request.resource.data.uid == userId
-        && request.resource.data.role == resource.data.role
+        // Role can never change here. Profile.tsx re-sends the same role (or
+        // 'user' for an older doc that has none), so a missing role == 'user'.
+        && request.resource.data.get('role', 'user') == resource.data.get('role', 'user')
+        && ownEmailOrAbsent()
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'uid',
+          'email',
+          'role',
           'username',
           'phone',
           'whatsappNumber',
@@ -107,8 +125,13 @@ service cloud.firestore {
     }
 
     match /orders/{id} {
+      // A customer may only PLACE an unpaid order: payment is confirmed
+      // server-side (Razorpay webhook / verify API), never by the client.
       allow create: if signedIn()
-        && request.resource.data.customerId == request.auth.uid;
+        && request.resource.data.customerId == request.auth.uid
+        && request.resource.data.get('status', '') == 'placed'
+        && request.resource.data.payment.get('status', '') in ['pending', 'cod-pending']
+        && request.resource.data.payment.get('razorpaySignatureVerified', false) == false;
       allow read: if staffAny(['orders', 'customers', 'finance'])
         || (signedIn() && resource.data.customerId == request.auth.uid);
       allow update, delete: if staffAny(['orders']);
@@ -300,7 +323,11 @@ service cloud.firestore {
       // Placing an order creates the booking client-side, so the owner may
       // create their own row; everything after that is staff-only.
       allow create: if staffAny(['rentals', 'orders'])
-        || (signedIn() && request.resource.data.customerId == request.auth.uid);
+        || (signedIn()
+            && request.resource.data.customerId == request.auth.uid
+            && request.resource.data.get('status', '') == 'booked'
+            && request.resource.data.get('extraChargeInPaise', 0) == 0
+            && request.resource.data.get('extraChargeCollected', false) == false);
       allow update, delete: if staffAny(['rentals', 'orders']);
     }
 
@@ -334,22 +361,34 @@ service cloud.firestore {
 
     match /courses/{id} {
       allow read: if true;
-      allow write: if signedIn();
+      allow write: if staffAny(['courses']);
     }
 
     match /gallery/{id} {
       allow read: if true;
-      allow write: if signedIn();
+      allow write: if staffAny(['gallery']);
     }
 
+    // Anyone may send an enquiry; only staff with the Enquiries page see them.
     match /enquiries/{id} {
       allow create: if true;
-      allow read, update, delete: if signedIn();
+      allow read, update, delete: if staffAny(['enquiries']);
     }
 
     match /siteSettings/{id} {
       allow read: if true;
-      allow write: if staffAny(['site-settings', 'payment-settings', 'delivery-settings']);
+      // The category lists are edited from the Products / Courses pages.
+      // (StatsSection seeds `stats` for visitors best-effort; that write is
+      // caught client-side and stays denied.)
+      allow write: if staffAny(['site-settings', 'payment-settings', 'delivery-settings'])
+        || (id == 'productCategories' && staffAny(['products']))
+        || (id == 'courseCategories' && staffAny(['courses']));
+    }
+
+    // Homepage testimonials: public read, managed from Site Settings.
+    match /testimonials/{id} {
+      allow read: if true;
+      allow write: if staffAny(['site-settings']);
     }
 
     match /coupons/{code} {
@@ -357,10 +396,10 @@ service cloud.firestore {
       allow write: if staffAny(['coupons']);
     }
 
-    // Faculty collection — public read, authenticated write
+    // Faculty collection — public read, admin write (Faculty is admin-only)
     match /faculty/{id} {
       allow read: if true;
-      allow write: if signedIn();
+      allow write: if isAdmin();
     }
 
     // Users collection — user can read/write own doc
@@ -388,7 +427,7 @@ service cloud.firestore {
 
     // History collection — user can read/write own history entries
     match /history/{historyId} {
-      allow create: if signedIn();
+      allow create: if signedIn() && request.resource.data.uid == request.auth.uid;
       allow read: if signedIn() && resource.data.uid == request.auth.uid;
       allow delete: if false;
     }
@@ -405,18 +444,21 @@ service cloud.firestore {
     // Money/status/autopay transitions are driven server-side (Admin SDK) or by
     // an admin; a parent may only keep their own ownership on update.
     match /enrollments/{id} {
-      allow read: if staffAny(['enrollments', 'fee-collections', 'classes', 'students'])
+      // attendance/academics: the Academics tab lists a class roster.
+      allow read: if staffAny(['enrollments', 'fee-collections', 'classes', 'students', 'attendance', 'academics'])
         // A teacher needs the ROSTER to mark attendance — but only for their
         // own classes, never the whole school. Queries are already filtered by
         // classId, so every returned doc satisfies this.
         || (isTeacher() && teachesClass(resource.data.get('classId', '')))
         || (signedIn() && resource.data.parentUserId == request.auth.uid);
-      allow create: if signedIn()
-        && request.resource.data.parentUserId == request.auth.uid;
+      // No client creates or edits its own enrolment (approval and payments
+      // run server-side), so a parent can't set their own status or fee.
+      allow create: if staffAny(['enrollments', 'students']);
       allow update: if staffAny(['enrollments', 'fee-collections', 'students'])
-        || (signedIn()
-            && resource.data.parentUserId == request.auth.uid
-            && request.resource.data.parentUserId == request.auth.uid);
+        // Classes page: re-link an orphaned enrolment to a live class.
+        || (staffAny(['classes'])
+            && request.resource.data.diff(resource.data).affectedKeys()
+                 .hasOnly(['classId', 'className', 'slotId', 'slotLabel', 'updatedAt']));
       allow delete: if staffAny(['enrollments']);
     }
 
