@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { CLOUDINARY_CLOUD_NAME } from "@/lib/cloudinary";
 import {
   availablePaymentModes,
+  clampAccessDays,
+  normalizeUpiUtr,
   buildVimeoEmbedUrl,
   computeExpiresAt,
   courseTotals,
@@ -227,6 +229,42 @@ describe("isAllowedProofUrl", () => {
     expect(isAllowedProofUrl(`https://res.cloudinary.com.evil.com/${CLOUDINARY_CLOUD_NAME}/a.jpg`)).toBe(false);
     expect(isAllowedProofUrl("https://evil.com/a.jpg")).toBe(false);
     expect(isAllowedProofUrl("")).toBe(false);
+  });
+  it("rejects fetch proxies, SVGs and other resource paths on our cloud", () => {
+    const base = `https://res.cloudinary.com/${CLOUDINARY_CLOUD_NAME}`;
+    expect(isAllowedProofUrl(`${base}/image/fetch/https://evil.com/a.jpg`)).toBe(false);
+    expect(isAllowedProofUrl(`${base}/image/upload/v1/a.svg`)).toBe(false);
+    expect(isAllowedProofUrl(`${base}/raw/upload/v1/a.jpg`)).toBe(false);
+    expect(isAllowedProofUrl(`https://user:pw@res.cloudinary.com/${CLOUDINARY_CLOUD_NAME}/image/upload/a.jpg`)).toBe(false);
+  });
+});
+
+describe("normalizeUpiUtr", () => {
+  it("accepts exactly 12 digits, ignoring spaces and dashes", () => {
+    expect(normalizeUpiUtr("123456789012")).toBe("123456789012");
+    expect(normalizeUpiUtr(" 1234 5678-9012 ")).toBe("123456789012");
+  });
+  it("rejects anything else", () => {
+    expect(normalizeUpiUtr("12345678901")).toBe("");
+    expect(normalizeUpiUtr("1234567890123")).toBe("");
+    expect(normalizeUpiUtr("T2311151234567")).toBe("");
+    expect(normalizeUpiUtr(123456789012)).toBe("");
+    expect(normalizeUpiUtr(undefined)).toBe("");
+  });
+});
+
+describe("clampAccessDays", () => {
+  it("keeps 0 = lifetime and caps huge values so a Date never overflows", () => {
+    expect(clampAccessDays(0)).toBe(0);
+    expect(clampAccessDays(-5)).toBe(0);
+    expect(clampAccessDays("abc")).toBe(0);
+    expect(clampAccessDays(30.9)).toBe(30);
+    expect(clampAccessDays(1e12)).toBe(36500);
+    expect(clampAccessDays(Infinity)).toBe(0);
+    expect(computeExpiresAt(1e12, new Date(0))?.getTime()).toBe(36500 * 24 * 60 * 60 * 1000);
+  });
+  it("normalizeCourse caps accessDays too", () => {
+    expect(normalizeCourse("x", { accessDays: 9e15 }).accessDays).toBe(36500);
   });
 });
 

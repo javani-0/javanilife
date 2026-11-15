@@ -3,6 +3,7 @@
 // and are re-exported here so there is one copy.
 import {
   ELEARN_ENROLLMENT_STATUSES,
+  ELEARN_MAX_ACCESS_DAYS,
   hasActiveAccess,
   toMillis,
 } from "../../../api/_lib/elearn-core";
@@ -21,7 +22,10 @@ import type {
 
 export {
   availablePaymentModes,
+  clampAccessDays,
   computeExpiresAt,
+  ELEARN_MAX_ACCESS_DAYS,
+  normalizeUpiUtr,
   ELEARN_CLOUDINARY_CLOUD,
   ELEARN_CONTENT,
   ELEARN_COURSES,
@@ -262,7 +266,7 @@ export const normalizeCourse = (id: string, data: Data = {}): ElearnCourse => {
     requirements: strList(data.requirements),
     priceInPaise,
     paymentModes: { razorpay: modes.razorpay !== false, upi: modes.upi === true },
-    accessDays: nonNegInt(data.accessDays),
+    accessDays: Math.min(nonNegInt(data.accessDays), ELEARN_MAX_ACCESS_DAYS),
     status: data.status === "published" ? "published" : "draft",
     featured: data.featured === true,
     sortOrder: Number.isFinite(Number(data.sortOrder)) ? Number(data.sortOrder) : 0,
@@ -315,6 +319,14 @@ export const normalizeEnrollment = (id: string, data: Data = {}): ElearnEnrollme
     ...optional("upiRef"),
     ...optional("rejectReason"),
     ...optional("reviewedBy"),
+    ...(ELEARN_ENROLLMENT_STATUSES.includes(data.previousStatus as ElearnEnrollmentStatus)
+      ? { previousStatus: data.previousStatus as ElearnEnrollmentStatus }
+      : {}),
+    ...optional("previousRejectReason"),
+    ...(Array.isArray(data.extraPaymentIds)
+      ? { extraPaymentIds: data.extraPaymentIds.filter((item): item is string => typeof item === "string" && item.length > 0) }
+      : {}),
+    ...(timestamp(data.refundedAt) ? { refundedAt: timestamp(data.refundedAt) } : {}),
     submittedAt: timestamp(data.submittedAt),
     activatedAt: timestamp(data.activatedAt),
     expiresAt: timestamp(data.expiresAt),

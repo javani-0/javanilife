@@ -4,6 +4,7 @@ import { FieldValue } from "./firebase-admin.js";
 import { createRazorpayClient, getRazorpayCurrency } from "./razorpay.js";
 import {
   computeExpiresAt,
+  clampAccessDays,
   ELEARN_COURSES,
   ELEARN_ENROLLMENTS,
   elearnDocId,
@@ -48,7 +49,7 @@ export const loadSaleCourse = async (db: Firestore, courseId: string): Promise<S
     status: String(data.status || "draft"),
     priceInPaise: Math.max(0, Math.round(Number(data.priceInPaise) || 0)),
     paymentModes: { razorpay: modes.razorpay !== false, upi: modes.upi === true },
-    accessDays: Math.max(0, Math.floor(Number(data.accessDays) || 0)),
+    accessDays: clampAccessDays(data.accessDays),
   };
 };
 
@@ -93,6 +94,10 @@ export interface ActivationInput {
   reviewedBy?: string;
   /** Staff grant only: override the course's access days (0 = lifetime). */
   accessDaysOverride?: number;
+  /** Activate only if the stored status is one of these (checked inside the transaction). */
+  requireStatus?: string[];
+  /** Never activate over these stored statuses; a Razorpay payment is kept in extraPaymentIds for a refund. */
+  blockStatus?: string[];
 }
 
 export interface ActivationResult {
@@ -100,6 +105,8 @@ export interface ActivationResult {
   alreadyActive: boolean;
   /** ms since epoch, or null for lifetime. */
   expiresAtMs: number | null;
+  /** The enrollment status after this call. */
+  status: string;
 }
 
 /**
@@ -119,7 +126,12 @@ export const activateEnrollment = async (db: Firestore, input: ActivationInput):
     const usedPaymentIds: string[] = Array.isArray(existing?.razorpayPaymentIds) ? existing.razorpayPaymentIds : [];
 
     if (existing && paymentId && usedPaymentIds.includes(paymentId)) {
-      return { enrollmentId: ref.id, alreadyActive: true, expiresAtMs: toMillis(existing.expiresAt) };
+      return {
+        enrollmentId: ref.id,
+        alreadyActive: hasActiveAccess(existing),
+        expiresAtMs: toMillis(existing.expiresAt),
+        status: String(existing.status || ""),
+      };
     }
 
     if (existing && hasActiveAccess(existing)) {
@@ -130,10 +142,25 @@ export const activateEnrollment = async (db: Firestore, input: ActivationInput):
           updatedAt: FieldValue.serverTimestamp(),
         });
       }
-      return { enrollmentId: ref.id, alreadyActive: true, expiresAtMs: toMillis(existing.expiresAt) };
+      return { enrollmentId: ref.id, alreadyActive: true, expiresAtMs: toMillis(existing.expiresAt), status: "active" };
     }
 
-    const days = input.accessDaysOverride !== undefined ? input.accessDaysOverride : input.course.accessDays;
+    const storedStatus = existing ? String(existing.status || "") : "";
+    if (input.requireStatus && !input.requireStatus.includes(storedStatus)) {
+      throw new ElearnError(409, "This purchase changed meanwhile. Refresh and try again.");
+    }
+    if (existing && input.blockStatus?.includes(storedStatus)) {
+      if (paymentId) {
+        tx.update(ref, {
+          extraPaymentIds: FieldValue.arrayUnion(paymentId),
+          razorpayPaymentIds: FieldValue.arrayUnion(paymentId),
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+      }
+      return { enrollmentId: ref.id, alreadyActive: false, expiresAtMs: null, status: storedStatus };
+    }
+
+    const days = clampAccessDays(input.accessDaysOverride !== undefined ? input.accessDaysOverride : input.course.accessDays);
     const expiresAt = computeExpiresAt(days, new Date());
     const record: Record<string, unknown> = {
       uid: input.uid,
@@ -158,8 +185,9 @@ export const activateEnrollment = async (db: Firestore, input: ActivationInput):
       record.reviewedAt = FieldValue.serverTimestamp();
     }
     if (!snapshot.exists) record.createdAt = FieldValue.serverTimestamp();
+    if (storedStatus && storedStatus !== "active") record.previousStatus = storedStatus;
     tx.set(ref, record, { merge: true });
-    return { enrollmentId: ref.id, alreadyActive: false, expiresAtMs: expiresAt ? expiresAt.getTime() : null };
+    return { enrollmentId: ref.id, alreadyActive: false, expiresAtMs: expiresAt ? expiresAt.getTime() : null, status: "active" };
   });
 };
 
@@ -217,7 +245,14 @@ export const activateFromRazorpay = async (
     || String(order.currency || "").toUpperCase() !== currency) {
     throw new ElearnError(409, "Razorpay payment amount does not match the order.");
   }
-  if (!["captured", "authorized"].includes(String(payment.status || ""))) {
+  let paymentStatus = String(payment.status || "");
+  if (paymentStatus === "authorized") {
+    // Only captured money unlocks a course: an authorized payment that is never
+    // captured is auto-refunded by Razorpay, so capture it now.
+    const captured = (await razorpay.payments.capture(args.razorpayPaymentId, orderAmount, currency)) as RazorpayEntity;
+    paymentStatus = String(captured?.status || "");
+  }
+  if (paymentStatus !== "captured") {
     throw new ElearnError(409, "Razorpay payment is not successful yet.");
   }
 
@@ -237,15 +272,49 @@ export const activateFromRazorpay = async (
     identity,
     razorpayOrderId: args.razorpayOrderId,
     razorpayPaymentId: args.razorpayPaymentId,
+    // Staff revoked this student: the money is noted for a refund, no access.
+    blockStatus: ["revoked"],
   });
 };
 
-/** Webhook `payment.captured` with notes.kind === "elearn" (backup to elearn-verify). */
+/** Webhook `payment.captured` for an elearn order (backup to elearn-verify). The ORDER's
+ *  notes (written by this server) decide uid + course; the payment's notes are not trusted. */
 export const activateElearnFromWebhook = async (db: Firestore, payment: RazorpayEntity) => {
   if (!payment?.id || !payment.order_id) return null;
   return activateFromRazorpay(db, {
     razorpayOrderId: payment.order_id,
     razorpayPaymentId: payment.id,
     payment,
+  });
+};
+
+/**
+ * Webhook `refund.processed`: a FULL refund of the payment that unlocked a
+ * course revokes that access (a partial refund leaves it alone).
+ */
+export const revokeElearnForRefund = async (
+  db: Firestore,
+  refund: { payment_id?: string; amount?: number | string } | null | undefined,
+) => {
+  const paymentId = String(refund?.payment_id || "");
+  if (!paymentId) return null;
+  const matches = await db.collection(ELEARN_ENROLLMENTS).where("razorpayPaymentId", "==", paymentId).limit(1).get();
+  if (matches.empty) return null;
+  const ref = matches.docs[0].ref;
+  return db.runTransaction(async (tx) => {
+    const snapshot = await tx.get(ref);
+    const data = snapshot.data();
+    if (!data || data.status !== "active" || data.method !== "razorpay" || data.razorpayPaymentId !== paymentId) return null;
+    const paid = Math.round(Number(data.amountInPaise) || 0);
+    const refunded = Math.round(Number(refund?.amount) || 0);
+    if (paid > 0 && refunded < paid) return null;
+    tx.update(ref, {
+      status: "revoked",
+      previousStatus: "active",
+      rejectReason: "Payment refunded",
+      refundedAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+    return { enrollmentId: ref.id };
   });
 };

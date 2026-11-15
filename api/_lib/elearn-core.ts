@@ -9,6 +9,25 @@ export const ELEARN_COURSES = "elearnCourses";
 export const ELEARN_CONTENT = "elearnContent";
 export const ELEARN_ENROLLMENTS = "elearnEnrollments";
 export const ELEARN_PROGRESS = "elearnProgress";
+/** One doc per UPI UTR / screenshot URL, so one payment unlocks only one purchase. Server-only. */
+export const ELEARN_UPI_REFS = "elearnUpiRefs";
+export const ELEARN_UPI_PROOFS = "elearnUpiProofs";
+
+/** Longest allowed access period (~100 years). Bigger values would overflow a Date. */
+export const ELEARN_MAX_ACCESS_DAYS = 36500;
+
+/** Access days as a safe whole number: 0 (= lifetime) .. ELEARN_MAX_ACCESS_DAYS. */
+export const clampAccessDays = (value: unknown): number => {
+  const days = Math.floor(Number(value) || 0);
+  if (!Number.isFinite(days) || days <= 0) return 0;
+  return Math.min(days, ELEARN_MAX_ACCESS_DAYS);
+};
+
+/** A UPI UTR / reference number is exactly 12 digits (spaces and dashes ignored). "" when invalid. */
+export const normalizeUpiUtr = (value: unknown): string => {
+  const digits = typeof value === "string" ? value.replace(/[\s-]/g, "") : "";
+  return /^\d{12}$/.test(digits) ? digits : "";
+};
 
 /** Public Cloudinary cloud the payment screenshots are uploaded to. Keep in sync
  *  with src/lib/cloudinary.ts (a test pins them equal). Not a secret. */
@@ -40,7 +59,7 @@ export const toMillis = (value: unknown): number | null => {
 
 /** When access ends: `accessDays` after `from`; 0 / missing / negative = lifetime (null). */
 export const computeExpiresAt = (accessDays: unknown, from: Date = new Date()): Date | null => {
-  const days = Math.floor(Number(accessDays) || 0);
+  const days = clampAccessDays(accessDays);
   if (days <= 0) return null;
   return new Date(from.getTime() + days * DAY_MS);
 };
@@ -82,7 +101,8 @@ export const availablePaymentModes = (
   };
 };
 
-/** A payment screenshot must be an https image on OUR Cloudinary cloud. */
+/** A payment screenshot must be an https image UPLOADED to OUR Cloudinary cloud
+ *  (not a /fetch/ proxy of someone else's URL, not an SVG). */
 export const isAllowedProofUrl = (value: unknown, cloudName: string = ELEARN_CLOUDINARY_CLOUD): boolean => {
   if (typeof value !== "string" || !value.trim() || value.length > 600) return false;
   let url: URL;
@@ -93,5 +113,7 @@ export const isAllowedProofUrl = (value: unknown, cloudName: string = ELEARN_CLO
   }
   return url.protocol === "https:"
     && url.hostname === "res.cloudinary.com"
-    && url.pathname.startsWith(`/${cloudName}/`);
+    && !url.username && !url.password && !url.port
+    && url.pathname.startsWith(`/${cloudName}/image/upload/`)
+    && !/\.svg$/i.test(url.pathname);
 };

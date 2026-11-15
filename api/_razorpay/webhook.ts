@@ -11,7 +11,8 @@ import {
   type EnrollmentRecord,
 } from "../_lib/fee-store.js";
 import { sendClassFeeNotifications } from "../_lib/notify.js";
-import { activateElearnFromWebhook } from "../_lib/elearn.js";
+import { activateElearnFromWebhook, ElearnError, revokeElearnForRefund } from "../_lib/elearn.js";
+import { createRazorpayClient, getRazorpayCurrency } from "../_lib/razorpay.js";
 
 // ---------------------------------------------------------------------------
 // Razorpay Webhook Handler
@@ -21,6 +22,12 @@ import { activateElearnFromWebhook } from "../_lib/elearn.js";
 //                          when notes.kind === "class-fee".
 //   • payment.failed    → mark a class fee failed (notes.kind === "class-fee").
 //   • subscription.*     → drive class autopay mandate + monthly charges.
+//   • refund.processed  → a full refund revokes e-learning access.
+//
+// The kind (class-fee / emi-installment / elearn) and its ids are read from
+// the Razorpay ORDER's notes, which only this server writes. Payment notes come
+// from the browser checkout and are never trusted (a ₹1 payment with forged
+// notes must not mark a fee paid).
 //
 // Env var required: RAZORPAY_WEBHOOK_SECRET (set in Vercel + Razorpay dashboard)
 // ---------------------------------------------------------------------------
@@ -50,7 +57,38 @@ interface RazorpayWebhookPayload {
   payload?: {
     payment?: { entity?: RazorpayPaymentEntity };
     subscription?: { entity?: RazorpaySubscriptionEntity };
+    refund?: { entity?: { id?: string; payment_id?: string; amount?: number } };
   };
+}
+
+/** A failure Razorpay should retry (answer 5xx), unlike a permanent mismatch. */
+class RetryableWebhookError extends Error {}
+
+/**
+ * The server-written notes of the payment's Razorpay order, after checking the
+ * payment amount and currency equal the order's. null = no order, or a payment
+ * that does not match its order (never act on it).
+ */
+async function trustedOrderNotes(payment: RazorpayPaymentEntity): Promise<Record<string, string> | null> {
+  if (!payment.order_id) return null;
+  let order: { amount?: number | string; currency?: string; notes?: unknown };
+  try {
+    order = (await createRazorpayClient().orders.fetch(payment.order_id)) as typeof order;
+  } catch (error) {
+    throw new RetryableWebhookError(`Could not fetch Razorpay order ${payment.order_id}: ${String(error)}`);
+  }
+  const currency = getRazorpayCurrency().toUpperCase();
+  const orderAmount = Math.round(Number(order.amount));
+  if (!Number.isFinite(orderAmount) || orderAmount <= 0
+    || Math.round(Number(payment.amount)) !== orderAmount
+    || String(order.currency || "").toUpperCase() !== currency
+    || String(payment.currency || "").toUpperCase() !== currency) {
+    console.warn("Webhook: payment does not match its order", { orderId: payment.order_id, paymentId: payment.id });
+    return null;
+  }
+  const notes = order.notes;
+  if (!notes || Array.isArray(notes) || typeof notes !== "object") return {};
+  return Object.fromEntries(Object.entries(notes as Record<string, unknown>).map(([key, value]) => [key, String(value ?? "")]));
 }
 
 interface StoredOrderData {
@@ -153,7 +191,13 @@ async function handleOrderCaptured(payment: RazorpayPaymentEntity) {
 
 // --- Class fee (manual) flow ------------------------------------------------
 
-async function markClassFeePaid(feePaymentId: string, razorpayPaymentId: string, method: "manual" | "autopay", subscriptionId?: string) {
+async function markClassFeePaid(
+  feePaymentId: string,
+  razorpayPaymentId: string,
+  method: "manual" | "autopay",
+  subscriptionId?: string,
+  paidOrder?: { orderId: string; amountInPaise: number },
+) {
   const db = getFirebaseAdminDb();
   const feeRef = db.collection(FEE_PAYMENTS_COLLECTION).doc(feePaymentId);
   const snapshot = await feeRef.get();
@@ -161,6 +205,16 @@ async function markClassFeePaid(feePaymentId: string, razorpayPaymentId: string,
 
   const fee = snapshot.data() || {};
   if (fee.status === "paid") return; // idempotent
+
+  // One-time (manual) payment: it must be for the order this fee created, and
+  // for at least the fee amount.
+  if (paidOrder) {
+    const expected = Math.round(Number(fee.amountInPaise || 0));
+    if (fee.razorpayOrderId !== paidOrder.orderId || (expected > 0 && paidOrder.amountInPaise < expected)) {
+      console.warn("Webhook: class fee payment does not match the fee", { feePaymentId, orderId: paidOrder.orderId });
+      return;
+    }
+  }
 
   await feeRef.update({
     status: "paid",
@@ -388,9 +442,9 @@ async function handleEmiSubscriptionEvent(event: string, subscription: RazorpayS
   }
 }
 
-async function handleEmiInstallmentCaptured(payment: RazorpayPaymentEntity) {
-  const orderDocumentId = payment.notes?.orderDocumentId || "";
-  const installmentNumber = Number(payment.notes?.installmentNumber || 0);
+async function handleEmiInstallmentCaptured(payment: RazorpayPaymentEntity, notes: Record<string, string>) {
+  const orderDocumentId = notes.orderDocumentId || "";
+  const installmentNumber = Number(notes.installmentNumber || 0);
   const razorpayPaymentId = payment.id || "";
 
   if (!orderDocumentId || !installmentNumber) return;
@@ -406,6 +460,11 @@ async function handleEmiInstallmentCaptured(payment: RazorpayPaymentEntity) {
 
   const targetInstallment = installments.find((inst: any) => inst.installmentNumber === installmentNumber);
   
+  if (targetInstallment && Math.round(Number(payment.amount)) < Math.round(Number(targetInstallment.amountInPaise || 0))) {
+    console.warn("Webhook: EMI installment payment is less than the installment", { orderDocumentId, installmentNumber });
+    return;
+  }
+
   if (targetInstallment && targetInstallment.status !== "paid") {
     targetInstallment.status = "paid";
     targetInstallment.paidAt = new Date().toISOString();
@@ -457,22 +516,40 @@ export default async function handler(request: ApiRequest, response: ApiResponse
   const event = payload.event || "";
   const payment = payload.payload?.payment?.entity;
   const subscription = payload.payload?.subscription?.entity;
+  const refund = payload.payload?.refund?.entity;
 
   try {
     if (event === "payment.captured" && payment) {
-      if (payment.notes?.kind === "class-fee" && payment.notes.feePaymentId) {
-        await markClassFeePaid(payment.notes.feePaymentId, payment.id || "", "manual");
-      } else if (payment.notes?.kind === "emi-installment" && payment.notes.orderDocumentId) {
-        await handleEmiInstallmentCaptured(payment);
-      } else if (payment.notes?.kind === "elearn") {
+      const notes = await trustedOrderNotes(payment);
+      if (notes?.kind === "class-fee" && notes.feePaymentId) {
+        await markClassFeePaid(notes.feePaymentId, payment.id || "", "manual", undefined, {
+          orderId: payment.order_id || "",
+          amountInPaise: Math.round(Number(payment.amount) || 0),
+        });
+      } else if (notes?.kind === "emi-installment" && notes.orderDocumentId) {
+        await handleEmiInstallmentCaptured(payment, notes);
+      } else if (notes?.kind === "elearn") {
         // E-Learning course purchase: same activation as elearn-verify, checked
         // against the stored Razorpay order (amount, currency, uid, course).
-        await activateElearnFromWebhook(getFirebaseAdminDb(), payment);
-      } else {
+        try {
+          await activateElearnFromWebhook(getFirebaseAdminDb(), payment);
+        } catch (error) {
+          // A mismatch is permanent (ACK); anything else (Firestore down…) is retried.
+          if (error instanceof ElearnError) throw error;
+          throw new RetryableWebhookError(String(error));
+        }
+      } else if (notes) {
         await handleOrderCaptured(payment);
       }
-    } else if (event === "payment.failed" && payment?.notes?.kind === "class-fee" && payment.notes.feePaymentId) {
-      await markClassFeeFailed(payment.notes.feePaymentId);
+    } else if (event === "payment.failed" && payment?.order_id) {
+      const notes = await trustedOrderNotes(payment).catch(() => null);
+      if (notes?.kind === "class-fee" && notes.feePaymentId) await markClassFeeFailed(notes.feePaymentId);
+    } else if (event === "refund.processed" && refund?.payment_id) {
+      try {
+        await revokeElearnForRefund(getFirebaseAdminDb(), refund);
+      } catch (error) {
+        throw new RetryableWebhookError(String(error));
+      }
     } else if (event.startsWith("subscription.") && subscription) {
       if (subscription.notes?.kind === "emi-order") {
         await handleEmiSubscriptionEvent(event, subscription, payment);
@@ -481,8 +558,13 @@ export default async function handler(request: ApiRequest, response: ApiResponse
       }
     }
   } catch (error) {
-    // Log but still ACK so Razorpay does not retry endlessly.
     console.error("Webhook: error handling event", { event, error });
+    if (error instanceof RetryableWebhookError) {
+      // Razorpay retries with back-off, so a paid course is not left locked.
+      sendError(response, 503, "Temporary error, please retry.");
+      return;
+    }
+    // Otherwise ACK so Razorpay does not retry a permanent problem endlessly.
   }
 
   sendJson(response, 200, { received: true });

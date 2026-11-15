@@ -450,23 +450,28 @@ service cloud.firestore {
     }
 
     match /elearnEnrollments/{enrollmentId} {
-      // Doc id is {uid}_{courseId}: the owner may read their own id even
-      // before it exists (no permission error on a fresh course page).
-      allow get: if (signedIn() && enrollmentId.matches(request.auth.uid + '_[a-z0-9-]+'))
+      // The owner reads their own doc; a doc that doesn't exist yet reads as
+      // empty (no permission error on a fresh course page).
+      allow get: if (signedIn() && (resource == null || resource.data.uid == request.auth.uid))
         || staffAny(['elearning']);
       allow list: if (signedIn() && resource.data.uid == request.auth.uid) || staffAny(['elearning']);
       allow write: if false;
     }
 
     match /elearnProgress/{progressId} {
-      allow get: if (signedIn() && progressId.matches(request.auth.uid + '_[a-z0-9-]+'))
+      allow get: if (signedIn() && (resource == null || resource.data.uid == request.auth.uid))
         || staffAny(['elearning']);
       allow list: if staffAny(['elearning']);
+      // Only a student with access to the course can save progress for it.
       allow create, update: if signedIn()
         && request.resource.data.keys().hasOnly(['uid', 'courseId', 'completedLessonIds', 'lastLessonId', 'positions', 'updatedAt'])
         && request.resource.data.uid == request.auth.uid
         && request.resource.data.courseId is string
+        && request.resource.data.courseId.size() > 0
+        && request.resource.data.courseId.size() <= 120
         && progressId == request.auth.uid + '_' + request.resource.data.courseId
+        && (resource == null || resource.data.courseId == request.resource.data.courseId)
+        && hasActiveElearnEnrollment(request.resource.data.courseId)
         && request.resource.data.get('completedLessonIds', []) is list
         && request.resource.data.get('completedLessonIds', []).size() <= 500
         && request.resource.data.get('positions', {}) is map

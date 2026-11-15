@@ -3,7 +3,17 @@ import { getFirebaseAdminAuth, getFirebaseAdminDb, FieldValue } from "../_lib/fi
 import { getBearerToken, readJsonBody, requirePost, sendError, sendJson, type ApiRequest, type ApiResponse } from "../_lib/http.js";
 import { createRazorpayClient, getRazorpayCredentials, getRazorpayCurrency, verifyRazorpaySignature } from "../_lib/razorpay.js";
 import { isStaffForPage } from "../_lib/staff.js";
-import { availablePaymentModes, hasActiveAccess, isAllowedProofUrl, type UpiSettingsLike } from "../_lib/elearn-core.js";
+import { createHash } from "node:crypto";
+import {
+  availablePaymentModes,
+  clampAccessDays,
+  ELEARN_UPI_PROOFS,
+  ELEARN_UPI_REFS,
+  hasActiveAccess,
+  isAllowedProofUrl,
+  normalizeUpiUtr,
+  type UpiSettingsLike,
+} from "../_lib/elearn-core.js";
 import {
   activateEnrollment,
   activateFromRazorpay,
@@ -18,7 +28,7 @@ import {
 // E-Learning actions (routed by api/razorpay.ts — no extra Vercel function):
 //   POST /api/razorpay/elearn-order       { courseId }
 //   POST /api/razorpay/elearn-verify      { courseId, razorpay_order_id, razorpay_payment_id, razorpay_signature }
-//   POST /api/razorpay/elearn-submit-upi  { courseId, proofUrl, upiRef? }
+//   POST /api/razorpay/elearn-submit-upi  { courseId, proofUrl, upiRef }  (upiRef = 12-digit UTR)
 //   POST /api/razorpay/elearn-review      staff: approve | reject | revoke | grant
 // Every amount comes from Firestore; the client only names the course.
 // ---------------------------------------------------------------------------
@@ -51,8 +61,9 @@ const createOrder = async (db: Firestore, uid: string, identity: ReturnType<type
   if (!availablePaymentModes(course, null).razorpay) throw new ElearnError(400, "Online payment is not available for this course.");
 
   const ref = enrollmentRef(db, uid, course.id);
-  const existing = (await ref.get()).data();
-  if (existing && hasActiveAccess(existing)) throw new ElearnError(409, "You already have access to this course.");
+  const before = (await ref.get()).data();
+  if (before && hasActiveAccess(before)) throw new ElearnError(409, "You already have access to this course.");
+  if (before?.status === "revoked") throw new ElearnError(403, "Your access to this course was removed. Please contact us.");
 
   const currency = getRazorpayCurrency();
   const order = await createRazorpayClient().orders.create({
@@ -63,18 +74,29 @@ const createOrder = async (db: Firestore, uid: string, identity: ReturnType<type
   });
 
   const buyer = await loadBuyerIdentity(db, uid, identity);
-  await ref.set({
-    uid,
-    courseId: course.id,
-    courseTitle: course.title,
-    ...buyer,
-    // A pending QR proof stays visible to staff; otherwise mark the new attempt.
-    status: existing?.status === "processing" ? "processing" : "awaiting-payment",
-    razorpayOrderId: order.id,
-    razorpayOrderAmountInPaise: course.priceInPaise,
-    updatedAt: FieldValue.serverTimestamp(),
-    ...(existing ? {} : { createdAt: FieldValue.serverTimestamp() }),
-  }, { merge: true });
+  // Re-read inside a transaction: a payment (verify/webhook) or a staff action
+  // may have landed while the Razorpay order was being created.
+  await db.runTransaction(async (tx) => {
+    const snapshot = await tx.get(ref);
+    const existing = snapshot.exists ? snapshot.data() || {} : null;
+    if (existing && hasActiveAccess(existing)) throw new ElearnError(409, "You already have access to this course.");
+    if (existing?.status === "revoked") throw new ElearnError(403, "Your access to this course was removed. Please contact us.");
+    const keepStatus = existing?.status === "processing" || existing?.status === "active";
+    tx.set(ref, {
+      uid,
+      courseId: course.id,
+      courseTitle: course.title,
+      ...buyer,
+      // A pending QR proof stays visible to staff (and an expired "active" keeps
+      // its history); otherwise mark the new attempt.
+      ...(keepStatus ? {} : { status: "awaiting-payment" }),
+      ...(existing?.status === "rejected" ? { previousStatus: "rejected" } : {}),
+      razorpayOrderId: order.id,
+      razorpayOrderAmountInPaise: course.priceInPaise,
+      updatedAt: FieldValue.serverTimestamp(),
+      ...(existing ? {} : { createdAt: FieldValue.serverTimestamp() }),
+    }, { merge: true });
+  });
 
   return {
     keyId: getRazorpayCredentials().keyId,
@@ -103,6 +125,9 @@ const verify = async (db: Firestore, uid: string, body: Record<string, unknown>)
     razorpayPaymentId,
     expected: { uid, courseId },
   });
+  if (result.status !== "active") {
+    throw new ElearnError(403, "Payment received, but your access to this course was removed. Please contact us for a refund.");
+  }
   return {
     verified: true,
     status: "active" as const,
@@ -116,8 +141,11 @@ const verify = async (db: Firestore, uid: string, body: Record<string, unknown>)
 const submitUpi = async (db: Firestore, uid: string, identity: ReturnType<typeof identityFromToken>, body: Record<string, unknown>) => {
   const courseId = cleanId(body.courseId, 120);
   const proofUrl = typeof body.proofUrl === "string" ? body.proofUrl.trim() : "";
-  const upiRef = typeof body.upiRef === "string" ? body.upiRef.trim().slice(0, 40) : "";
+  const upiRef = normalizeUpiUtr(body.upiRef);
   if (!isAllowedProofUrl(proofUrl)) throw new ElearnError(400, "Please upload the payment screenshot again.");
+  if (!upiRef) throw new ElearnError(400, "Enter the 12-digit UTR / UPI reference number from your payment app.");
+  const cleanProofUrl = new URL(proofUrl).href;
+  const proofKey = createHash("sha256").update(cleanProofUrl).digest("hex");
 
   const course = courseId ? await loadSaleCourse(db, courseId) : null;
   if (!course || course.status !== "published") throw new ElearnError(404, "This course is not available.");
@@ -125,11 +153,25 @@ const submitUpi = async (db: Firestore, uid: string, identity: ReturnType<typeof
   if (!availablePaymentModes(course, settings).upi) throw new ElearnError(400, "QR payment is not available for this course.");
 
   const ref = enrollmentRef(db, uid, course.id);
+  const utrRef = db.collection(ELEARN_UPI_REFS).doc(upiRef);
+  const proofRef = db.collection(ELEARN_UPI_PROOFS).doc(proofKey);
   const buyer = await loadBuyerIdentity(db, uid, identity);
   await db.runTransaction(async (tx) => {
-    const snapshot = await tx.get(ref);
+    const [snapshot, utrSnap, proofSnap] = await Promise.all([tx.get(ref), tx.get(utrRef), tx.get(proofRef)]);
     const existing = snapshot.exists ? snapshot.data() || {} : null;
     if (existing && hasActiveAccess(existing)) throw new ElearnError(409, "You already have access to this course.");
+    if (existing?.status === "revoked") throw new ElearnError(403, "Your access to this course was removed. Please contact us.");
+    // One UPI payment can unlock only one purchase (resubmitting the same
+    // payment for the same course after a rejection is fine).
+    if (utrSnap.exists && utrSnap.data()?.enrollmentId !== ref.id) {
+      throw new ElearnError(409, "This UTR number was already used for another purchase.");
+    }
+    if (proofSnap.exists && proofSnap.data()?.enrollmentId !== ref.id) {
+      throw new ElearnError(409, "This screenshot was already used for another purchase. Upload your own payment screenshot.");
+    }
+    const claim = { enrollmentId: ref.id, uid, courseId: course.id, createdAt: FieldValue.serverTimestamp() };
+    if (!utrSnap.exists) tx.set(utrRef, { ...claim, utr: upiRef });
+    if (!proofSnap.exists) tx.set(proofRef, { ...claim, proofUrl: cleanProofUrl });
     tx.set(ref, {
       uid,
       courseId: course.id,
@@ -138,9 +180,12 @@ const submitUpi = async (db: Firestore, uid: string, identity: ReturnType<typeof
       status: "processing",
       method: "upi",
       amountInPaise: course.priceInPaise,
-      proofUrl,
-      upiRef: upiRef || FieldValue.delete(),
+      upiProofUrl: cleanProofUrl,
+      upiRef,
       submittedAt: FieldValue.serverTimestamp(),
+      ...(existing?.status === "rejected"
+        ? { previousStatus: "rejected", previousRejectReason: String(existing.rejectReason || "") }
+        : {}),
       rejectReason: FieldValue.delete(),
       updatedAt: FieldValue.serverTimestamp(),
       ...(existing ? {} : { createdAt: FieldValue.serverTimestamp() }),
@@ -178,7 +223,7 @@ const review = async (db: Firestore, staffUid: string, body: Record<string, unkn
     }
     const days = body.accessDays === undefined || body.accessDays === null || body.accessDays === ""
       ? undefined
-      : Math.max(0, Math.floor(Number(body.accessDays) || 0));
+      : clampAccessDays(body.accessDays);
     const result = await activateEnrollment(db, {
       uid,
       course,
@@ -210,6 +255,8 @@ const review = async (db: Firestore, staffUid: string, body: Record<string, unkn
       method: "upi",
       amountInPaise: Math.max(0, Math.round(Number(data.amountInPaise) || 0)),
       reviewedBy: staffUid,
+      // Re-checked inside the transaction: a reject/revoke in another tab wins.
+      requireStatus: ["processing"],
     });
     return { ok: true as const, enrollmentId: result.enrollmentId, status: "active" as const, ...(result.alreadyActive ? { alreadyActive: true } : {}) };
   }
