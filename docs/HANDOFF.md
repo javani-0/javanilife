@@ -2,16 +2,19 @@
 
 Javani Spiritual Hub (www.javanilife.com): a classical dance/music academy + shop. React 18 + Vite SPA, Firebase, Vercel (project `javanilife`), Razorpay.
 
-Last updated: 2026-11-15 (E-Learning built and committed locally, NOT deployed)
+Last updated: 2026-11-15 (E-Learning LIVE; strict Firestore rules LIVE; 3 small commits not pushed)
 
 ## State
 
-- **E-Learning section is built** (commits 18ffa80 → latest on local `main`, not pushed):
+- **E-Learning is LIVE** (pushed up to f8deb7e; Vercel auto-deployed). **3 commits NOT pushed** (4bbd6e9 rules tests, 5abe7c0 resource-link guard, d528ccf parent fee list): `git push` hangs on the GitHub login (Credential Manager login expired on this PC).
   - Public: `/learn` catalog, `/learn/:slug` course page, buy dialog (Razorpay or UPI QR + screenshot + 12-digit UTR), `/learn/:slug/watch` Vimeo player with progress, `/account/learning`.
   - Admin: `/admin/elearning` (staff page access `elearning`): course builder (sections, lessons, Vimeo links), payment mode per course (Razorpay / UPI / both), purchases (approve/reject UPI proofs, grant, revoke).
   - Server: `elearn-*` actions inside `api/razorpay.ts` (handlers `api/_razorpay/elearn.ts`, logic `api/_lib/elearn.ts`, pure rules `api/_lib/elearn-core.ts`). Webhook `api/_razorpay/webhook.ts` also activates elearn, revokes on full refund, and now trusts only ORDER notes (also fixes an old class-fee/EMI forged-notes hole).
   - Security review done; all confirmed findings fixed (UTR/screenshot reuse blocked, races, revoked students, captured-only payments, proof URL guard, rules).
   - Dev preview without data: add `?demo` (dev only).
+- **Firestore rules LIVE (2026-11-15)**: the live DB was fully open (`allow read, write: if true` since 2026-05-05). Strict role-based rules (`firestore.rules`) published via the Firebase console (CLI has no access to javani-181d5 → 403). Verified: anonymous reads of users/orders/feePayments/elearnEnrollments → 403; public collections 200; site pages OK. Until d528ccf is pushed, the parent ClassRoom fee list shows empty (fails quietly).
+- Rules tests: `firebase emulators:exec --only firestore --project demo-javani "npm run test:rules"` (config `vitest.rules.config.ts`). Known leftover: a manager with only the students page can't do the full student purge; StatsSection setDoc fails silently for visitors.
+- Razorpay webhook `https://javanilife.com/api/webhook` already has all refund events incl. `refund.processed` (checked 2026-11-15, nothing changed).
 - **SEO is LIVE** (2026-11-06). `/learn` + course pages are in the sitemap/prerender once deployed. Details in `docs/seo/SEO-2026-11-06.md`.
 - Checks 2026-11-15: api tsc clean; app tsc only the 7 old errors (CategoryManager, categories.ts); tests 624/629 (5 old failures: course-installments, delivery-flow-ui); build OK.
 
@@ -19,8 +22,8 @@ Last updated: 2026-11-15 (E-Learning built and committed locally, NOT deployed)
 
 | # | Step | Effort |
 |---|---|---|
-| 1 | Deploy (needs the user's yes): `git push` (Vercel auto-deploys main) + `firebase deploy --only firestore:rules` | Low |
-| 2 | Razorpay dashboard webhook: also tick `refund.processed` | Low |
+| 1 | `git push` the 3 local commits (approved; needs a working GitHub login in Credential Manager) | Low |
+| 2 | Any later rules change: publish via the Firebase console in the javani Chrome (paste `firestore.rules`), run the emulator tests first | Low |
 | 3 | After deploy: create a real course in `/admin/elearning`, test one UPI buy + one Razorpay buy end to end, screenshot `/account/learning` and the watch page | Medium |
 | 4 | SEO day 3/7/14/30 checks (report file) | Low |
 
@@ -28,7 +31,7 @@ Last updated: 2026-11-15 (E-Learning built and committed locally, NOT deployed)
 
 ## Waiting on the client or the user
 
-- Deploy permission (step 1).
+- GitHub login on this PC for the push (step 1).
 - Client setup: Vimeo videos set to "Hide from Vimeo" + embed only on javanilife.com; UPI ID/QR set in admin payment settings; give staff the `elearning` page access.
 - The SEO [NEED] list in `docs/seo/SEO-2026-11-06.md`.
 
