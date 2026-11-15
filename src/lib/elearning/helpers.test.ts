@@ -338,3 +338,18 @@ describe("normalizeEnrollment proof link", () => {
     expect(normalizeEnrollment("e", { upiProofUrl: ok }).upiProofUrl).toBe(ok);
   });
 });
+
+describe("normalizeContent resource links", () => {
+  it("keeps http(s) links and drops script/data URLs", () => {
+    const content = normalizeContent({
+      lessons: {
+        a: { vimeoUrl: "https://vimeo.com/1", resourceUrl: "https://example.com/a.pdf" },
+        b: { vimeoUrl: "https://vimeo.com/2", resourceUrl: "javascript:alert(1)" },
+        c: { vimeoUrl: "https://vimeo.com/3", resourceUrl: "data:text/html,x" },
+      },
+    });
+    expect(content.lessons.a.resourceUrl).toBe("https://example.com/a.pdf");
+    expect(content.lessons.b.resourceUrl).toBeUndefined();
+    expect(content.lessons.c.resourceUrl).toBeUndefined();
+  });
+});

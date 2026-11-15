@@ -281,6 +281,16 @@ export const normalizeCourse = (id: string, data: Data = {}): ElearnCourse => {
   return course;
 };
 
+/** The URL itself when it is an absolute http(s) link, else "". */
+export const safeHttpUrl = (value: string): string => {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" || url.protocol === "http:" ? url.href : "";
+  } catch {
+    return "";
+  }
+};
+
 export const normalizeContent = (data: Data = {}): ElearnCourseContent => {
   const lessons: ElearnCourseContent["lessons"] = {};
   const raw = data.lessons && typeof data.lessons === "object" ? (data.lessons as Data) : {};
@@ -290,7 +300,9 @@ export const normalizeContent = (data: Data = {}): ElearnCourseContent => {
     const item: ElearnCourseContent["lessons"][string] = { vimeoUrl: str(entry.vimeoUrl) };
     const resourceUrl = str(entry.resourceUrl);
     const notes = str(entry.notes);
-    if (resourceUrl) item.resourceUrl = resourceUrl;
+    // Rendered as a link: only http(s), never javascript:/data: etc.
+    const safeResourceUrl = safeHttpUrl(resourceUrl);
+    if (safeResourceUrl) item.resourceUrl = safeResourceUrl;
     if (notes) item.notes = notes;
     lessons[lessonId] = item;
   }
