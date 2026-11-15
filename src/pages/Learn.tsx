@@ -75,7 +75,7 @@ const Learn = () => {
           size="compact"
         />
 
-        <section className="bg-background pb-16 pt-8 sm:pb-24 sm:pt-12" aria-labelledby="learn-courses-heading">
+        <section className="bg-background pb-28 pt-8 sm:pb-24 sm:pt-12" aria-labelledby="learn-courses-heading">
           <div className="mx-auto max-w-7xl px-4 sm:px-6">
             <h2 id="learn-courses-heading" className="sr-only">All online courses</h2>
 
