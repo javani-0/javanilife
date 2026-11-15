@@ -427,5 +427,54 @@ service cloud.firestore {
         || (signedIn() && resource.data.parentUserId == request.auth.uid);
       allow write: if staffAny(['fee-collections', 'enrollments', 'students']);
     }
+
+    // ── E-Learning (video courses) ─────────────────────────────────────────
+    // Course pages are public once published; the Vimeo links live in
+    // elearnContent and are readable only with an ACTIVE, unexpired enrollment.
+    // Enrollments are written only by the server (Admin SDK) — never a client.
+    function hasActiveElearnEnrollment(courseId) {
+      let path = /databases/$(database)/documents/elearnEnrollments/$(request.auth.uid + '_' + courseId);
+      return signedIn() && exists(path)
+        && get(path).data.get('status', '') == 'active'
+        && (get(path).data.get('expiresAt', null) == null || get(path).data.expiresAt > request.time);
+    }
+
+    match /elearnCourses/{courseId} {
+      allow read: if resource.data.get('status', '') == 'published' || staffAny(['elearning']);
+      allow write: if staffAny(['elearning']);
+    }
+
+    match /elearnContent/{courseId} {
+      allow read: if staffAny(['elearning']) || hasActiveElearnEnrollment(courseId);
+      allow write: if staffAny(['elearning']);
+    }
+
+    match /elearnEnrollments/{enrollmentId} {
+      // Doc id is {uid}_{courseId}: the owner may read their own id even
+      // before it exists (no permission error on a fresh course page).
+      allow get: if (signedIn() && enrollmentId.matches(request.auth.uid + '_[a-z0-9-]+'))
+        || staffAny(['elearning']);
+      allow list: if (signedIn() && resource.data.uid == request.auth.uid) || staffAny(['elearning']);
+      allow write: if false;
+    }
+
+    match /elearnProgress/{progressId} {
+      allow get: if (signedIn() && progressId.matches(request.auth.uid + '_[a-z0-9-]+'))
+        || staffAny(['elearning']);
+      allow list: if staffAny(['elearning']);
+      allow create, update: if signedIn()
+        && request.resource.data.keys().hasOnly(['uid', 'courseId', 'completedLessonIds', 'lastLessonId', 'positions', 'updatedAt'])
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.courseId is string
+        && progressId == request.auth.uid + '_' + request.resource.data.courseId
+        && request.resource.data.get('completedLessonIds', []) is list
+        && request.resource.data.get('completedLessonIds', []).size() <= 500
+        && request.resource.data.get('positions', {}) is map
+        && request.resource.data.get('positions', {}).size() <= 500
+        && request.resource.data.get('lastLessonId', '') is string
+        && request.resource.data.get('lastLessonId', '').size() <= 100
+        && request.resource.data.updatedAt == request.time;
+      allow delete: if false;
+    }
   }
 }

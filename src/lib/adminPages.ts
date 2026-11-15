@@ -14,6 +14,7 @@ export interface ManagerPage {
 export const MANAGER_PAGES: ManagerPage[] = [
   { key: "enquiries", label: "Enquiries", path: "/admin/enquiries" },
   { key: "courses", label: "Courses Manager", path: "/admin/courses" },
+  { key: "elearning", label: "E-Learning", path: "/admin/elearning" },
   { key: "classes", label: "Classes Manager", path: "/admin/classes" },
   { key: "students", label: "Student Manager", path: "/admin/students" },
   { key: "attendance", label: "Attendance", path: "/admin/attendance" },

@@ -39,6 +39,8 @@ import rentalOverdue from "./_razorpay/rental-overdue.js";
 import manageUser from "./_razorpay/manage-user.js";
 // @ts-ignore
 import classJoinLink from "./_razorpay/class-join-link.js";
+// @ts-ignore
+import elearn from "./_razorpay/elearn.js";
 // Folded into this router (not a separate function) to stay within the Hobby
 // plan's 12-serverless-function limit. Reached via /api/partner/summary (see
 // vercel.json rewrite). Not razorpay-related, but this is the project's shared
@@ -51,6 +53,19 @@ export default async function handler(request: ApiRequest, response: ApiResponse
 
   if (action === "partner-summary" || url.includes("/partner/summary")) {
     return partnerSummary(request, response);
+  }
+  // E-Learning (video courses): one handler, passed the action.
+  if (action === "elearn-order" || url.includes("/elearn-order")) {
+    return elearn(request, response, "elearn-order");
+  }
+  if (action === "elearn-verify" || url.includes("/elearn-verify")) {
+    return elearn(request, response, "elearn-verify");
+  }
+  if (action === "elearn-submit-upi" || url.includes("/elearn-submit-upi")) {
+    return elearn(request, response, "elearn-submit-upi");
+  }
+  if (action === "elearn-review" || url.includes("/elearn-review")) {
+    return elearn(request, response, "elearn-review");
   }
   if (action === "class-join-link" || url.includes("/class-join-link")) {
     return classJoinLink(request, response);

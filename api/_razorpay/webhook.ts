@@ -11,6 +11,7 @@ import {
   type EnrollmentRecord,
 } from "../_lib/fee-store.js";
 import { sendClassFeeNotifications } from "../_lib/notify.js";
+import { activateElearnFromWebhook } from "../_lib/elearn.js";
 
 // ---------------------------------------------------------------------------
 // Razorpay Webhook Handler
@@ -463,6 +464,10 @@ export default async function handler(request: ApiRequest, response: ApiResponse
         await markClassFeePaid(payment.notes.feePaymentId, payment.id || "", "manual");
       } else if (payment.notes?.kind === "emi-installment" && payment.notes.orderDocumentId) {
         await handleEmiInstallmentCaptured(payment);
+      } else if (payment.notes?.kind === "elearn") {
+        // E-Learning course purchase: same activation as elearn-verify, checked
+        // against the stored Razorpay order (amount, currency, uid, course).
+        await activateElearnFromWebhook(getFirebaseAdminDb(), payment);
       } else {
         await handleOrderCaptured(payment);
       }

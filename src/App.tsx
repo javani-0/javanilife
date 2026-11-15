@@ -37,6 +37,8 @@ import NotFound from "./pages/NotFound";
 import ProductDetail from "./pages/ProductDetail";
 import CourseDetail from "./pages/CourseDetail";
 import TermsAndConditions from "./pages/TermsAndConditions";
+import Learn from "./pages/Learn";
+import LearnCourse from "./pages/LearnCourse";
 
 /**
  * `lazy()` that survives a failed chunk fetch.
@@ -82,6 +84,8 @@ const AccountExams = lazyWithRetry(() => import("./pages/account/Exams"));
 const AccountHallTicket = lazyWithRetry(() => import("./pages/account/HallTicket"));
 const AccountCertificates = lazyWithRetry(() => import("./pages/account/Certificates"));
 const AccountClassRoom = lazyWithRetry(() => import("./pages/account/ClassRoom"));
+const AccountLearning = lazyWithRetry(() => import("./pages/account/AccountLearning"));
+const LearnWatch = lazyWithRetry(() => import("./pages/LearnWatch"));
 const Cart = lazyWithRetry(() => import("./pages/Cart"));
 const Checkout = lazyWithRetry(() => import("./pages/Checkout"));
 const AccountProfile = lazyWithRetry(() => import("./pages/account/Profile"));
@@ -119,6 +123,7 @@ const AdminUsers = lazyWithRetry(() => import("./pages/admin/AdminUsers"));
 const AdminFaculty = lazyWithRetry(() => import("./pages/admin/AdminFaculty"));
 const AdminFinance = lazyWithRetry(() => import("./pages/admin/AdminFinance"));
 const AdminSiteSettings = lazyWithRetry(() => import("./pages/admin/AdminSiteSettings"));
+const AdminElearning = lazyWithRetry(() => import("./pages/admin/AdminElearning"));
 const AdminPaymentSettings = lazyWithRetry(() => import("./pages/admin/AdminPaymentSettings"));
 const AdminDeliverySettings = lazyWithRetry(() => import("./pages/admin/AdminDeliverySettings"));
 const PartnerDashboard = lazyWithRetry(() => import("./pages/PartnerDashboard"));
@@ -246,6 +251,12 @@ const App = () => {
                     <Route path="/account/orders/:id" element={<AccountRoute><AccountOrderDetail /></AccountRoute>} />
                     <Route path="/account/wishlist" element={<AccountRoute><AccountWishlist /></AccountRoute>} />
                     <Route path="/account/addresses" element={<AccountRoute><AccountAddresses /></AccountRoute>} />
+                    <Route path="/account/learning" element={<AccountRoute><AccountLearning /></AccountRoute>} />
+                    {/* E-Learning (video courses) — separate from /courses (classes). */}
+                    <Route path="/learn" element={<Learn />} />
+                    <Route path="/learn/:courseId" element={<LearnCourse />} />
+                    <Route path="/learn/:courseId/watch" element={<AccountRoute><LearnWatch /></AccountRoute>} />
+                    <Route path="/learn/:courseId/watch/:lessonId" element={<AccountRoute><LearnWatch /></AccountRoute>} />
                     <Route path="/products/:id" element={<ProductDetail />} />
                     <Route path="/courses/:id" element={<CourseDetail />} />
                     <Route path="/share/products/:id" element={<SharePreviewRedirect collection="products" />} />
@@ -263,6 +274,7 @@ const App = () => {
                       <Route path="dashboard" element={<AdminDashboard />} />
                       <Route path="enquiries" element={<AdminEnquiries />} />
                       <Route path="courses" element={<AdminCourses />} />
+                      <Route path="elearning" element={<AdminElearning />} />
                       <Route path="classes" element={<AdminClasses />} />
                       {/* Sign Up + Customers share one merged page (tabbed). */}
                       <Route path="enrollments" element={<AdminPeople />} />
