@@ -47,7 +47,7 @@ const ClassRoom = () => {
         setEnrollment(enr);
         const [cls, feeList] = await Promise.all([
           enr.classId ? getClass(enr.classId) : Promise.resolve(null),
-          listFeesForEnrollment(enrollmentId).catch(() => []),
+          listFeesForEnrollment(enrollmentId, user.uid).catch(() => []),
         ]);
         if (cancelled) return;
         setClassDoc(cls);

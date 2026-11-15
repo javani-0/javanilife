@@ -154,8 +154,11 @@ export const listFeesAdmin = async (monthKey: string): Promise<FeePaymentDoc[]> 
 };
 
 /** Every fee record for one enrolment (admin or owner) — the full payment history. */
-export const listFeesForEnrollment = async (enrollmentId: string): Promise<FeePaymentDoc[]> => {
-  const snapshot = await getDocs(query(collection(db, FEE_PAYMENTS_COLLECTION), where("enrollmentId", "==", enrollmentId)));
+/** Pass parentUserId on parent pages: the rules only let a parent list their own fees. */
+export const listFeesForEnrollment = async (enrollmentId: string, parentUserId?: string): Promise<FeePaymentDoc[]> => {
+  const filters = [where("enrollmentId", "==", enrollmentId)];
+  if (parentUserId) filters.push(where("parentUserId", "==", parentUserId));
+  const snapshot = await getDocs(query(collection(db, FEE_PAYMENTS_COLLECTION), ...filters));
   return sortFeesByMonthDesc(snapshot.docs.map((feeDoc) => normalizeFeePayment(feeDoc.id, feeDoc.data())));
 };
 
