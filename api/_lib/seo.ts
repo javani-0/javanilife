@@ -65,6 +65,16 @@ export const STATIC_PAGES: StaticSeoPage[] = [
     priority: 0.9,
   },
   {
+    path: "/learn",
+    title: "Online Dance & Music Video Courses | Javani Spiritual Hub",
+    description: "Learn Bharatanatyam, Kuchipudi and Carnatic music online with recorded video courses from Javani Spiritual Hub. Pay once and watch at your own pace, anywhere.",
+    h1: "Online Courses",
+    intro: "Recorded video courses from Javani Spiritual Hub. Pay once, then learn at your own pace on any device.",
+    crumb: "E-Learning",
+    changefreq: "weekly",
+    priority: 0.8,
+  },
+  {
     path: "/products",
     title: "Dance Costumes & Instruments Shop | Javani Spiritual Hub",
     description: "Shop classical dance costumes, instruments, books and practice materials curated by the Javani Spiritual Hub faculty for practice and performance.",
@@ -325,6 +335,52 @@ export const courseJsonLd = (input: { path: string; name: string; description?: 
   ...(input.image ? { image: ogImageUrl(input.image) } : {}),
   provider: { "@type": "EducationalOrganization", "@id": `${SITE_URL}/#organization`, name: SITE_NAME, url: `${SITE_URL}/` },
 });
+
+/** ISO 8601 duration ("PT3H20M") for schema.org courseWorkload. */
+export const isoDuration = (totalSec: number) => {
+  const minutes = Math.max(1, Math.round((Number.isFinite(totalSec) ? totalSec : 0) / 60));
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return `PT${h ? `${h}H` : ""}${m ? `${m}M` : ""}`;
+};
+
+export interface ElearnCourseForSeo {
+  path: string;
+  name: string;
+  description?: string;
+  image?: string;
+  priceInPaise: number;
+  totalDurationSec?: number;
+  language?: string;
+  level?: string;
+  instructorName?: string;
+}
+
+/** Recorded online course: Course + Offer + online CourseInstance. Never ratings/reviews. */
+export const elearnCourseJsonLd = (input: ElearnCourseForSeo): JsonLd => {
+  const base = courseJsonLd(input);
+  const price = Math.max(0, Math.round(input.priceInPaise || 0)) / 100;
+  return {
+    ...base,
+    description: toMetaDescription(input.description, 500) || `${input.name}: an online video course from ${SITE_NAME}.`,
+    ...(input.language ? { inLanguage: input.language } : {}),
+    ...(input.level ? { educationalLevel: input.level } : {}),
+    offers: {
+      "@type": "Offer",
+      category: price > 0 ? "Paid" : "Free",
+      price: price.toFixed(2),
+      priceCurrency: "INR",
+      url: canonicalUrl(input.path),
+      availability: "https://schema.org/InStock",
+    },
+    hasCourseInstance: {
+      "@type": "CourseInstance",
+      courseMode: "Online",
+      ...(input.totalDurationSec ? { courseWorkload: isoDuration(input.totalDurationSec) } : {}),
+      ...(input.instructorName ? { instructor: { "@type": "Person", name: input.instructorName } } : {}),
+    },
+  };
+};
 
 // ---------- HTML ----------
 

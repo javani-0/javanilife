@@ -105,8 +105,8 @@ export interface ElearnSubmitUpiRequest {
   courseId: string;
   /** From uploadPaymentProof(file): https on our Cloudinary cloud. */
   proofUrl: string;
-  /** Optional UTR / reference the buyer typed. */
-  upiRef?: string;
+  /** Required: the 12-digit UTR / UPI reference number (spaces/dashes allowed, the server strips them). */
+  upiRef: string;
 }
 
 export interface ElearnSubmitUpiResponse {

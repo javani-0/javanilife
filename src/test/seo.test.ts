@@ -58,7 +58,7 @@ describe("vercel.json routing", () => {
 
   it("routes the sitemap and detail pages to the existing share-page function", () => {
     expect(rewrites).toContainEqual({ source: "/sitemap.xml", destination: "/api/share-page?mode=sitemap" });
-    for (const [slug, type] of [["products", "product"], ["courses", "course"], ["classes", "class"]]) {
+    for (const [slug, type] of [["products", "product"], ["courses", "course"], ["classes", "class"], ["learn", "elearn"]]) {
       expect(rewrites).toContainEqual({ source: `/${slug}/:id`, destination: `/api/share-page?mode=page&type=${type}&id=:id` });
     }
     expect(vercel.trailingSlash).toBe(false);
@@ -189,6 +189,33 @@ describe("HTML rendering", () => {
     expect(html).toContain("Monthly fee: ₹1,500");
     expect(html).toContain("<title>Kuchipudi Grades Classes | Javani Spiritual Hub</title>");
   });
+
+  it("renders a published online course with Course + Offer + online instance, never ratings", () => {
+    const { status, html } = renderDetailPage(template, "elearn", "e1", {
+      title: "Bharatanatyam Basics", subtitle: "Adavus at home", status: "published", priceInPaise: 249900,
+      totalDurationSec: 12000, lessonCount: 24, level: "Beginner", language: "Telugu", instructorName: "Guru A",
+      coverImageUrl: "https://res.cloudinary.com/dxeyhsuyr/image/upload/v1/c.jpg", description: "Learn the first adavus.",
+    });
+    expect(status).toBe(200);
+    expect(html).toContain('<link rel="canonical" href="https://www.javanilife.com/learn/e1">');
+    expect(html).toContain("<title>Bharatanatyam Basics | Online Course | Javani Spiritual Hub</title>");
+    expect(html).toContain('"@type":"Course"');
+    expect(html).toContain('"offers":{"@type":"Offer","category":"Paid","price":"2499.00","priceCurrency":"INR"');
+    expect(html).toContain('"courseMode":"Online","courseWorkload":"PT3H20M"');
+    expect(html).toContain('"provider":{"@type":"EducationalOrganization"');
+    expect(html).toContain("24 lessons");
+    expect(html).not.toContain("aggregateRating");
+    expect(html).not.toContain('"review"');
+  });
+
+  it("hides draft online courses", () => {
+    for (const data of [null, { title: "x", status: "draft" }, { title: "y", status: "archived" }]) {
+      const { status, html } = renderDetailPage(template, "elearn", "e2", data);
+      expect(status).toBe(404);
+      expect(html).toContain('content="noindex, nofollow"');
+      expect(html).toContain('href="/learn"');
+    }
+  });
 });
 
 describe("sitemap", () => {
@@ -198,6 +225,8 @@ describe("sitemap", () => {
       { type: "class", id: "c2", data: { name: "B", active: false } },
       { type: "product", id: "p1", data: { name: "C" } },
       { type: "course", id: "k1", data: { title: "D", status: "inactive" } },
+      { type: "elearn", id: "e1", data: { title: "E", status: "published" } },
+      { type: "elearn", id: "e2", data: { title: "F", status: "draft" } },
     ]);
     expect(xml.startsWith('<?xml version="1.0" encoding="UTF-8"?>')).toBe(true);
     expect(xml).toContain("<loc>https://www.javanilife.com/</loc>");
@@ -206,6 +235,9 @@ describe("sitemap", () => {
     expect(xml).toContain("<loc>https://www.javanilife.com/products/p1</loc>");
     expect(xml).not.toContain("/classes/c2");
     expect(xml).not.toContain("/courses/k1");
+    expect(xml).toContain("<loc>https://www.javanilife.com/learn</loc>");
+    expect(xml).toContain("<loc>https://www.javanilife.com/learn/e1</loc>");
+    expect(xml).not.toContain("/learn/e2");
     expect(xml).not.toContain("/admin");
   });
 });

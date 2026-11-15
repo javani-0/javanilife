@@ -8,6 +8,7 @@ const footerLinks = [
   { label: "Home", path: "/" },
   { label: "About Us", path: "/about" },
   { label: "Courses", path: "/courses" },
+  { label: "E-Learning", path: "/learn" },
   { label: "Grading System", path: "/grading" },
   { label: "Gallery", path: "/gallery" },
   { label: "Products", path: "/products" },

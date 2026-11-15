@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { Link, NavLink } from "react-router-dom";
-import { ArrowLeft, Award, ClipboardList, GraduationCap, Ticket, Heart, LayoutDashboard, MapPin, PackageCheck, TrendingUp, UserRound, CalendarDays } from "lucide-react";
+import { ArrowLeft, Award, ClipboardList, GraduationCap, Ticket, Heart, LayoutDashboard, MapPin, PackageCheck, TrendingUp, UserRound, CalendarDays, PlayCircle } from "lucide-react";
 import { useStudentPortal } from "@/contexts/StudentPortalContext";
 import Footer from "@/components/Footer";
 import PageHero from "@/components/PageHero";
@@ -12,6 +12,7 @@ const shopLinks = [
   { label: "Orders", path: "/account/orders", Icon: PackageCheck },
   { label: "EMI Payments", path: "/account/emi", Icon: CalendarDays },
   { label: "Classes", path: "/account/classes", Icon: GraduationCap },
+  { label: "My Learning", path: "/account/learning", Icon: PlayCircle },
   { label: "Wishlist", path: "/account/wishlist", Icon: Heart },
   { label: "Addresses", path: "/account/addresses", Icon: MapPin },
 ];

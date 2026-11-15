@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { ChevronDown, GraduationCap, Heart, MapPin, Menu, PackageCheck, X, User, LogOut, ShoppingBag } from "lucide-react";
+import { ChevronDown, GraduationCap, Heart, MapPin, Menu, PackageCheck, PlayCircle, X, User, LogOut, ShoppingBag } from "lucide-react";
 import PrimaryButton from "./PrimaryButton";
 import { useAuth } from "@/contexts/AuthContext";
 import { useCart } from "@/contexts/cart-context";
@@ -13,6 +13,7 @@ const navLinks = [
   { label: "Home", path: "/" },
   { label: "Courses", path: "/courses" },
   { label: "Classes", path: "/classes" },
+  { label: "E-Learning", path: "/learn" },
   { label: "Vastra", path: "/products" },
   { label: "Contact", path: "/contact" },
 ];
@@ -28,6 +29,7 @@ const accountLinks = [
   { label: "My Profile", path: "/account/profile", Icon: User },
   { label: "My Orders", path: "/account/orders", Icon: PackageCheck },
   { label: "My Classes", path: "/account/classes", Icon: GraduationCap },
+  { label: "My Learning", path: "/account/learning", Icon: PlayCircle },
   { label: "Wishlist", path: "/account/wishlist", Icon: Heart },
   { label: "Addresses", path: "/account/addresses", Icon: MapPin },
 ];

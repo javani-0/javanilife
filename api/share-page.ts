@@ -131,15 +131,17 @@ const send = (response: HtmlApiResponse, status: number, contentType: string, bo
 
 const handleSitemap = async (response: HtmlApiResponse) => {
   const db = getFirebaseAdminDb();
-  const [products, courses, classes] = await Promise.all([
+  const [products, courses, classes, elearn] = await Promise.all([
     db.collection("products").select("active", "name").get(),
     db.collection("courses").select("status", "title").get(),
     db.collection("classes").where("active", "==", true).select("active", "name").get(),
+    db.collection(SEO_COLLECTIONS.elearn).where("status", "==", "published").select("status", "title").get(),
   ]);
   const docs: SitemapDoc[] = [
     ...products.docs.map((d) => ({ type: "product" as const, id: d.id, data: d.data(), updated: d.updateTime?.toDate() })),
     ...courses.docs.map((d) => ({ type: "course" as const, id: d.id, data: d.data(), updated: d.updateTime?.toDate() })),
     ...classes.docs.map((d) => ({ type: "class" as const, id: d.id, data: d.data(), updated: d.updateTime?.toDate() })),
+    ...elearn.docs.map((d) => ({ type: "elearn" as const, id: d.id, data: d.data(), updated: d.updateTime?.toDate() })),
   ];
   send(response, 200, "application/xml; charset=utf-8", renderSitemap(docs), "public, max-age=0, s-maxage=3600, stale-while-revalidate=86400");
 };

@@ -1,4 +1,4 @@
-// Pure helpers for server-rendered SEO HTML of /products/:id, /courses/:id, /classes/:id
+// Pure helpers for server-rendered SEO HTML of /products/:id, /courses/:id, /classes/:id, /learn/:id
 // and for /sitemap.xml. No Firebase imports, so they are unit-tested in src/test/seo.test.ts.
 import {
   SITE_NAME,
@@ -8,6 +8,7 @@ import {
   buildSitemapXml,
   courseJsonLd,
   crawlerBody,
+  elearnCourseJsonLd,
   escapeHtml,
   graph,
   productJsonLd,
@@ -16,19 +17,20 @@ import {
   type SitemapEntry,
 } from "./seo.js";
 
-export type SeoDetailType = "product" | "course" | "class";
+export type SeoDetailType = "product" | "course" | "class" | "elearn";
 export type SeoDoc = Record<string, unknown>;
 
-export const SEO_COLLECTIONS: Record<SeoDetailType, string> = { product: "products", course: "courses", class: "classes" };
-const SLUGS: Record<SeoDetailType, string> = { product: "products", course: "courses", class: "classes" };
+export const SEO_COLLECTIONS: Record<SeoDetailType, string> = { product: "products", course: "courses", class: "classes", elearn: "elearnCourses" };
+const SLUGS: Record<SeoDetailType, string> = { product: "products", course: "courses", class: "classes", elearn: "learn" };
 
-export const isSeoDetailType = (value: string): value is SeoDetailType => value === "product" || value === "course" || value === "class";
+export const isSeoDetailType = (value: string): value is SeoDetailType => value === "product" || value === "course" || value === "class" || value === "elearn";
 
 /** Same visibility rules the website uses when listing items. */
 export const isPublicDoc = (type: SeoDetailType, data: SeoDoc | undefined | null) => {
   if (!data) return false;
   if (type === "product") return data.active !== false && !!data.name;
   if (type === "course") return data.status !== "inactive" && !!data.title;
+  if (type === "elearn") return data.status === "published" && !!data.title;
   return data.active === true && !!data.name;
 };
 
@@ -51,14 +53,15 @@ export const renderDetailPage = (template: string, type: SeoDetailType, id: stri
   if (!isPublicDoc(type, data)) {
     const head = buildHeadTags({ title: `Not found | ${SITE_NAME}`, description: "This page is not available.", path, noindex: true });
     const listing = `/${SLUGS[type]}`;
-    const body = crawlerBody({ h1: "Not found", paragraphs: ["This page may have been removed or is no longer available."], extraHtml: `<p><a href="${listing}">See all ${SLUGS[type]}</a></p>` });
+    const listingLabel = type === "elearn" ? "online courses" : SLUGS[type];
+    const body = crawlerBody({ h1: "Not found", paragraphs: ["This page may have been removed or is no longer available."], extraHtml: `<p><a href="${listing}">See all ${listingLabel}</a></p>` });
     return { status: 404, html: renderIntoTemplate(template, head, body) };
   }
 
   const doc = data as SeoDoc;
   const images = imagesOf(doc);
   const longText = str(doc.description) || str(doc.shortDescription);
-  const listingName = type === "product" ? "Products" : type === "course" ? "Courses" : "Classes";
+  const listingName = type === "product" ? "Products" : type === "course" ? "Courses" : type === "elearn" ? "E-Learning" : "Classes";
   const listingPath = `/${SLUGS[type]}`;
 
   if (type === "product") {
@@ -76,6 +79,39 @@ export const renderDetailPage = (template: string, type: SeoDetailType, id: stri
       crumbs: [{ name: listingName, path: listingPath }, { name, path }],
       image: images[0] ? { src: images[0], alt: name } : undefined,
       paragraphs: [priceText ? `Price: ${priceText}` : "", longText],
+    });
+    return { status: 200, html: renderIntoTemplate(template, head, body) };
+  }
+
+  if (type === "elearn") {
+    const name = str(doc.title);
+    const image = str(doc.coverImageUrl) || undefined;
+    const price = typeof doc.priceInPaise === "number" && Number.isFinite(doc.priceInPaise) ? Math.max(0, doc.priceInPaise) : 0;
+    const totalSec = typeof doc.totalDurationSec === "number" && doc.totalDurationSec > 0 ? doc.totalDurationSec : undefined;
+    const lessons = typeof doc.lessonCount === "number" && doc.lessonCount > 0 ? doc.lessonCount : 0;
+    const fallback = `${name}: an online video course from ${SITE_NAME}. Pay once and learn at your own pace.`;
+    const description = toMetaDescription(str(doc.subtitle) || longText || fallback);
+    const instructor = str(doc.instructorName);
+    const facts = [
+      lessons ? `${lessons} ${lessons === 1 ? "lesson" : "lessons"}` : "",
+      str(doc.level),
+      str(doc.language),
+      instructor ? `Instructor: ${instructor}` : "",
+      price ? `Price: ${rupees(price)}` : "",
+    ].filter(Boolean).join(" · ");
+    const jsonLd = graph(
+      elearnCourseJsonLd({
+        path, name, description: longText || str(doc.subtitle), image, priceInPaise: price, totalDurationSec: totalSec,
+        language: str(doc.language) || undefined, level: str(doc.level) || undefined, instructorName: instructor || undefined,
+      }),
+      breadcrumbJsonLd([{ name: listingName, path: listingPath }, { name, path }]),
+    );
+    const head = buildHeadTags({ title: `${name} | Online Course | ${SITE_NAME}`, description, path, image, imageAlt: name, jsonLd });
+    const body = crawlerBody({
+      h1: name,
+      crumbs: [{ name: listingName, path: listingPath }, { name, path }],
+      image: image ? { src: image, alt: name } : undefined,
+      paragraphs: [str(doc.subtitle), facts, longText || fallback],
     });
     return { status: 200, html: renderIntoTemplate(template, head, body) };
   }

@@ -102,6 +102,10 @@
       "destination": "/api/share-page?mode=page&type=class&id=:id"
     },
     {
+      "source": "/learn/:id",
+      "destination": "/api/share-page?mode=page&type=elearn&id=:id"
+    },
+    {
       "source": "/about",
       "destination": "/_seo/about.html"
     },
@@ -112,6 +116,10 @@
     {
       "source": "/classes",
       "destination": "/_seo/classes.html"
+    },
+    {
+      "source": "/learn",
+      "destination": "/_seo/learn.html"
     },
     {
       "source": "/products",
