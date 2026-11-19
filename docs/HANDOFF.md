@@ -2,7 +2,7 @@
 
 Javani Spiritual Hub (www.javanilife.com): a classical dance/music academy + shop. React 18 + Vite SPA, Firebase, Vercel (project `javanilife`), Razorpay.
 
-Last updated: 2026-11-19 (client voice changes LIVE: cd17834; admin test record cleared, laptop shows Buy now with Razorpay + QR)
+Last updated: 2026-11-19 (voice changes LIVE; course link now /learn/anantha-thillana-kuchipudi, VANITHA re-granted lifetime; client to add lesson durations)
 
 ## State
 
@@ -26,12 +26,11 @@ Last updated: 2026-11-19 (client voice changes LIVE: cd17834; admin test record 
 
 | # | Step | Effort |
 |---|---|---|
-| 0 | Course link is still `/learn/test-2-e-learning-qa`. "Update link" is blocked because the client's own account VANITHA (vanithaharibabu67@gmail.com) has a free lifetime grant on it. With the user's OK: Revoke that grant → Allow to buy again → Update link → Grant VANITHA lifetime again. Done already: admin's revoked test record cleared, admin sees Buy now + Razorpay/QR choice. Tell the client to add lesson durations. | Low |
 | 1 | **QR buy flow tested end to end 2026-11-16 night: PASS.** New draft course "TEST 2 E-Learning QA" (₹1, Razorpay + QR): published → admin bought via QR (test screenshot, test UTR 888822223333, no money moved) → "Under review" in My Learning → Approved in admin (revenue ₹1, 1 active) → My Learning "Start" → watch page plays the Vimeo lesson → revoked + back to draft. Still left for the client: one REAL UPI payment on their phone when the first real course is live (only the real money part is untested) and a Razorpay online buy. Both TEST courses can be deleted once real courses exist. | Medium |
 | 2 | Any later rules change: publish via the Firebase console in the javani Chrome (paste `firestore.rules`), run the emulator tests first | Low |
 | 3 | SEO day 3/7/14/30 checks (report file) | Low |
 
-**Message for the next chat:** `Read javanilife/docs/HANDOFF.md and do Next step 0 (update the course link) if the user has OK'd re-granting VANITHA.`
+**Message for the next chat:** `Read javanilife/docs/HANDOFF.md and do Next step 3 (SEO checks) when due.`
 
 - 2026-11-16 night: `useContactInfo` fallback whatsappNumber set to the live number 919030200263 (was placeholder 919876543210).
 
