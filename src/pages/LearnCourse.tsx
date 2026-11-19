@@ -1,6 +1,6 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
-import { AlertCircle, ArrowLeft, Check, Clock, Globe2, Hourglass, Infinity as InfinityIcon, Layers, Loader2, PlayCircle, ShieldCheck, UserRound } from "lucide-react";
+import { AlertCircle, ArrowLeft, Check, Clock, Globe2, Hourglass, Infinity as InfinityIcon, Layers, Link2, Loader2, MessageCircle, PlayCircle, Share2, ShieldCheck, UserRound } from "lucide-react";
 import Footer from "@/components/Footer";
 import SEO from "@/components/SEO";
 import { breadcrumbJsonLd, elearnCourseJsonLd, graph } from "../../api/_lib/seo";
@@ -12,7 +12,8 @@ import BuyCourseDialog, { usePayOnline } from "@/components/elearning/BuyCourseD
 import CurriculumAccordion from "@/components/elearning/CurriculumAccordion";
 import VideoModal from "@/components/elearning/VideoModal";
 import { useCourse, useMyCourseAccess, usePaymentSettingsLive } from "@/components/elearning/useElearn";
-import { GOLD_TEXT, LEVEL_LABELS, REVOKED_MESSAGE, accessLabel, accessStateOf, canBuy, formatDate, lessonsLabel, type AccessState } from "@/components/elearning/format";
+import { GOLD_TEXT, LEVEL_LABELS, REVOKED_MESSAGE, accessLabel, accessStateOf, canBuy, formatDate, isMobileDevice, lessonsLabel, type AccessState } from "@/components/elearning/format";
+import { useToast } from "@/hooks/use-toast";
 
 const LearnCourse = () => {
   const { courseId } = useParams<{ courseId: string }>();
@@ -132,22 +133,25 @@ const LearnCourse = () => {
 
               <ul className="mt-6 flex flex-wrap gap-x-5 gap-y-2.5 font-body text-[0.85rem] text-ivory/85">
                 <Meta icon={<PlayCircle className="h-4 w-4" />}>{lessonsLabel(course.lessonCount)}</Meta>
-                <Meta icon={<Clock className="h-4 w-4" />}>{formatTotalDuration(course.totalDurationSec)} total</Meta>
+                {course.totalDurationSec > 0 && <Meta icon={<Clock className="h-4 w-4" />}>{formatTotalDuration(course.totalDurationSec)} total</Meta>}
                 <Meta icon={<Layers className="h-4 w-4" />}>{LEVEL_LABELS[course.level]}</Meta>
                 {course.language && <Meta icon={<Globe2 className="h-4 w-4" />}>{course.language}</Meta>}
                 <Meta icon={course.accessDays > 0 ? <Hourglass className="h-4 w-4" /> : <InfinityIcon className="h-4 w-4" />}>{accessLabel(course)}</Meta>
                 {course.instructorName && <Meta icon={<UserRound className="h-4 w-4" />}>{course.instructorName}</Meta>}
               </ul>
 
-              {course.trailerVimeoUrl && (
-                <button
-                  type="button"
-                  onClick={() => setVideo({ title: course.title, url: course.trailerVimeoUrl, subtitle: "Course trailer" })}
-                  className="mt-7 hidden min-h-11 items-center gap-2 rounded-full border border-ivory/30 px-5 font-body text-sm font-semibold text-ivory transition-colors hover:border-gold hover:text-[hsl(40_80%_78%)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold active:scale-[0.97] lg:inline-flex"
-                >
-                  <PlayCircle className="h-5 w-5" aria-hidden="true" /> Play trailer
-                </button>
-              )}
+              <div className="mt-7 flex flex-wrap items-center gap-3">
+                {course.trailerVimeoUrl && (
+                  <button
+                    type="button"
+                    onClick={() => setVideo({ title: course.title, url: course.trailerVimeoUrl, subtitle: "Course trailer" })}
+                    className="hidden min-h-11 items-center gap-2 rounded-full border border-ivory/30 px-5 font-body text-sm font-semibold text-ivory transition-colors hover:border-gold hover:text-[hsl(40_80%_78%)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold active:scale-[0.97] lg:inline-flex"
+                  >
+                    <PlayCircle className="h-5 w-5" aria-hidden="true" /> Play trailer
+                  </button>
+                )}
+                <ShareButtons title={course.title} subtitle={course.subtitle} path={path} />
+              </div>
             </div>
           </div>
         </section>
@@ -167,7 +171,7 @@ const LearnCourse = () => {
               </Section>
             )}
 
-            <Section title="Course content" aside={`${course.sections.length} ${course.sections.length === 1 ? "section" : "sections"} · ${lessonsLabel(course.lessonCount)} · ${formatTotalDuration(course.totalDurationSec)}`}>
+            <Section title="Course content" aside={`${course.sections.length} ${course.sections.length === 1 ? "section" : "sections"} · ${lessonsLabel(course.lessonCount)}${course.totalDurationSec > 0 ? ` · ${formatTotalDuration(course.totalDurationSec)}` : ""}`}>
               <CurriculumAccordion sections={course.sections} unlocked={state === "active"} completedIds={new Set(access.progress?.completedLessonIds ?? [])} onPreview={openPreview} />
             </Section>
 
@@ -236,6 +240,49 @@ const LearnCourse = () => {
 };
 
 // ── Pieces ────────────────────────────────────────────────────────────────
+
+const shareBtn =
+  "inline-flex min-h-11 items-center gap-2 rounded-full border px-5 font-body text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold active:scale-[0.97]";
+
+/** Share the course link: straight to WhatsApp, plus the phone's share sheet (or copy link on a computer). */
+const ShareButtons = ({ title, subtitle, path }: { title: string; subtitle?: string; path: string }) => {
+  const { toast } = useToast();
+  const url = `${window.location.origin}${path}`;
+  const text = `${title}${subtitle ? ` (${subtitle})` : ""}
+Online course by Javani Spiritual Hub:
+${url}`;
+  const native = isMobileDevice() && typeof navigator.share === "function";
+
+  const shareOrCopy = async () => {
+    if (native) {
+      try { await navigator.share({ title, text: `${title}
+Online course by Javani Spiritual Hub`, url }); } catch { /* closed the sheet */ }
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(url);
+      toast({ title: "Link copied", description: "Paste it anywhere to share this course." });
+    } catch {
+      toast({ title: "Couldn't copy", description: url });
+    }
+  };
+
+  return (
+    <>
+      <a
+        href={`https://wa.me/?text=${encodeURIComponent(text)}`}
+        target="_blank"
+        rel="noopener noreferrer"
+        className={`${shareBtn} border-[#25D366]/60 bg-[#25D366]/15 text-ivory hover:bg-[#25D366]/25`}
+      >
+        <MessageCircle className="h-4 w-4 text-[#25D366]" aria-hidden="true" /> Share on WhatsApp
+      </a>
+      <button type="button" onClick={() => void shareOrCopy()} className={`${shareBtn} border-ivory/30 text-ivory hover:border-gold hover:text-[hsl(40_80%_78%)]`}>
+        {native ? <Share2 className="h-4 w-4" aria-hidden="true" /> : <Link2 className="h-4 w-4" aria-hidden="true" />} {native ? "Share" : "Copy link"}
+      </button>
+    </>
+  );
+};
 
 const Meta = ({ icon, children }: { icon: ReactNode; children: ReactNode }) => (
   <li className="inline-flex items-center gap-1.5"><span className="text-[hsl(40_80%_78%)]" aria-hidden="true">{icon}</span>{children}</li>

@@ -124,13 +124,15 @@ export type ElearnReviewRequest =
   | { op: "approve"; enrollmentId: string }
   | { op: "reject"; enrollmentId: string; reason?: string }
   | { op: "revoke"; enrollmentId: string; reason?: string }
+  /** Delete a revoked / rejected record so that account can buy again. */
+  | { op: "reopen"; enrollmentId: string }
   /** Give free access: by `email` (looked up in Firebase Auth) or `uid`. */
   | { op: "grant"; courseId: string; email?: string; uid?: string; accessDays?: number };
 
 export interface ElearnReviewResponse {
   ok: true;
   enrollmentId: string;
-  status: "active" | "rejected" | "revoked";
+  status: "active" | "rejected" | "revoked" | "reopened";
   alreadyActive?: boolean;
 }
 

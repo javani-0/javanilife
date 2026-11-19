@@ -2,7 +2,7 @@
 
 Javani Spiritual Hub (www.javanilife.com): a classical dance/music academy + shop. React 18 + Vite SPA, Firebase, Vercel (project `javanilife`), Razorpay.
 
-Last updated: 2026-11-16 night (full QR buy test PASS on TEST 2 course; WhatsApp fallback fixed)
+Last updated: 2026-11-19 (client voice changes: share buttons, WhatsApp link, reopen + update-link admin tools; NOT deployed yet)
 
 ## State
 
@@ -20,15 +20,18 @@ Last updated: 2026-11-16 night (full QR buy test PASS on TEST 2 course; WhatsApp
 - **SEO is LIVE** (2026-11-06). `/learn` + course pages are in the sitemap/prerender once deployed. Details in `docs/seo/SEO-2026-11-06.md`.
 - Checks 2026-11-15: api tsc clean; app tsc only the 7 old errors (CategoryManager, categories.ts); tests 624/629 (5 old failures: course-installments, delivery-flow-ui); build OK.
 
+- **Client voice changes 2026-11-19 (committed locally, not pushed):** the client renamed TEST 2 into the real course "Anantha Thillana - kuchipudi" (doc id still `test-2-e-learning-qa`). Laptop showed "Contact us" because the admin account's test enrollment there is REVOKED (phone, other account, shows Buy now). Added: course page "Share on WhatsApp" + "Copy link/Share"; the floating WhatsApp message names the course and carries its link; "0m total" hidden when lesson durations are empty; admin Purchases "Allow to buy again" (server op `reopen` deletes a revoked/rejected record); course editor "Update link to /learn/<title-slug>" (`changeCourseLink`, refused while any non-rejected/revoked enrollment exists).
+
 ## Next steps (in order)
 
 | # | Step | Effort |
 |---|---|---|
+| 0 | **Deploy the 2026-11-19 changes (needs the user's OK)**, then in the javani Chrome admin: Purchases → "Allow to buy again" on the admin's revoked record for Anantha Thillana; course editor → "Update link" (→ `/learn/anantha-thillana-kuchipudi`); check the laptop shows Buy now with Razorpay + QR. Tell the client: add lesson durations so the total shows. | Low |
 | 1 | **QR buy flow tested end to end 2026-11-16 night: PASS.** New draft course "TEST 2 E-Learning QA" (₹1, Razorpay + QR): published → admin bought via QR (test screenshot, test UTR 888822223333, no money moved) → "Under review" in My Learning → Approved in admin (revenue ₹1, 1 active) → My Learning "Start" → watch page plays the Vimeo lesson → revoked + back to draft. Still left for the client: one REAL UPI payment on their phone when the first real course is live (only the real money part is untested) and a Razorpay online buy. Both TEST courses can be deleted once real courses exist. | Medium |
 | 2 | Any later rules change: publish via the Firebase console in the javani Chrome (paste `firestore.rules`), run the emulator tests first | Low |
 | 3 | SEO day 3/7/14/30 checks (report file) | Low |
 
-**Message for the next chat:** `Read javanilife/docs/HANDOFF.md and do Next step 1 (first real course buy test) once the client has published a real course.`
+**Message for the next chat:** `Read javanilife/docs/HANDOFF.md and do Next step 0 (deploy + clear the revoked record + update the course link).`
 
 - 2026-11-16 night: `useContactInfo` fallback whatsappNumber set to the live number 919030200263 (was placeholder 919876543210).
 

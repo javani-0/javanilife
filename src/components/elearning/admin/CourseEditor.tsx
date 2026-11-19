@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   AlertTriangle, ArrowLeft, BadgeIndianRupee, CheckCircle2, ExternalLink, Loader2,
-  QrCode, Send, ShieldCheck, Smartphone, Save, EyeOff, CircleAlert,
+  Link2, QrCode, Send, ShieldCheck, Smartphone, Save, EyeOff, CircleAlert,
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -15,6 +15,7 @@ import { formatPaiseAsRupees, parsePriceToPaise } from "@/lib/ecommerce/pricing"
 import type { PaymentSettings } from "@/lib/settings/paymentSettings";
 import {
   availablePaymentModes,
+  changeCourseLink,
   formatTotalDuration,
   getCourseContent,
   parseVimeoUrl,
@@ -100,6 +101,7 @@ const CourseEditor = ({
   const [problems, setProblems] = useState<{ kind: "save" | "publish"; items: string[] } | null>(null);
   const [attempted, setAttempted] = useState(false);
   const [uploads, setUploads] = useState(0);
+  const [relinking, setRelinking] = useState(false);
   const problemsRef = useRef<HTMLDivElement>(null);
 
   const dirty = loadState === "ready" && !sameDraft(draft, baseline);
@@ -225,12 +227,36 @@ const CourseEditor = ({
     void save("draft");
   };
 
+  // Move the course to a link made from its current title (e.g. after a rename).
+  const updateLink = async () => {
+    if (!courseId) return;
+    const next = slugify(draft.title);
+    if (!(await confirmDialog({
+      title: "Change the course link?",
+      description: `The link becomes ${SITE_HOST}/learn/${next}. Links shared earlier will stop working. This is only allowed while nobody has bought the course.`,
+      confirmText: "Change link",
+    }))) return;
+    setRelinking(true);
+    try {
+      const id = await changeCourseLink(courseId, draft.title);
+      setCourseId(id);
+      toast({ title: "Course link updated", description: `${SITE_HOST}/learn/${id}` });
+    } catch (error) {
+      console.error("Course link change failed", error);
+      toast({ title: "Could not change the link", description: error instanceof Error ? error.message : "Please try again.", variant: "destructive" });
+    } finally {
+      setRelinking(false);
+    }
+  };
+
   const leave = async () => {
     if (dirty && !(await confirmDialog(LEAVE_CONFIRM))) return;
     onClose();
   };
 
-  const busy = saving !== null || uploads > 0;
+  const busy = saving !== null || uploads > 0 || relinking;
+  const titleSlug = slugify(draft.title);
+  const canRelink = Boolean(courseId && titleSlug && titleSlug !== courseId && !courseId.startsWith(`${titleSlug}-`) && !dirty);
   const isPublished = baseline.status === "published";
   const slugPreview = courseId || slugify(draft.title);
 
@@ -328,7 +354,18 @@ const CourseEditor = ({
             <div className="grid gap-4 sm:grid-cols-2">
               <Field label="Course title" required className="sm:col-span-2"
                 hint={courseId
-                  ? <>Course link: <span className="font-medium text-foreground">{SITE_HOST}/learn/{courseId}</span> (fixed, it never changes).</>
+                  ? <>
+                      Course link: <span className="break-all font-medium text-foreground">{SITE_HOST}/learn/{courseId}</span>
+                      {canRelink ? (
+                        <>
+                          {" "}It doesn't match the title.{" "}
+                          <button type="button" onClick={() => void updateLink()} disabled={busy} className="inline-flex items-center gap-1 rounded font-semibold text-primary underline underline-offset-2 hover:text-primary/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold disabled:opacity-60">
+                            {relinking ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : <Link2 className="h-3.5 w-3.5" aria-hidden="true" />}
+                            Update link to /learn/{titleSlug}
+                          </button>
+                        </>
+                      ) : dirty && courseId && titleSlug !== courseId ? " (save first to update the link)." : "."}
+                    </>
                   : draft.title.trim() ? <>The link will be <span className="font-medium text-foreground">{SITE_HOST}/learn/{slugPreview}</span>. It is fixed after the first save.</> : "The course link is made from the title on the first save."}
                 error={attempted && !draft.title.trim() ? "Add a course title." : null}
               >

@@ -9,6 +9,7 @@ import {
   serverTimestamp,
   setDoc,
   where,
+  writeBatch,
   type Unsubscribe,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
@@ -16,6 +17,7 @@ import {
   courseTotals,
   ELEARN_CONTENT,
   ELEARN_COURSES,
+  ELEARN_ENROLLMENTS,
   normalizeContent,
   normalizeCourse,
   normalizeSections,
@@ -174,4 +176,42 @@ export const getCourseContent = async (courseId: string): Promise<ElearnCourseCo
 export const saveCourseContent = async (courseId: string, content: ElearnCourseContent): Promise<void> => {
   const clean = normalizeContent(content as unknown as Record<string, unknown>);
   await setDoc(doc(db, ELEARN_CONTENT, courseId), { lessons: clean.lessons, updatedAt: serverTimestamp() });
+};
+
+/**
+ * Staff: move a course to a new link made from its current title (e.g. after a
+ * rename). Copies the course + private content to the new id and deletes the
+ * old docs in one batch. Refused while anyone has (or is buying) access, because
+ * enrollments and progress are keyed by the course id. Returns the new id.
+ */
+export const changeCourseLink = async (courseId: string, title: string): Promise<string> => {
+  const base = slugify(title);
+  if (!base || base === courseId) return courseId;
+  const enrollments = await getDocs(query(collection(db, ELEARN_ENROLLMENTS), where("courseId", "==", courseId)));
+  const live = enrollments.docs.filter((item) => !["rejected", "revoked"].includes(String(item.data().status)));
+  if (live.length > 0) {
+    throw new Error(`${live.length} student record(s) use this link, so it can't change now.`);
+  }
+  const [courseSnap, contentSnap] = await Promise.all([
+    getDoc(doc(db, ELEARN_COURSES, courseId)),
+    getDoc(doc(db, ELEARN_CONTENT, courseId)),
+  ]);
+  if (!courseSnap.exists()) throw new Error("Course not found.");
+  const taken = new Set<string>();
+  let id = base;
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    id = pickFreeSlug(base, taken);
+    if (id === courseId) break;
+    const existing = await getDoc(doc(db, ELEARN_COURSES, id));
+    if (!existing.exists()) break;
+    taken.add(id);
+  }
+  if (id === courseId) return courseId;
+  const batch = writeBatch(db);
+  batch.set(doc(db, ELEARN_COURSES, id), { ...courseSnap.data(), updatedAt: serverTimestamp() });
+  if (contentSnap.exists()) batch.set(doc(db, ELEARN_CONTENT, id), contentSnap.data());
+  batch.delete(doc(db, ELEARN_CONTENT, courseId));
+  batch.delete(doc(db, ELEARN_COURSES, courseId));
+  await batch.commit();
+  return id;
 };

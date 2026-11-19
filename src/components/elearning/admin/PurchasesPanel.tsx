@@ -133,6 +133,7 @@ const PurchasesPanel = ({
   const [zoom, setZoom] = useState<ElearnEnrollment | null>(null);
   const [rejecting, setRejecting] = useState<ElearnEnrollment | null>(null);
   const [revoking, setRevoking] = useState<ElearnEnrollment | null>(null);
+  const [reopening, setReopening] = useState<ElearnEnrollment | null>(null);
   const [reason, setReason] = useState("");
   const [granting, setGranting] = useState(false);
 
@@ -155,7 +156,7 @@ const PurchasesPanel = ({
   }, [scoped, filter]);
   const courseTitle = (item: ElearnEnrollment) => courses.find((course) => course.id === item.courseId)?.title || item.courseTitle || item.courseId;
 
-  const run = async (item: ElearnEnrollment, op: "approve" | "reject" | "revoke", why?: string) => {
+  const run = async (item: ElearnEnrollment, op: "approve" | "reject" | "revoke" | "reopen", why?: string) => {
     if (!user) {
       toast({ title: "You are signed out", description: "Sign in again and retry.", variant: "destructive" });
       return false;
@@ -163,9 +164,9 @@ const PurchasesPanel = ({
     setBusyId(item.id);
     try {
       const token = await user.getIdToken();
-      await reviewElearnEnrollment(token, op === "approve" ? { op, enrollmentId: item.id } : { op, enrollmentId: item.id, reason: why });
+      await reviewElearnEnrollment(token, op === "approve" || op === "reopen" ? { op, enrollmentId: item.id } : { op, enrollmentId: item.id, reason: why });
       toast({
-        title: op === "approve" ? "Approved: access unlocked" : op === "reject" ? "Payment rejected" : "Access revoked",
+        title: op === "approve" ? "Approved: access unlocked" : op === "reject" ? "Payment rejected" : op === "reopen" ? "Cleared: they can buy again" : "Access revoked",
         description: `${item.userName || item.userEmail} · ${courseTitle(item)}`,
       });
       return true;
@@ -184,6 +185,11 @@ const PurchasesPanel = ({
   const submitRevoke = async () => {
     if (!revoking || !reason.trim()) return;
     if (await run(revoking, "revoke", reason.trim())) setRevoking(null);
+  };
+
+  const submitReopen = async () => {
+    if (!reopening) return;
+    if (await run(reopening, "reopen")) setReopening(null);
   };
 
   if (state === "error") {
@@ -356,6 +362,11 @@ const PurchasesPanel = ({
                       {busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Ban className="h-4 w-4" aria-hidden="true" />} Revoke
                     </button>
                   )}
+                  {(item.status === "revoked" || item.status === "rejected") && (
+                    <button type="button" onClick={() => setReopening(item)} disabled={busy} className={cn(secondaryButton, "shrink-0 py-2")}>
+                      {busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <RotateCcw className="h-4 w-4" aria-hidden="true" />} Allow to buy again
+                    </button>
+                  )}
                   {item.upiProofUrl && item.status !== "active" && (
                     <button type="button" onClick={() => setZoom(item)} className={cn(secondaryButton, "shrink-0 py-2")}>
                       <ZoomIn className="h-4 w-4" aria-hidden="true" /> Screenshot
@@ -437,6 +448,24 @@ const PurchasesPanel = ({
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               {busyId !== null && <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />} Revoke access
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Allow to buy again */}
+      <AlertDialog open={reopening !== null} onOpenChange={(open) => { if (!open && busyId === null) setReopening(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="font-display text-2xl">Allow to buy again?</AlertDialogTitle>
+            <AlertDialogDescription className="font-body">
+              {reopening ? `This clears the ${reopening.status} record of ${reopening.userName || reopening.userEmail} for "${courseTitle(reopening)}", so they see "Buy now" again. Their old UTR and screenshot stay blocked. Settle any refund first.` : ""}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={busyId !== null}>Cancel</AlertDialogCancel>
+            <AlertDialogAction disabled={busyId !== null} onClick={(event) => { event.preventDefault(); void submitReopen(); }}>
+              {busyId !== null && <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />} Allow to buy again
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

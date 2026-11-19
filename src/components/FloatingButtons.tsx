@@ -2,6 +2,20 @@ import { useState, useEffect } from "react";
 import { ArrowUp, MessageCircle } from "lucide-react";
 import { useContactInfo } from "@/hooks/useContactInfo";
 
+const SITE_SUFFIX = /\s*\|.*$/; // "Course | Online Course | Javani Spiritual Hub" -> "Course"
+
+/** The chat message names the page the visitor is on and carries its link. */
+export const whatsappEnquiryText = (pathname: string, pageTitle: string, origin: string) => {
+  const greeting = "Hi Javani Spiritual Hub,";
+  if (pathname === "/" || pathname === "") return `${greeting} I'd like to know more about your courses.`;
+  const name = pageTitle.replace(SITE_SUFFIX, "").trim();
+  const url = `${origin}${pathname}`;
+  if (pathname.startsWith("/learn/") && name) return `${greeting} I'd like to know more about the course "${name}".
+${url}`;
+  return `${greeting} I'd like to know more${name ? ` about "${name}"` : ""}.
+${url}`;
+};
+
 const FloatingButtons = () => {
   const [showBackToTop, setShowBackToTop] = useState(false);
   const [showWhatsApp, setShowWhatsApp] = useState(false);
@@ -45,7 +59,11 @@ const FloatingButtons = () => {
         </div>
 
         <a
-          href={`https://wa.me/${whatsappNumber}?text=Hi%20Javani%20Spiritual%20Hub%2C%20I%27d%20like%20to%20know%20more%20about%20your%20courses.`}
+          href={`https://wa.me/${whatsappNumber}?text=${encodeURIComponent(whatsappEnquiryText("/", "", ""))}`}
+          // Built at click time so it names the page the visitor is on now (the title is set after render).
+          onClick={(event) => {
+            event.currentTarget.href = `https://wa.me/${whatsappNumber}?text=${encodeURIComponent(whatsappEnquiryText(window.location.pathname, document.title, window.location.origin))}`;
+          }}
           target="_blank"
           rel="noopener noreferrer"
           className="w-[60px] h-[60px] rounded-full bg-[#25D366] flex items-center justify-center shadow-lg hover:scale-110 hover:shadow-[0_8px_24px_rgba(37,211,102,0.4)] transition-all duration-300"

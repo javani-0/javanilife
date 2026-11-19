@@ -282,6 +282,21 @@ const review = async (db: Firestore, staffUid: string, body: Record<string, unkn
     return { ok: true as const, enrollmentId, status: next as "rejected" | "revoked" };
   }
 
+  // Clear a revoked / rejected record so that account can buy the course again
+  // (a revoked record otherwise blocks every new purchase). Used UTRs and proofs
+  // stay blocked: they live in their own collections.
+  if (op === "reopen") {
+    await db.runTransaction(async (tx) => {
+      const data = (await tx.get(ref)).data();
+      if (!data) throw new ElearnError(404, "Enrollment not found.");
+      if (data.status !== "revoked" && data.status !== "rejected") {
+        throw new ElearnError(409, "Only a revoked or rejected record can be cleared.");
+      }
+      tx.delete(ref);
+    });
+    return { ok: true as const, enrollmentId, status: "reopened" as const };
+  }
+
   throw new ElearnError(400, "Unknown review action.");
 };
 
