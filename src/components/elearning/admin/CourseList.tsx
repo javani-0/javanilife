@@ -20,9 +20,9 @@ import { StatusPill, primaryButton, secondaryButton } from "./ui";
 import { cn } from "@/lib/utils";
 
 const STEPS = [
-  { icon: UploadCloud, title: "Upload videos to Vimeo", body: "Upload each lesson to your Vimeo account and copy its link." },
+  { icon: UploadCloud, title: "Upload videos to Vimeo or YouTube", body: "Upload each lesson to Vimeo (best) or YouTube as Unlisted, and copy its link." },
   { icon: BookOpen, title: "Create the course", body: "Add the title, cover, price and how students can pay." },
-  { icon: Video, title: "Add lessons", body: "Paste each Vimeo link into the curriculum, then publish." },
+  { icon: Video, title: "Add lessons", body: "Paste each video link into the curriculum, then publish." },
 ];
 
 const CourseList = ({

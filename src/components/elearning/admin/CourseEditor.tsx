@@ -18,11 +18,11 @@ import {
   changeCourseLink,
   formatTotalDuration,
   getCourseContent,
-  parseVimeoUrl,
+  isVideoUrl,
   saveCourse,
   saveCourseContent,
   slugify,
-  vimeoEmbedUrlFromLink,
+  videoEmbedUrlFromLink,
   type ElearnCourse,
   type ElearnCourseStatus,
   type ElearnLevel,
@@ -143,8 +143,8 @@ const CourseEditor = ({
     : compareAtInPaise > 0 && priceInPaise !== null && compareAtInPaise <= priceInPaise ? "The MRP must be higher than the price." : null;
   const accessDaysError = draft.accessDays.trim() && !/^\d+$/.test(draft.accessDays.trim()) ? "Use a whole number of days (0 = lifetime)." : null;
   const trailerLink = draft.trailerVimeoUrl.trim();
-  const trailerError = trailerLink && !parseVimeoUrl(trailerLink) ? "This is not a Vimeo link." : null;
-  const trailerEmbed = trailerLink && !trailerError ? vimeoEmbedUrlFromLink(trailerLink) : null;
+  const trailerError = trailerLink && !isVideoUrl(trailerLink) ? "This is not a Vimeo or YouTube link." : null;
+  const trailerEmbed = trailerLink && !trailerError ? videoEmbedUrlFromLink(trailerLink) : null;
   const upiReady = paymentSettings
     ? availablePaymentModes({ priceInPaise: 1, paymentModes: { razorpay: false, upi: true } }, paymentSettings).upi
     : true;
@@ -417,10 +417,10 @@ const CourseEditor = ({
                   onBusyChange={(isBusy) => setUploads((count) => Math.max(0, count + (isBusy ? 1 : -1)))}
                 />
               </div>
-              <Field label="Trailer video (Vimeo link, optional)" className="sm:col-span-2" error={trailerError}
+              <Field label="Trailer video (Vimeo or YouTube link, optional)" className="sm:col-span-2" error={trailerError}
                 hint="A short free intro video. Anyone can watch it on the course page.">
                 {({ id, describedBy, invalid }) => (
-                  <input id={id} aria-describedby={describedBy} aria-invalid={invalid} value={draft.trailerVimeoUrl} onChange={(event) => set("trailerVimeoUrl", event.target.value)} inputMode="url" placeholder="https://vimeo.com/123456789" className={inputClass} />
+                  <input id={id} aria-describedby={describedBy} aria-invalid={invalid} value={draft.trailerVimeoUrl} onChange={(event) => set("trailerVimeoUrl", event.target.value)} inputMode="url" placeholder="https://vimeo.com/… or https://youtu.be/…" className={inputClass} />
                 )}
               </Field>
               {trailerEmbed && (
@@ -581,7 +581,7 @@ const CourseEditor = ({
             id="ce-curriculum"
             step={6}
             title="Curriculum"
-            description="Sections with lessons. Paste each lesson's Vimeo link: the title and length fill in by themselves."
+            description="Sections with lessons. Paste each lesson's Vimeo or YouTube link: the title (and, for Vimeo, the length) fill in by themselves."
             aside={<p className="font-body text-sm tabular-nums text-muted-foreground">{totals.lessons} lesson{totals.lessons === 1 ? "" : "s"}{totals.seconds > 0 ? ` · ${formatTotalDuration(totals.seconds)}` : ""}</p>}
           >
             <div className="mb-4 flex items-start gap-3 rounded-lg border border-gold/50 bg-ivory p-3.5">
@@ -592,6 +592,11 @@ const CourseEditor = ({
                   For every video in Vimeo, set <span className="font-medium text-foreground">Privacy → "Hide from Vimeo"</span> and{" "}
                   <span className="font-medium text-foreground">Embed → "Specific domains" → {SITE_HOST}</span>, so videos play only on your site.
                   Paid lesson links are only shown to students who bought the course.
+                </p>
+                <p className="mt-1.5 text-muted-foreground">
+                  <span className="font-medium text-foreground">YouTube (backup, if Vimeo gives trouble):</span> upload as{" "}
+                  <span className="font-medium text-foreground">Visibility → "Unlisted"</span> (not Private, which won't play here) and keep{" "}
+                  <span className="font-medium text-foreground">"Allow embedding"</span> on. Note: YouTube can't lock a video to your site, so a student could share an unlisted link. Vimeo stays the safer choice for paid lessons.
                 </p>
               </div>
             </div>

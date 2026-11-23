@@ -13,13 +13,15 @@ import {
   progressPercent,
   saveProgress,
   shouldAutoComplete,
-  vimeoEmbedUrlFromLink,
+  videoEmbedUrlFromLink,
+  videoProvider,
   type ElearnCourse,
   type ElearnCourseContent,
   type FlatLesson,
   type ProgressPatch,
 } from "@/lib/elearning";
 import VimeoLessonPlayer from "@/components/elearning/VimeoLessonPlayer";
+import YouTubeLessonPlayer from "@/components/elearning/YouTubeLessonPlayer";
 import { useCourse, useDemoState, useMyCourseAccess } from "@/components/elearning/useElearn";
 import { formatDate } from "@/components/elearning/format";
 
@@ -140,7 +142,8 @@ const LearnWatch = () => {
   }
 
   const lessonContent = currentId ? content.lessons[currentId] : undefined;
-  const embedUrl = lessonContent ? vimeoEmbedUrlFromLink(lessonContent.vimeoUrl) : null;
+  const embedUrl = lessonContent ? videoEmbedUrlFromLink(lessonContent.vimeoUrl) : null;
+  const LessonPlayer = lessonContent && videoProvider(lessonContent.vimeoUrl) === "youtube" ? YouTubeLessonPlayer : VimeoLessonPlayer;
   const percent = progressPercent(course.sections, [...completedIds]);
   const until = formatDate(access.enrollment?.expiresAt);
   const currentDone = !!currentId && completedIds.has(currentId);
@@ -195,7 +198,7 @@ const LearnWatch = () => {
           <div className="min-w-0">
             <div className="relative overflow-hidden bg-black sm:rounded-xl">
               {embedUrl ? (
-                <VimeoLessonPlayer
+                <LessonPlayer
                   embedUrl={embedUrl}
                   lessonId={currentId!}
                   title={current?.title || course.title}

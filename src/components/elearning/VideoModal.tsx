@@ -1,18 +1,18 @@
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
-import { vimeoEmbedUrlFromLink } from "@/lib/elearning";
+import { videoEmbedUrlFromLink } from "@/lib/elearning";
 
 interface VideoModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   title: string;
-  /** A Vimeo link (public trailer or free preview lesson). */
+  /** A Vimeo or YouTube link (public trailer or free preview lesson). */
   vimeoUrl: string;
   subtitle?: string;
 }
 
 /** Trailer / free-preview player. A plain iframe so public pages stay light (no player SDK). */
 const VideoModal = ({ open, onOpenChange, title, vimeoUrl, subtitle }: VideoModalProps) => {
-  const embed = vimeoEmbedUrlFromLink(vimeoUrl);
+  const embed = videoEmbedUrlFromLink(vimeoUrl);
   const src = embed ? `${embed}&autoplay=1` : null;
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -27,7 +27,8 @@ const VideoModal = ({ open, onOpenChange, title, vimeoUrl, subtitle }: VideoModa
               src={src}
               title={title}
               className="absolute inset-0 h-full w-full"
-              allow="autoplay; fullscreen; picture-in-picture"
+              allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
+              referrerPolicy="strict-origin-when-cross-origin"
               allowFullScreen
             />
           ) : (

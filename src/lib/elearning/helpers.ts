@@ -122,9 +122,72 @@ export const vimeoEmbedUrlFromLink = (raw: unknown): string | null => {
   return ref ? buildVimeoEmbedUrl(ref) : null;
 };
 
+// ── YouTube links (backup host when Vimeo gives trouble) ─────────────────
+
+export interface YouTubeRef { id: string }
+
+const YOUTUBE_HOSTS = new Set(["youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com", "youtube-nocookie.com", "www.youtube-nocookie.com"]);
+const YOUTUBE_ID = /^[A-Za-z0-9_-]{11}$/;
+
+/**
+ * Parse a YouTube link to `{ id }`. Accepts youtube.com/watch?v=ID, youtu.be/ID,
+ * /embed/ID, /shorts/ID, /live/ID and youtube-nocookie.com/embed/ID.
+ */
+export const parseYouTubeUrl = (raw: unknown): YouTubeRef | null => {
+  if (typeof raw !== "string") return null;
+  let value = raw.trim();
+  if (!value) return null;
+  if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(value)) value = `https://${value}`;
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return null;
+  }
+  if (url.protocol !== "https:" && url.protocol !== "http:") return null;
+  const host = url.hostname.toLowerCase();
+  const parts = url.pathname.split("/").filter(Boolean);
+  let id = "";
+  if (host === "youtu.be" || host === "www.youtu.be") id = parts[0] || "";
+  else if (YOUTUBE_HOSTS.has(host)) {
+    if (parts[0] === "watch") id = url.searchParams.get("v") || "";
+    else if (["embed", "shorts", "live", "v"].includes(parts[0] || "")) id = parts[1] || "";
+  }
+  return YOUTUBE_ID.test(id) ? { id } : null;
+};
+
+export const buildYouTubeEmbedUrl = ({ id }: YouTubeRef): string => {
+  const params = new URLSearchParams({ rel: "0", modestbranding: "1", playsinline: "1", enablejsapi: "1", iv_load_policy: "3" });
+  return `https://www.youtube-nocookie.com/embed/${id}?${params.toString()}`;
+};
+
+// ── Either host ───────────────────────────────────────────────────────────
+
+export type VideoProvider = "vimeo" | "youtube";
+
+/** Which host a lesson link is on (Vimeo or YouTube), or null when it is neither. */
+export const videoProvider = (raw: unknown): VideoProvider | null =>
+  parseVimeoUrl(raw) ? "vimeo" : parseYouTubeUrl(raw) ? "youtube" : null;
+
+export const isVideoUrl = (raw: unknown): boolean => videoProvider(raw) !== null;
+
+/** Player embed URL for a Vimeo or YouTube link, else null. */
+export const videoEmbedUrlFromLink = (raw: unknown): string | null => {
+  const vimeo = parseVimeoUrl(raw);
+  if (vimeo) return buildVimeoEmbedUrl(vimeo);
+  const youtube = parseYouTubeUrl(raw);
+  return youtube ? buildYouTubeEmbedUrl(youtube) : null;
+};
+
 /** Vimeo oEmbed lookup URL (title, duration, thumbnail) for a valid link, else null. */
 export const vimeoOembedUrl = (raw: unknown): string | null =>
   parseVimeoUrl(raw) ? `https://vimeo.com/api/oembed.json?url=${encodeURIComponent(String(raw).trim())}` : null;
+
+/** YouTube oEmbed lookup URL (title, thumbnail; YouTube gives no duration), else null. */
+export const youTubeOembedUrl = (raw: unknown): string | null => {
+  const ref = parseYouTubeUrl(raw);
+  return ref ? `https://www.youtube.com/oembed?format=json&url=${encodeURIComponent(`https://www.youtube.com/watch?v=${ref.id}`)}` : null;
+};
 
 // ── Slugs ─────────────────────────────────────────────────────────────────
 
@@ -376,7 +439,7 @@ export const daysLeft = (enrollment: Pick<ElearnEnrollment, "status" | "expiresA
 
 /**
  * Why a course cannot be published (empty = ok). With `content`, also checks
- * that every paid lesson has a valid Vimeo link.
+ * that every paid lesson has a valid Vimeo or YouTube link.
  */
 export const publishProblems = (course: ElearnCourse, content?: ElearnCourseContent | null): string[] => {
   const problems: string[] = [];
@@ -387,10 +450,10 @@ export const publishProblems = (course: ElearnCourse, content?: ElearnCourseCont
   if (lessons.length === 0) problems.push("Add at least one lesson.");
   for (const lesson of lessons) {
     const name = lesson.title || `Lesson ${lesson.index + 1}`;
-    if (lesson.isPreview && !parseVimeoUrl(lesson.previewVimeoUrl)) {
-      problems.push(`"${name}" is a free preview but has no valid Vimeo link.`);
-    } else if (!lesson.isPreview && content && !parseVimeoUrl(content.lessons[lesson.id]?.vimeoUrl)) {
-      problems.push(`"${name}" has no valid Vimeo link.`);
+    if (lesson.isPreview && !isVideoUrl(lesson.previewVimeoUrl)) {
+      problems.push(`"${name}" is a free preview but has no valid Vimeo or YouTube link.`);
+    } else if (!lesson.isPreview && content && !isVideoUrl(content.lessons[lesson.id]?.vimeoUrl)) {
+      problems.push(`"${name}" has no valid Vimeo or YouTube link.`);
     }
   }
   return problems;

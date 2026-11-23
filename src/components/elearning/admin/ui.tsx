@@ -95,16 +95,17 @@ export const StatusPill = ({ status }: { status: "draft" | "published" }) => (
   </span>
 );
 
-/** 16:9 Vimeo player iframe (embed URL already built). */
+/** 16:9 Vimeo / YouTube player iframe (embed URL already built). */
 export const VimeoFrame = ({ src, title }: { src: string; title: string }) => (
   <div className="relative aspect-video w-full overflow-hidden rounded-lg bg-charcoal">
     <iframe
       src={src}
       title={title}
       className="absolute inset-0 h-full w-full"
-      allow="autoplay; fullscreen; picture-in-picture"
+      allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
       allowFullScreen
       loading="lazy"
+      referrerPolicy="strict-origin-when-cross-origin"
     />
   </div>
 );

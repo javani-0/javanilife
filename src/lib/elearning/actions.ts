@@ -3,7 +3,7 @@
 // server; the client only names the course.
 import { openRazorpayCheckout } from "@/lib/ecommerce/payments";
 import { uploadPaymentProof } from "@/lib/classes/upiPayments";
-import { parseVimeoUrl, vimeoOembedUrl } from "./helpers";
+import { parseVimeoUrl, vimeoOembedUrl, youTubeOembedUrl } from "./helpers";
 
 export { uploadPaymentProof };
 
@@ -164,10 +164,13 @@ export interface VimeoOembedInfo {
   thumbnailUrl: string;
 }
 
-/** Title / duration / thumbnail from Vimeo's public oEmbed; null on any failure. */
+/**
+ * Title / duration / thumbnail from Vimeo's or YouTube's public oEmbed; null on
+ * any failure. YouTube gives no duration (durationSec 0: the admin types it).
+ */
 export const fetchVimeoOembed = async (link: string): Promise<VimeoOembedInfo | null> => {
-  const url = vimeoOembedUrl(link);
-  if (!url || !parseVimeoUrl(link)) return null;
+  const url = parseVimeoUrl(link) ? vimeoOembedUrl(link) : youTubeOembedUrl(link);
+  if (!url) return null;
   try {
     const response = await fetch(url);
     if (!response.ok) return null;

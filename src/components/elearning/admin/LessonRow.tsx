@@ -4,7 +4,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { ArrowDown, ArrowUp, ChevronDown, Eye, Loader2, PlayCircle, Trash2, CheckCircle2, Info } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
-import { fetchVimeoOembed, parseVimeoUrl, vimeoEmbedUrlFromLink } from "@/lib/elearning";
+import { fetchVimeoOembed, isVideoUrl, videoEmbedUrlFromLink, videoProvider } from "@/lib/elearning";
 import { durationToInput, parseDurationInput, type LessonDraft } from "@/lib/elearning/adminHelpers";
 import { confirmDialog } from "@/components/ConfirmDialogHost";
 import { errorClass, hintClass, iconButton, inputClass, labelClass, VimeoFrame } from "./ui";
@@ -42,12 +42,13 @@ const LessonRow = ({
   const lastLookedUp = useRef(lesson.vimeoUrl.trim());
 
   const link = lesson.vimeoUrl.trim();
-  const linkValid = link ? Boolean(parseVimeoUrl(link)) : true;
+  const linkValid = link ? isVideoUrl(link) : true;
+  const host = videoProvider(link) === "youtube" ? "YouTube" : "Vimeo";
   const durationValid = parseDurationInput(lesson.durationText) !== null;
-  const embedUrl = link && linkValid ? vimeoEmbedUrlFromLink(link) : null;
+  const embedUrl = link && linkValid ? videoEmbedUrlFromLink(link) : null;
 
   useEffect(() => {
-    if (!link || link === lastLookedUp.current || !parseVimeoUrl(link)) return;
+    if (!link || link === lastLookedUp.current || !isVideoUrl(link)) return;
     let cancelled = false;
     const timer = window.setTimeout(async () => {
       lastLookedUp.current = link;
@@ -58,11 +59,12 @@ const LessonRow = ({
         setLookup({ state: "failed" });
         return;
       }
-      setLookup({ state: "ok", thumbnailUrl: info.thumbnailUrl });
+      // YouTube gives no length: ask for it like a failed lookup (the title still fills in).
+      setLookup(info.durationSec > 0 ? { state: "ok", thumbnailUrl: info.thumbnailUrl } : { state: "failed" });
       onChange((current) => ({
         ...current,
         title: current.title.trim() ? current.title : info.title,
-        // A new video has a new length: take Vimeo's (the admin can still edit it).
+        // A new video has a new length: take the host's (the admin can still edit it).
         durationText: info.durationSec > 0 ? durationToInput(info.durationSec) : current.durationText,
       }));
     }, 450);
@@ -89,7 +91,7 @@ const LessonRow = ({
     onDelete();
   };
 
-  const linkError = linkTouched && !linkValid ? "This is not a Vimeo link. Paste the link from Vimeo, e.g. https://vimeo.com/123456789/abc123" : null;
+  const linkError = linkTouched && !linkValid ? "This is not a Vimeo or YouTube link. Paste the video link, e.g. https://vimeo.com/123456789/abc123 or https://youtu.be/abcdefghijk" : null;
 
   return (
     <li className="rounded-lg border border-border/70 bg-background/60 p-3 sm:p-4">
@@ -118,7 +120,7 @@ const LessonRow = ({
               />
             </div>
             <div>
-              <label htmlFor={`${id}-link`} className={labelClass}>Vimeo link</label>
+              <label htmlFor={`${id}-link`} className={labelClass}>Video link (Vimeo or YouTube)</label>
               <div className="relative">
                 <input
                   id={`${id}-link`}
@@ -127,7 +129,7 @@ const LessonRow = ({
                   onBlur={() => setLinkTouched(true)}
                   onPaste={() => setLinkTouched(true)}
                   inputMode="url"
-                  placeholder="https://vimeo.com/123456789"
+                  placeholder="https://vimeo.com/… or https://youtu.be/…"
                   aria-invalid={Boolean(linkError)}
                   aria-describedby={`${id}-link-status`}
                   className={cn(inputClass, "pr-9")}
@@ -139,11 +141,11 @@ const LessonRow = ({
               </div>
               <div id={`${id}-link-status`} aria-live="polite">
                 {linkError && <p className={errorClass}>{linkError}</p>}
-                {!linkError && lookup.state === "loading" && <p className={hintClass}>Reading details from Vimeo…</p>}
+                {!linkError && lookup.state === "loading" && <p className={hintClass}>Reading details from {host}…</p>}
                 {!linkError && lookup.state === "failed" && (
-                  <p className={cn(hintClass, "text-amber-800")}>Couldn't read details from Vimeo; please type the duration.</p>
+                  <p className={cn(hintClass, "text-amber-800")}>{host === "YouTube" ? "YouTube doesn't share the video length; please type the duration." : "Couldn't read details from Vimeo; please type the duration."}</p>
                 )}
-                {!linkError && lookup.state === "ok" && <p className={cn(hintClass, "text-emerald-800")}>Details filled in from Vimeo.</p>}
+                {!linkError && lookup.state === "ok" && <p className={cn(hintClass, "text-emerald-800")}>Details filled in from {host}.</p>}
               </div>
             </div>
             <div>

@@ -54,7 +54,7 @@ const AdminElearning = () => {
           <GraduationCap className="h-7 w-7 text-gold" aria-hidden="true" /> E-Learning
         </h1>
         <p className="mt-1 max-w-2xl font-body text-sm text-muted-foreground">
-          Sell recorded video master classes. Lessons are hosted on Vimeo and play only for students who bought the course.
+          Sell recorded video master classes. Lessons are hosted on Vimeo or YouTube and play only for students who bought the course.
         </p>
       </div>
 

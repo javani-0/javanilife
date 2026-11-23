@@ -92,7 +92,7 @@ describe("draftErrors / draftPublishProblems", () => {
     const errors = draftErrors(draft);
     expect(errors.some((e) => e.includes("MRP"))).toBe(true);
     expect(errors.some((e) => e.includes("trailer"))).toBe(true);
-    expect(errors.some((e) => e.includes("Vimeo link"))).toBe(true);
+    expect(errors.some((e) => e.includes("Vimeo or YouTube link"))).toBe(true);
     expect(errors.some((e) => e.includes("mm:ss"))).toBe(true);
   });
   it("blocks publish without price, payment mode or lesson link", () => {

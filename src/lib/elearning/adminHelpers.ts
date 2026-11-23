@@ -3,7 +3,7 @@
 // shapes (ElearnCourseInput for the public doc, ElearnCourseContent for the
 // private lesson links) only on save. No Firebase here, so it is unit-tested.
 import { parsePriceToPaise } from "@/lib/ecommerce/pricing";
-import { makeId, normalizeCourse, parseVimeoUrl, publishProblems } from "./helpers";
+import { isVideoUrl, makeId, normalizeCourse, publishProblems } from "./helpers";
 import type {
   ElearnCourse,
   ElearnCourseContent,
@@ -255,13 +255,13 @@ export const draftErrors = (draft: CourseDraft): string[] => {
     else if (price !== null && compareAt <= price) errors.push("The MRP must be higher than the price (or leave it empty).");
   }
   if (draft.accessDays.trim() && !/^\d+$/.test(draft.accessDays.trim())) errors.push("Access days must be a whole number (0 = lifetime).");
-  if (draft.trailerVimeoUrl.trim() && !parseVimeoUrl(draft.trailerVimeoUrl)) errors.push("The trailer link is not a valid Vimeo link.");
+  if (draft.trailerVimeoUrl.trim() && !isVideoUrl(draft.trailerVimeoUrl)) errors.push("The trailer link is not a valid Vimeo or YouTube link.");
   let lessonNumber = 0;
   for (const section of draft.sections) {
     for (const lesson of section.lessons) {
       lessonNumber += 1;
       const name = lesson.title.trim() || `Lesson ${lessonNumber}`;
-      if (lesson.vimeoUrl.trim() && !parseVimeoUrl(lesson.vimeoUrl)) errors.push(`"${name}": the video link is not a valid Vimeo link.`);
+      if (lesson.vimeoUrl.trim() && !isVideoUrl(lesson.vimeoUrl)) errors.push(`"${name}": the video link is not a valid Vimeo or YouTube link.`);
       if (parseDurationInput(lesson.durationText) === null) errors.push(`"${name}": type the duration as mm:ss (for example 12:30).`);
       if (lesson.resourceUrl.trim() && !isHttpUrl(lesson.resourceUrl.trim())) errors.push(`"${name}": the resource link must start with https://`);
     }
