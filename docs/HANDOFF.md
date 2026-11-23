@@ -2,7 +2,7 @@
 
 Javani Spiritual Hub (www.javanilife.com): a classical dance/music academy + shop. React 18 + Vite SPA, Firebase, Vercel (project `javanilife`), Razorpay.
 
-Last updated: 2026-11-19 (voice changes LIVE; course link now /learn/anantha-thillana-kuchipudi, VANITHA re-granted lifetime; client to add lesson durations)
+Last updated: 2026-11-23 (voice changes 3: coupon codes, Master Class rename, YouTube backup: committed LOCALLY, not pushed)
 
 ## State
 
@@ -22,7 +22,11 @@ Last updated: 2026-11-19 (voice changes LIVE; course link now /learn/anantha-thi
 
 - **Client voice changes 2026-11-19 (LIVE, cd17834):** the client renamed TEST 2 into the real course "Anantha Thillana - kuchipudi" (doc id still `test-2-e-learning-qa`). Laptop showed "Contact us" because the admin account's test enrollment there is REVOKED (phone, other account, shows Buy now). Added: course page "Share on WhatsApp" + "Copy link/Share"; the floating WhatsApp message names the course and carries its link; "0m total" hidden when lesson durations are empty; admin Purchases "Allow to buy again" (server op `reopen` deletes a revoked/rejected record); course editor "Update link to /learn/<title-slug>" (`changeCourseLink`, refused while any non-rejected/revoked enrollment exists).
 
+- **Client voice changes 2026-11-23 (LOCAL commits 2133623, 32cff72, 0f1dfef; NOT pushed yet):** (1) coupon codes for online master classes (admin Coupons, scope "Online master classes"; server re-checks price at order time; `redeemedCount` +1 on activation; known: maxRedemptions can overrun by simultaneous checkouts). (2) Buyer-facing "course" → "Master Class". (3) Lesson/preview/trailer links accept Vimeo OR YouTube (`videoProvider()` in `src/lib/elearning/helpers.ts`; `YouTubeLessonPlayer.tsx` with resume/progress; YouTube needs Unlisted + embedding on, and the duration typed by hand). Checks: vitest 636 pass + 5 old failures; app tsc only old errors; screenshots 390/1440 light/dark OK. No rules change.
+
 ## Next steps (in order)
+
+| 0 | Push the 3 commits (owner OK needed), then check /learn, a course page buy dialog + coupon on the live site | Low |
 
 | # | Step | Effort |
 |---|---|---|
