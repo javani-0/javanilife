@@ -290,11 +290,11 @@ const AdminCoupons = () => {
             </label>
             <label className={labelClass}>Item scope
               <select value={form.applicableItemScope} onChange={(event) => setForm({ ...form, applicableItemScope: event.target.value as CouponFormState["applicableItemScope"] })} className={inputClass}>
-                <option value="all">Everything (shop, classes & online courses)</option>
+                <option value="all">Everything (shop, classes & master classes)</option>
                 <option value="product">Products only</option>
                 <option value="course">Courses & classes only</option>
                 <option value="rental">Rentals only</option>
-                <option value="elearning">Online courses (E-Learning) only</option>
+                <option value="elearning">Master classes (E-Learning) only</option>
               </select>
             </label>
             <label className={labelClass}>Category IDs
@@ -333,7 +333,7 @@ const AdminCoupons = () => {
               )}
               {onlineCourses.length > 0 && (form.applicableItemScope === "elearning" || form.applicableItemScope === "all") && (
                 <span className="mt-2 block font-body text-[0.72rem] font-normal text-muted-foreground">
-                  Limit to specific online courses (tap to add; none = every online course):
+                  Limit to specific master classes (tap to add; none = every master class):
                   <span className="mt-1 flex flex-wrap gap-1.5">
                     {onlineCourses.map((course) => {
                       const added = splitList(form.applicableProductIds).includes(course.id);

@@ -63,7 +63,7 @@ const priceWithCoupon = async (db: Firestore, course: { id: string; priceInPaise
   const coupon = await loadCouponByCode(db, code);
   if (!coupon) throw new ElearnError(400, "This coupon code is not valid.");
   const result = computeElearnCouponDiscount(coupon, course.priceInPaise, { courseId: course.id });
-  if (result.discountInPaise <= 0) throw new ElearnError(400, result.reason || "This coupon can't be used for this course.");
+  if (result.discountInPaise <= 0) throw new ElearnError(400, result.reason || "This coupon can't be used for this master class.");
   return {
     priceInPaise: course.priceInPaise,
     couponCode: coupon.code,
@@ -75,7 +75,7 @@ const priceWithCoupon = async (db: Firestore, course: { id: string; priceInPaise
 const previewCoupon = async (db: Firestore, body: Record<string, unknown>) => {
   const courseId = cleanId(body.courseId, 120);
   const course = courseId ? await loadSaleCourse(db, courseId) : null;
-  if (!course || course.status !== "published" || course.priceInPaise <= 0) throw new ElearnError(404, "This course is not available.");
+  if (!course || course.status !== "published" || course.priceInPaise <= 0) throw new ElearnError(404, "This master class is not available.");
   const priced = await priceWithCoupon(db, course, body.couponCode);
   if (!priced.couponCode) throw new ElearnError(400, "Enter a coupon code.");
   return { ok: true as const, ...priced };
@@ -85,14 +85,14 @@ const previewCoupon = async (db: Firestore, body: Record<string, unknown>) => {
 const createOrder = async (db: Firestore, uid: string, identity: ReturnType<typeof identityFromToken>, body: Record<string, unknown>) => {
   const courseId = cleanId(body.courseId, 120);
   const course = courseId ? await loadSaleCourse(db, courseId) : null;
-  if (!course || course.status !== "published") throw new ElearnError(404, "This course is not available.");
-  if (course.priceInPaise <= 0) throw new ElearnError(400, "This course cannot be bought online.");
-  if (!availablePaymentModes(course, null).razorpay) throw new ElearnError(400, "Online payment is not available for this course.");
+  if (!course || course.status !== "published") throw new ElearnError(404, "This master class is not available.");
+  if (course.priceInPaise <= 0) throw new ElearnError(400, "This master class cannot be bought online.");
+  if (!availablePaymentModes(course, null).razorpay) throw new ElearnError(400, "Online payment is not available for this master class.");
 
   const ref = enrollmentRef(db, uid, course.id);
   const before = (await ref.get()).data();
-  if (before && hasActiveAccess(before)) throw new ElearnError(409, "You already have access to this course.");
-  if (before?.status === "revoked") throw new ElearnError(403, "Your access to this course was removed. Please contact us.");
+  if (before && hasActiveAccess(before)) throw new ElearnError(409, "You already have access to this master class.");
+  if (before?.status === "revoked") throw new ElearnError(403, "Your access to this master class was removed. Please contact us.");
 
   const priced = await priceWithCoupon(db, course, body.couponCode);
   const currency = getRazorpayCurrency();
@@ -109,8 +109,8 @@ const createOrder = async (db: Firestore, uid: string, identity: ReturnType<type
   await db.runTransaction(async (tx) => {
     const snapshot = await tx.get(ref);
     const existing = snapshot.exists ? snapshot.data() || {} : null;
-    if (existing && hasActiveAccess(existing)) throw new ElearnError(409, "You already have access to this course.");
-    if (existing?.status === "revoked") throw new ElearnError(403, "Your access to this course was removed. Please contact us.");
+    if (existing && hasActiveAccess(existing)) throw new ElearnError(409, "You already have access to this master class.");
+    if (existing?.status === "revoked") throw new ElearnError(403, "Your access to this master class was removed. Please contact us.");
     const keepStatus = existing?.status === "processing" || existing?.status === "active";
     tx.set(ref, {
       uid,
@@ -156,7 +156,7 @@ const verify = async (db: Firestore, uid: string, body: Record<string, unknown>)
     expected: { uid, courseId },
   });
   if (result.status !== "active") {
-    throw new ElearnError(403, "Payment received, but your access to this course was removed. Please contact us for a refund.");
+    throw new ElearnError(403, "Payment received, but your access to this master class was removed. Please contact us for a refund.");
   }
   return {
     verified: true,
@@ -178,10 +178,10 @@ const submitUpi = async (db: Firestore, uid: string, identity: ReturnType<typeof
   const proofKey = createHash("sha256").update(cleanProofUrl).digest("hex");
 
   const course = courseId ? await loadSaleCourse(db, courseId) : null;
-  if (!course || course.status !== "published") throw new ElearnError(404, "This course is not available.");
+  if (!course || course.status !== "published") throw new ElearnError(404, "This master class is not available.");
   const priced = await priceWithCoupon(db, course, body.couponCode);
   const settings = await loadUpiSettings(db);
-  if (!availablePaymentModes(course, settings).upi) throw new ElearnError(400, "QR payment is not available for this course.");
+  if (!availablePaymentModes(course, settings).upi) throw new ElearnError(400, "QR payment is not available for this master class.");
 
   const ref = enrollmentRef(db, uid, course.id);
   const utrRef = db.collection(ELEARN_UPI_REFS).doc(upiRef);
@@ -190,8 +190,8 @@ const submitUpi = async (db: Firestore, uid: string, identity: ReturnType<typeof
   await db.runTransaction(async (tx) => {
     const [snapshot, utrSnap, proofSnap] = await Promise.all([tx.get(ref), tx.get(utrRef), tx.get(proofRef)]);
     const existing = snapshot.exists ? snapshot.data() || {} : null;
-    if (existing && hasActiveAccess(existing)) throw new ElearnError(409, "You already have access to this course.");
-    if (existing?.status === "revoked") throw new ElearnError(403, "Your access to this course was removed. Please contact us.");
+    if (existing && hasActiveAccess(existing)) throw new ElearnError(409, "You already have access to this master class.");
+    if (existing?.status === "revoked") throw new ElearnError(403, "Your access to this master class was removed. Please contact us.");
     // One UPI payment can unlock only one purchase (resubmitting the same
     // payment for the same course after a rejection is fine).
     if (utrSnap.exists && utrSnap.data()?.enrollmentId !== ref.id) {

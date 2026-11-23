@@ -26,18 +26,18 @@ const AccountLearning = () => {
   }, [enrollments, courses]);
 
   return (
-    <AccountLayout title="My Learning" description="Your online video courses and their progress.">
+    <AccountLayout title="My Learning" description="Your online master classes and their progress.">
       {loading || coursesLoading ? (
-        <div className="grid gap-4 md:grid-cols-2" aria-busy="true" aria-label="Loading your courses">
+        <div className="grid gap-4 md:grid-cols-2" aria-busy="true" aria-label="Loading your master classes">
           {[0, 1].map((i) => <div key={i} className="h-40 rounded-2xl skeleton-shimmer" />)}
         </div>
       ) : items.length === 0 ? (
         <div className="rounded-2xl border border-gold/15 bg-card px-6 py-12 text-center shadow-card">
           <span className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-primary/10 text-primary"><BookOpen className="h-6 w-6" aria-hidden="true" /></span>
-          <h2 className="mt-4 font-display text-2xl font-semibold text-foreground">No online courses yet</h2>
-          <p className="mx-auto mt-2 max-w-sm font-body text-sm text-muted-foreground">Courses you buy appear here, ready to watch at your own pace.</p>
+          <h2 className="mt-4 font-display text-2xl font-semibold text-foreground">No master classes yet</h2>
+          <p className="mx-auto mt-2 max-w-sm font-body text-sm text-muted-foreground">Master classes you buy appear here, ready to watch at your own pace.</p>
           <Link to={`/learn${linkSearch}`} className="mt-6 inline-flex min-h-11 items-center justify-center rounded-md bg-gradient-primary px-6 font-body text-sm font-semibold text-primary-foreground shadow-gold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 active:scale-[0.97]">
-            Browse courses
+            Browse master classes
           </Link>
         </div>
       ) : (

@@ -62,7 +62,7 @@ const LearnWatch = () => {
       navigate(`/learn${linkSearch}`, { replace: true });
     } else if (course && content === null) {
       deniedRef.current = true;
-      toast({ title: "This course is locked", description: "Buy the course to watch its lessons." });
+      toast({ title: "This master class is locked", description: "Buy the master class to watch its lessons." });
       navigate(`/learn/${encodeURIComponent(course.id)}${linkSearch}`, { replace: true });
     }
   }, [courseLoading, course, content, navigate, toast, linkSearch]);
@@ -129,7 +129,7 @@ const LearnWatch = () => {
   if (courseLoading || access.loading || content === undefined || !course || content === null) {
     return (
       <main className="mx-auto max-w-7xl px-4 pb-6 pt-[104px] sm:px-6" aria-busy="true" aria-label="Loading lesson">
-        <SEO title="Loading lesson | Javani Spiritual Hub" description="Online course lesson." noindex />
+        <SEO title="Loading lesson | Javani Spiritual Hub" description="Online master class lesson." noindex />
         <div className="h-5 w-48 rounded skeleton-shimmer" />
         <div className="mt-4 grid gap-6 lg:grid-cols-[1fr_360px]">
           <div className="aspect-video rounded-xl skeleton-shimmer" />
@@ -280,7 +280,7 @@ const LearnWatch = () => {
           <aside className="hidden lg:block" aria-label="Course lessons">
             <div className="sticky top-[96px] max-h-[calc(100dvh-120px)] overflow-y-auto rounded-xl border border-gold/20 bg-card">
               <div className="border-b border-gold/15 px-4 py-3">
-                <p className="font-body text-sm font-semibold text-foreground">Course lessons</p>
+                <p className="font-body text-sm font-semibold text-foreground">Master class lessons</p>
                 <p className="font-body text-xs text-muted-foreground">{completedIds.size > 0 ? `${[...completedIds].filter((id) => lessons.some((l) => l.id === id)).length} of ${lessons.length} done` : `${lessons.length} lessons`}</p>
               </div>
               {lessonList}

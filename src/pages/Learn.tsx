@@ -69,20 +69,20 @@ const Learn = () => {
         <PageHero
           backgroundImages={[heroTemple, heroDancer2]}
           label="E-LEARNING"
-          heading="Online Courses"
-          subtext="Recorded video courses from Javani Spiritual Hub. Pay once, then learn at your own pace on any device."
+          heading="Online Master Classes"
+          subtext="Recorded video master classes from Javani Spiritual Hub. Pay once, then learn at your own pace on any device."
           breadcrumb={[{ label: "Home", path: "/" }, { label: "E-Learning" }]}
           size="compact"
         />
 
         <section className="bg-background pb-28 pt-8 sm:pb-24 sm:pt-12" aria-labelledby="learn-courses-heading">
           <div className="mx-auto max-w-7xl px-4 sm:px-6">
-            <h2 id="learn-courses-heading" className="sr-only">All online courses</h2>
+            <h2 id="learn-courses-heading" className="sr-only">All online master classes</h2>
 
             {(loading || hasCourses) && (
               <div className="mb-8 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                 <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 sm:mx-0 sm:flex-wrap sm:px-0" role="group" aria-label="Filter by category">
-                  {[{ value: "all", label: "All courses" }, ...categories].map((chip) => {
+                  {[{ value: "all", label: "All master classes" }, ...categories].map((chip) => {
                     const active = category === chip.value;
                     return (
                       <button
@@ -102,18 +102,18 @@ const Learn = () => {
 
                 <div className="grid grid-cols-[1fr_auto] gap-2 sm:gap-3 lg:w-[460px]">
                   <label className="relative block">
-                    <span className="sr-only">Search courses</span>
+                    <span className="sr-only">Search master classes</span>
                     <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
                     <input
                       type="search"
                       value={query}
                       onChange={(event) => setQuery(event.target.value)}
-                      placeholder="Search courses"
+                      placeholder="Search master classes"
                       className="h-11 w-full rounded-lg border border-gold/25 bg-card pl-9 pr-3 font-body text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                     />
                   </label>
                   <label className="block">
-                    <span className="sr-only">Sort courses</span>
+                    <span className="sr-only">Sort master classes</span>
                     <select
                       value={sort}
                       onChange={(event) => setSort(event.target.value as SortKey)}
@@ -127,19 +127,19 @@ const Learn = () => {
             )}
 
             {loading ? (
-              <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 lg:gap-7" aria-busy="true" aria-label="Loading courses">
+              <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 lg:gap-7" aria-busy="true" aria-label="Loading master classes">
                 {Array.from({ length: 3 }, (_, i) => <CourseCardSkeleton key={i} />)}
               </div>
             ) : error && !hasCourses ? (
               <p className="rounded-xl border border-gold/15 bg-card p-8 text-center font-body text-sm text-muted-foreground">
-                We couldn't load the courses. Please check your connection and refresh the page.
+                We couldn't load the master classes. Please check your connection and refresh the page.
               </p>
             ) : !hasCourses ? (
               <div className="mx-auto max-w-xl rounded-2xl border border-gold/20 bg-card px-6 py-12 text-center shadow-card sm:px-10">
                 <span className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-primary/10 text-primary">
                   <BookOpen className="h-6 w-6" aria-hidden="true" />
                 </span>
-                <h2 className="mt-5 font-display text-2xl font-semibold text-foreground sm:text-3xl">New online courses are coming soon</h2>
+                <h2 className="mt-5 font-display text-2xl font-semibold text-foreground sm:text-3xl">New online master classes are coming soon</h2>
                 <p className="mx-auto mt-3 max-w-md font-body text-sm leading-relaxed text-muted-foreground">
                   Until then, you can learn with us in person or live. See our monthly classes.
                 </p>
@@ -152,7 +152,7 @@ const Learn = () => {
               </div>
             ) : visible.length === 0 ? (
               <div className="rounded-xl border border-gold/15 bg-card p-10 text-center">
-                <p className="font-display text-xl font-semibold text-foreground">No courses match your search</p>
+                <p className="font-display text-xl font-semibold text-foreground">No master classes match your search</p>
                 <button
                   type="button"
                   onClick={() => { setQuery(""); setCategory("all"); }}

@@ -42,7 +42,7 @@ const AccountLayout = ({ title, description, children }: AccountLayoutProps) => 
   const { isStudent } = useStudentPortal();
   const accountLinks = isStudent ? [...studentLinks, ...shopLinks] : shopLinks;
   const onLearning = useLocation().pathname.startsWith("/account/learning");
-  const back = onLearning ? { to: "/learn", label: "Back to online courses" } : { to: "/products", label: "Back to products" };
+  const back = onLearning ? { to: "/learn", label: "Back to master classes" } : { to: "/products", label: "Back to products" };
 
   return (
   // overflow-x-CLIP (not hidden): hidden creates a scroll container that

@@ -41,7 +41,7 @@ export const usePayOnline = (course: ElearnCourse | null, isDemo = false) => {
         toast({ title: "You're enrolled", description: `${course.title} is unlocked. Enjoy the course.` });
         navigate(`/learn/${encodeURIComponent(course.id)}/watch`);
       } else {
-        toast({ title: "Payment received", description: "We're confirming it. The course unlocks here as soon as it's done." });
+        toast({ title: "Payment received", description: "We're confirming it. The master class unlocks here as soon as it's done." });
       }
     } catch (error) {
       const message = errorMessage(error, "The payment didn't go through. You can try again.");
@@ -99,7 +99,7 @@ const BuyCourseDialog = ({ course, modes, settings, open, onOpenChange, onPayOnl
         {step === "choose" && (
           <div className="p-6 sm:p-7">
             <DialogHeader className="text-left">
-              <DialogTitle className="font-display text-2xl font-semibold text-foreground">{bothModes ? "How would you like to pay?" : "Buy this course"}</DialogTitle>
+              <DialogTitle className="font-display text-2xl font-semibold text-foreground">{bothModes ? "How would you like to pay?" : "Buy this master class"}</DialogTitle>
               <DialogDescription className="font-body text-sm text-muted-foreground">
                 {course.title} ·{" "}
                 {coupon && <span className="mr-1 line-through">{formatPaiseAsRupees(course.priceInPaise)}</span>}
@@ -352,7 +352,7 @@ const UpiPanel = ({ course, settings, coupon, onCouponChange, canGoBack, onBack,
       )}
       <DialogHeader className="text-left">
         <DialogTitle className="font-display text-2xl font-semibold text-foreground">Scan &amp; pay</DialogTitle>
-        <DialogDescription className="font-body text-sm text-muted-foreground">Pay from any UPI app, then upload the screenshot. We unlock the course after we verify it.</DialogDescription>
+        <DialogDescription className="font-body text-sm text-muted-foreground">Pay from any UPI app, then upload the screenshot. We unlock the master class after we verify it.</DialogDescription>
       </DialogHeader>
 
       {!canGoBack && <CouponBox course={course} applied={coupon} onChange={onCouponChange} isDemo={isDemo} />}

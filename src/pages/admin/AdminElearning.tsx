@@ -49,12 +49,12 @@ const AdminElearning = () => {
   return (
     <div className="space-y-6">
       <div>
-        <p className="font-body text-sm font-semibold uppercase tracking-[0.2em] text-primary">Online courses</p>
+        <p className="font-body text-sm font-semibold uppercase tracking-[0.2em] text-primary">Online master classes</p>
         <h1 className="mt-2 flex items-center gap-2 font-display text-3xl text-foreground">
           <GraduationCap className="h-7 w-7 text-gold" aria-hidden="true" /> E-Learning
         </h1>
         <p className="mt-1 max-w-2xl font-body text-sm text-muted-foreground">
-          Sell recorded video courses. Lessons are hosted on Vimeo and play only for students who bought the course.
+          Sell recorded video master classes. Lessons are hosted on Vimeo and play only for students who bought the course.
         </p>
       </div>
 

@@ -140,17 +140,17 @@ export const computeElearnCouponDiscount = (
     return { discountInPaise: 0, reason: "This coupon has been fully used." };
   }
   if (coupon.applicableItemTypes?.length && !coupon.applicableItemTypes.includes("elearning")) {
-    return { discountInPaise: 0, reason: "This coupon is not valid for online courses." };
+    return { discountInPaise: 0, reason: "This coupon is not valid for master classes." };
   }
   // Category ids are shop/class categories; an online course has none.
   if (coupon.applicableCategoryIds?.length && !coupon.applicableItemTypes?.includes("elearning")) {
-    return { discountInPaise: 0, reason: "This coupon is not valid for online courses." };
+    return { discountInPaise: 0, reason: "This coupon is not valid for master classes." };
   }
   if (coupon.applicableProductIds?.length && !coupon.applicableProductIds.includes(opts.courseId)) {
-    return { discountInPaise: 0, reason: "This coupon is not valid for this course." };
+    return { discountInPaise: 0, reason: "This coupon is not valid for this master class." };
   }
   if (coupon.minSubtotalInPaise && base < coupon.minSubtotalInPaise) {
-    return { discountInPaise: 0, reason: "This course price is below this coupon's minimum." };
+    return { discountInPaise: 0, reason: "This master class price is below this coupon's minimum." };
   }
   let discount = 0;
   if (coupon.type === "percentage") {
@@ -159,9 +159,9 @@ export const computeElearnCouponDiscount = (
   } else if (coupon.type === "fixed_amount") {
     discount = Math.min(coupon.value, base);
   } else {
-    return { discountInPaise: 0, reason: "This coupon can't be used for online courses." };
+    return { discountInPaise: 0, reason: "This coupon can't be used for master classes." };
   }
   discount = Math.max(0, Math.min(discount, Math.max(0, base - 100)));
-  if (discount <= 0) return { discountInPaise: 0, reason: "This coupon gives no discount on this course." };
+  if (discount <= 0) return { discountInPaise: 0, reason: "This coupon gives no discount on this master class." };
   return { discountInPaise: discount };
 };

@@ -17,10 +17,10 @@ describe("computeElearnCouponDiscount", () => {
   });
   it("accepts coupons scoped to e-learning, rejects shop-only ones", () => {
     expect(computeElearnCouponDiscount({ ...base, applicableItemTypes: ["elearning"] }, 100000, opts).discountInPaise).toBe(10000);
-    expect(computeElearnCouponDiscount({ ...base, applicableItemTypes: ["product"] }, 100000, opts).reason).toMatch(/online courses/);
+    expect(computeElearnCouponDiscount({ ...base, applicableItemTypes: ["product"] }, 100000, opts).reason).toMatch(/master classes/);
   });
   it("respects the course list", () => {
-    expect(computeElearnCouponDiscount({ ...base, applicableProductIds: ["c2"] }, 100000, opts).reason).toMatch(/this course/);
+    expect(computeElearnCouponDiscount({ ...base, applicableProductIds: ["c2"] }, 100000, opts).reason).toMatch(/this master class/);
     expect(computeElearnCouponDiscount({ ...base, applicableProductIds: ["c1"] }, 100000, opts).discountInPaise).toBe(10000);
   });
   it("rejects inactive, expired, not-started and fully used coupons", () => {

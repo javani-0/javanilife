@@ -49,13 +49,13 @@ const LearnCourse = () => {
   if (!course) {
     return (
       <>
-        <SEO title="Course not found | Javani Spiritual Hub" description="This online course is not available." noindex />
+        <SEO title="Course not found | Javani Spiritual Hub" description="This master class is not available." noindex />
         <main className="mx-auto flex min-h-[60vh] max-w-xl flex-col items-center justify-center px-4 pb-20 pt-[120px] text-center">
           <p className={`font-body text-xs font-semibold uppercase tracking-[0.16em] ${GOLD_TEXT}`}>E-Learning</p>
-          <h1 className="mt-3 font-display text-3xl font-semibold text-foreground sm:text-4xl">This course isn't available</h1>
+          <h1 className="mt-3 font-display text-3xl font-semibold text-foreground sm:text-4xl">This master class isn't available</h1>
           <p className="mt-3 font-body text-sm leading-relaxed text-muted-foreground">It may have been removed or isn't published yet.</p>
           <Link to={`/learn${linkSearch}`} className="mt-6 inline-flex min-h-11 items-center gap-2 rounded-md bg-gradient-primary px-6 font-body text-sm font-semibold text-primary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 active:scale-[0.97]">
-            <ArrowLeft className="h-4 w-4" aria-hidden="true" /> All online courses
+            <ArrowLeft className="h-4 w-4" aria-hidden="true" /> All master classes
           </Link>
         </main>
         <Footer />
@@ -188,7 +188,7 @@ const LearnCourse = () => {
             )}
 
             {course.description && (
-              <Section title="About this course">
+              <Section title="About this master class">
                 <div className="max-w-prose whitespace-pre-line font-body text-[0.95rem] leading-[1.75] text-foreground/90">{course.description}</div>
               </Section>
             )}
@@ -211,7 +211,7 @@ const LearnCourse = () => {
           </div>
 
           {/* Desktop buy card (pulled up into the hero) */}
-          <aside className="hidden lg:block" aria-label="Buy this course">
+          <aside className="hidden lg:block" aria-label="Buy this master class">
             <div className="sticky top-[100px] -mt-[22rem] mb-14 overflow-hidden rounded-2xl border border-gold/20 bg-card shadow-[0_30px_60px_-30px_rgba(40,20,10,0.45)]">
               <div className="relative aspect-video bg-black">
                 <Cover course={course} onPlay={course.trailerVimeoUrl ? () => setVideo({ title: course.title, url: course.trailerVimeoUrl, subtitle: "Course trailer" }) : undefined} />
@@ -261,7 +261,7 @@ Online course by Javani Spiritual Hub`, url }); } catch { /* closed the sheet */
     }
     try {
       await navigator.clipboard.writeText(url);
-      toast({ title: "Link copied", description: "Paste it anywhere to share this course." });
+      toast({ title: "Link copied", description: "Paste it anywhere to share this master class." });
     } catch {
       toast({ title: "Couldn't copy", description: url });
     }
@@ -406,7 +406,7 @@ const BuyPanel = ({ course, state, percent, purchasable, busy, paying, watchHref
               {paying ? "Opening payment…" : buyLabel(state)}
             </button>
           ) : (
-            <p className="rounded-lg bg-muted p-3 font-body text-sm text-foreground">Enrolment for this course isn't open yet. <Link to="/contact" className="font-semibold text-primary underline-offset-4 hover:underline">Contact us</Link> to join.</p>
+            <p className="rounded-lg bg-muted p-3 font-body text-sm text-foreground">Enrolment for this master class isn't open yet. <Link to="/contact" className="font-semibold text-primary underline-offset-4 hover:underline">Contact us</Link> to join.</p>
           )
         )}
         {state === "revoked" && <Link to="/contact" className={primaryBtn}>Contact us</Link>}
@@ -456,7 +456,7 @@ const MobileBar = ({ course, state, percent, purchasable, busy, paying, watchHre
 };
 
 const CourseSkeleton = () => (
-  <main className="bg-background" aria-busy="true" aria-label="Loading course">
+  <main className="bg-background" aria-busy="true" aria-label="Loading master class">
     <div className="bg-charcoal">
       <div className="mx-auto max-w-7xl space-y-4 px-4 pb-12 pt-[100px] sm:px-6">
         <div className="h-4 w-40 rounded bg-white/10" />
