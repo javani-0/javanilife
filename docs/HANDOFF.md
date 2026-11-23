@@ -26,10 +26,10 @@ Last updated: 2026-11-23 (voice changes 3: coupon codes, Master Class rename, Yo
 
 ## Next steps (in order)
 
-| 0 | Push the 3 commits (owner OK needed), then check /learn, a course page buy dialog + coupon on the live site | Low |
 
 | # | Step | Effort |
 |---|---|---|
+| 0 | Push the 3 commits (owner OK needed), then check /learn, a course page buy dialog + coupon on the live site | Low |
 | 1 | **QR buy flow tested end to end 2026-11-16 night: PASS.** New draft course "TEST 2 E-Learning QA" (₹1, Razorpay + QR): published → admin bought via QR (test screenshot, test UTR 888822223333, no money moved) → "Under review" in My Learning → Approved in admin (revenue ₹1, 1 active) → My Learning "Start" → watch page plays the Vimeo lesson → revoked + back to draft. Still left for the client: one REAL UPI payment on their phone when the first real course is live (only the real money part is untested) and a Razorpay online buy. Both TEST courses can be deleted once real courses exist. | Medium |
 | 2 | Any later rules change: publish via the Firebase console in the javani Chrome (paste `firestore.rules`), run the emulator tests first | Low |
 | 3 | SEO day 3/7/14/30 checks (report file) | Low |
