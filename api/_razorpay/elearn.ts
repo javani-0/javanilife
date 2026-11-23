@@ -4,6 +4,7 @@ import { getBearerToken, readJsonBody, requirePost, sendError, sendJson, type Ap
 import { createRazorpayClient, getRazorpayCredentials, getRazorpayCurrency, verifyRazorpaySignature } from "../_lib/razorpay.js";
 import { isStaffForPage } from "../_lib/staff.js";
 import { createHash } from "node:crypto";
+import { computeElearnCouponDiscount, loadCouponByCode, normalizeCouponCodeServer } from "../_lib/coupons.js";
 import {
   availablePaymentModes,
   clampAccessDays,
@@ -26,14 +27,15 @@ import {
 
 // ---------------------------------------------------------------------------
 // E-Learning actions (routed by api/razorpay.ts — no extra Vercel function):
-//   POST /api/razorpay/elearn-order       { courseId }
+//   POST /api/razorpay/elearn-coupon      { courseId, couponCode }  (price preview)
+//   POST /api/razorpay/elearn-order       { courseId, couponCode? }
 //   POST /api/razorpay/elearn-verify      { courseId, razorpay_order_id, razorpay_payment_id, razorpay_signature }
-//   POST /api/razorpay/elearn-submit-upi  { courseId, proofUrl, upiRef }  (upiRef = 12-digit UTR)
+//   POST /api/razorpay/elearn-submit-upi  { courseId, proofUrl, upiRef, couponCode? }  (upiRef = 12-digit UTR)
 //   POST /api/razorpay/elearn-review      staff: approve | reject | revoke | grant
 // Every amount comes from Firestore; the client only names the course.
 // ---------------------------------------------------------------------------
 
-export type ElearnAction = "elearn-order" | "elearn-verify" | "elearn-submit-upi" | "elearn-review";
+export type ElearnAction = "elearn-coupon" | "elearn-order" | "elearn-verify" | "elearn-submit-upi" | "elearn-review";
 
 const isFirebaseAuthError = (error: unknown) => {
   const code = typeof error === "object" && error && "code" in error ? String((error as { code?: unknown }).code || "") : "";
@@ -52,6 +54,33 @@ const loadUpiSettings = async (db: Firestore): Promise<UpiSettingsLike | null> =
 
 const toIso = (ms: number | null) => (ms === null ? null : new Date(ms).toISOString());
 
+// Coupon on a course price: always re-checked on the server, so the amount the
+// buyer pays (Razorpay order / UPI record) can never be lowered by the client.
+interface PricedCourse { priceInPaise: number; couponCode: string | null; discountInPaise: number; finalInPaise: number }
+const priceWithCoupon = async (db: Firestore, course: { id: string; priceInPaise: number }, rawCode: unknown): Promise<PricedCourse> => {
+  const code = typeof rawCode === "string" ? normalizeCouponCodeServer(rawCode.slice(0, 60)) : "";
+  if (!code) return { priceInPaise: course.priceInPaise, couponCode: null, discountInPaise: 0, finalInPaise: course.priceInPaise };
+  const coupon = await loadCouponByCode(db, code);
+  if (!coupon) throw new ElearnError(400, "This coupon code is not valid.");
+  const result = computeElearnCouponDiscount(coupon, course.priceInPaise, { courseId: course.id });
+  if (result.discountInPaise <= 0) throw new ElearnError(400, result.reason || "This coupon can't be used for this course.");
+  return {
+    priceInPaise: course.priceInPaise,
+    couponCode: coupon.code,
+    discountInPaise: result.discountInPaise,
+    finalInPaise: course.priceInPaise - result.discountInPaise,
+  };
+};
+
+const previewCoupon = async (db: Firestore, body: Record<string, unknown>) => {
+  const courseId = cleanId(body.courseId, 120);
+  const course = courseId ? await loadSaleCourse(db, courseId) : null;
+  if (!course || course.status !== "published" || course.priceInPaise <= 0) throw new ElearnError(404, "This course is not available.");
+  const priced = await priceWithCoupon(db, course, body.couponCode);
+  if (!priced.couponCode) throw new ElearnError(400, "Enter a coupon code.");
+  return { ok: true as const, ...priced };
+};
+
 // ── elearn-order ───────────────────────────────────────────────────────────
 const createOrder = async (db: Firestore, uid: string, identity: ReturnType<typeof identityFromToken>, body: Record<string, unknown>) => {
   const courseId = cleanId(body.courseId, 120);
@@ -65,12 +94,13 @@ const createOrder = async (db: Firestore, uid: string, identity: ReturnType<type
   if (before && hasActiveAccess(before)) throw new ElearnError(409, "You already have access to this course.");
   if (before?.status === "revoked") throw new ElearnError(403, "Your access to this course was removed. Please contact us.");
 
+  const priced = await priceWithCoupon(db, course, body.couponCode);
   const currency = getRazorpayCurrency();
   const order = await createRazorpayClient().orders.create({
-    amount: course.priceInPaise,
+    amount: priced.finalInPaise,
     currency,
     receipt: `el_${Date.now().toString(36)}_${uid.slice(0, 8)}`.slice(0, 40),
-    notes: { kind: "elearn", uid, courseId: course.id },
+    notes: { kind: "elearn", uid, courseId: course.id, ...(priced.couponCode ? { couponCode: priced.couponCode } : {}) },
   });
 
   const buyer = await loadBuyerIdentity(db, uid, identity);
@@ -92,7 +122,7 @@ const createOrder = async (db: Firestore, uid: string, identity: ReturnType<type
       ...(keepStatus ? {} : { status: "awaiting-payment" }),
       ...(existing?.status === "rejected" ? { previousStatus: "rejected" } : {}),
       razorpayOrderId: order.id,
-      razorpayOrderAmountInPaise: course.priceInPaise,
+      razorpayOrderAmountInPaise: priced.finalInPaise,
       updatedAt: FieldValue.serverTimestamp(),
       ...(existing ? {} : { createdAt: FieldValue.serverTimestamp() }),
     }, { merge: true });
@@ -101,7 +131,7 @@ const createOrder = async (db: Firestore, uid: string, identity: ReturnType<type
   return {
     keyId: getRazorpayCredentials().keyId,
     orderId: order.id,
-    amount: course.priceInPaise,
+    amount: priced.finalInPaise,
     currency,
     enrollmentId: ref.id,
     courseTitle: course.title,
@@ -149,6 +179,7 @@ const submitUpi = async (db: Firestore, uid: string, identity: ReturnType<typeof
 
   const course = courseId ? await loadSaleCourse(db, courseId) : null;
   if (!course || course.status !== "published") throw new ElearnError(404, "This course is not available.");
+  const priced = await priceWithCoupon(db, course, body.couponCode);
   const settings = await loadUpiSettings(db);
   if (!availablePaymentModes(course, settings).upi) throw new ElearnError(400, "QR payment is not available for this course.");
 
@@ -179,7 +210,10 @@ const submitUpi = async (db: Firestore, uid: string, identity: ReturnType<typeof
       ...buyer,
       status: "processing",
       method: "upi",
-      amountInPaise: course.priceInPaise,
+      amountInPaise: priced.finalInPaise,
+      ...(priced.couponCode
+        ? { couponCode: priced.couponCode, listPriceInPaise: priced.priceInPaise, discountInPaise: priced.discountInPaise }
+        : { couponCode: FieldValue.delete(), listPriceInPaise: FieldValue.delete(), discountInPaise: FieldValue.delete() }),
       upiProofUrl: cleanProofUrl,
       upiRef,
       submittedAt: FieldValue.serverTimestamp(),
@@ -254,6 +288,7 @@ const review = async (db: Firestore, staffUid: string, body: Record<string, unkn
       course,
       method: "upi",
       amountInPaise: Math.max(0, Math.round(Number(data.amountInPaise) || 0)),
+      couponCode: typeof data.couponCode === "string" && data.couponCode ? data.couponCode : undefined,
       reviewedBy: staffUid,
       // Re-checked inside the transaction: a reject/revoke in another tab wins.
       requireStatus: ["processing"],
@@ -313,6 +348,7 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     const db = getFirebaseAdminDb();
     const identity = identityFromToken(decoded);
 
+    if (action === "elearn-coupon") return sendJson(response, 200, await previewCoupon(db, body));
     if (action === "elearn-order") return sendJson(response, 200, await createOrder(db, decoded.uid, identity, body));
     if (action === "elearn-verify") return sendJson(response, 200, await verify(db, decoded.uid, body));
     if (action === "elearn-submit-upi") return sendJson(response, 200, await submitUpi(db, decoded.uid, identity, body));

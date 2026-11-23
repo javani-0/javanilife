@@ -2,6 +2,8 @@ import { calculateLineTotal, formatPaiseAsRupees, parsePriceToPaise } from "./pr
 import { slugifyCategoryId } from "./categories";
 import type { CartItem, CartItemType } from "./types";
 
+export type CouponItemType = CartItemType | "elearning";
+
 export type CouponType = "percentage" | "fixed_amount" | "free_delivery";
 
 export interface Coupon {
@@ -20,7 +22,7 @@ export interface Coupon {
   maxRedemptions?: number;
   redeemedCount?: number;
   perUserLimit?: number;
-  applicableItemTypes?: CartItemType[];
+  applicableItemTypes?: CouponItemType[];
   applicableCategoryIds?: string[];
   applicableProductIds?: string[];
   adminNotes?: string;
@@ -89,9 +91,13 @@ const normalizeScopeList = (value: unknown): string[] => (
   Array.isArray(value) ? value.map((item) => getString(item).trim()).filter(Boolean) : []
 );
 
-const normalizeItemTypes = (value: unknown): CartItemType[] => (
+// "elearning" = online video courses (checked only by the server's e-learning
+// checkout); a cart item is never "elearning", so such a coupon never applies
+// in the shop. Unknown values are kept out, never widened to "everything".
+const COUPON_ITEM_TYPES: readonly CouponItemType[] = ["product", "course", "rental", "elearning"];
+const normalizeItemTypes = (value: unknown): CouponItemType[] => (
   Array.isArray(value)
-    ? value.filter((item): item is CartItemType => item === "product" || item === "course")
+    ? value.filter((item): item is CouponItemType => COUPON_ITEM_TYPES.includes(item as CouponItemType))
     : []
 );
 

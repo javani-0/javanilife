@@ -55,6 +55,9 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     return partnerSummary(request, response);
   }
   // E-Learning (video courses): one handler, passed the action.
+  if (action === "elearn-coupon" || url.includes("/elearn-coupon")) {
+    return elearn(request, response, "elearn-coupon");
+  }
   if (action === "elearn-order" || url.includes("/elearn-order")) {
     return elearn(request, response, "elearn-order");
   }

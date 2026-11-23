@@ -7,6 +7,8 @@ import { useToast } from "@/hooks/use-toast";
 import { confirmDialog } from "@/components/ConfirmDialogHost";
 import { db } from "@/lib/firebase";
 import { subscribeToClasses, type ClassDoc } from "@/lib/classes";
+import { subscribeAllCourses } from "@/lib/elearning/courses";
+import type { ElearnCourse } from "@/lib/elearning";
 import {
   formatCouponBenefit,
   formatPaiseAsRupees,
@@ -29,7 +31,7 @@ interface CouponFormState {
   startsAt: string;
   expiresAt: string;
   maxRedemptions: string;
-  applicableItemScope: "all" | "product" | "course" | "rental";
+  applicableItemScope: "all" | "product" | "course" | "rental" | "elearning";
   applicableCategoryIds: string;
   applicableProductIds: string;
 }
@@ -116,6 +118,9 @@ const AdminCoupons = () => {
   // engine; a class-specific coupon lists the class id in applicableProductIds.
   const [classes, setClasses] = useState<ClassDoc[]>([]);
   useEffect(() => subscribeToClasses((items) => setClasses(items.filter((item) => item.active)), () => undefined), []);
+  // Online (E-Learning) courses, so a coupon can be limited to chosen courses.
+  const [onlineCourses, setOnlineCourses] = useState<ElearnCourse[]>([]);
+  useEffect(() => subscribeAllCourses((items) => setOnlineCourses(items), () => undefined), []);
 
   const appendClassId = (classId: string) => {
     setForm((current) => {
@@ -285,10 +290,11 @@ const AdminCoupons = () => {
             </label>
             <label className={labelClass}>Item scope
               <select value={form.applicableItemScope} onChange={(event) => setForm({ ...form, applicableItemScope: event.target.value as CouponFormState["applicableItemScope"] })} className={inputClass}>
-                <option value="all">Products, courses & classes</option>
+                <option value="all">Everything (shop, classes & online courses)</option>
                 <option value="product">Products only</option>
                 <option value="course">Courses & classes only</option>
                 <option value="rental">Rentals only</option>
+                <option value="elearning">Online courses (E-Learning) only</option>
               </select>
             </label>
             <label className={labelClass}>Category IDs
@@ -319,6 +325,27 @@ const AdminCoupons = () => {
                           className={`rounded-full border px-2.5 py-1 font-body text-[0.7rem] transition-colors ${added ? "border-gold bg-gold/15 font-semibold text-gold" : "border-border text-muted-foreground hover:border-gold/50 hover:text-gold"}`}
                         >
                           {added ? "✓ " : "+ "}{classDoc.name}
+                        </button>
+                      );
+                    })}
+                  </span>
+                </span>
+              )}
+              {onlineCourses.length > 0 && (form.applicableItemScope === "elearning" || form.applicableItemScope === "all") && (
+                <span className="mt-2 block font-body text-[0.72rem] font-normal text-muted-foreground">
+                  Limit to specific online courses (tap to add; none = every online course):
+                  <span className="mt-1 flex flex-wrap gap-1.5">
+                    {onlineCourses.map((course) => {
+                      const added = splitList(form.applicableProductIds).includes(course.id);
+                      return (
+                        <button
+                          type="button"
+                          key={course.id}
+                          onClick={() => appendClassId(course.id)}
+                          disabled={added}
+                          className={`rounded-full border px-2.5 py-1 font-body text-[0.7rem] transition-colors ${added ? "border-gold bg-gold/15 font-semibold text-gold" : "border-border text-muted-foreground hover:border-gold/50 hover:text-gold"}`}
+                        >
+                          {added ? "✓ " : "+ "}{course.title}
                         </button>
                       );
                     })}

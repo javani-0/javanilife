@@ -7,7 +7,7 @@
 // item-type / class-id scoping.
 // ---------------------------------------------------------------------------
 
-type Firestore = FirebaseFirestore.Firestore;
+import type { DocumentData, Firestore } from "firebase-admin/firestore";
 
 const num = (value: unknown, fallback = 0): number => {
   const parsed = Number(value);
@@ -26,6 +26,10 @@ export interface LoadedCoupon {
   expiresAt?: unknown;
   applicableItemTypes?: string[];
   applicableProductIds?: string[];
+  applicableCategoryIds?: string[];
+  /** 0/undefined = unlimited. */
+  maxRedemptions?: number;
+  redeemedCount?: number;
 }
 
 const parseDate = (value: unknown): Date | null => {
@@ -46,7 +50,7 @@ const normalizeValue = (type: string, raw: unknown): number => {
   return Math.max(0, value);
 };
 
-const normalizeCoupon = (data: FirebaseFirestore.DocumentData, fallbackCode: string): LoadedCoupon => {
+const normalizeCoupon = (data: DocumentData, fallbackCode: string): LoadedCoupon => {
   const type = (["percentage", "fixed_amount", "free_delivery"].includes(getString(data.type)) ? data.type : "percentage") as LoadedCoupon["type"];
   return {
     code: normalizeCode(getString(data.code, fallbackCode)),
@@ -59,8 +63,13 @@ const normalizeCoupon = (data: FirebaseFirestore.DocumentData, fallbackCode: str
     expiresAt: data.expiresAt,
     applicableItemTypes: Array.isArray(data.applicableItemTypes) ? data.applicableItemTypes.map((v: unknown) => getString(v)) : undefined,
     applicableProductIds: Array.isArray(data.applicableProductIds) ? data.applicableProductIds.map((v: unknown) => getString(v)).filter(Boolean) : undefined,
+    applicableCategoryIds: Array.isArray(data.applicableCategoryIds) ? data.applicableCategoryIds.map((v: unknown) => getString(v)).filter(Boolean) : undefined,
+    maxRedemptions: num(data.maxRedemptions) > 0 ? Math.floor(num(data.maxRedemptions)) : undefined,
+    redeemedCount: Math.max(0, Math.floor(num(data.redeemedCount))),
   };
 };
+
+export const normalizeCouponCodeServer = normalizeCode;
 
 /** Load a coupon by code — tries the doc id (code) first, then a `code` field query. */
 export const loadCouponByCode = async (db: Firestore, rawCode: string): Promise<LoadedCoupon | null> => {
@@ -107,4 +116,52 @@ export const computeClassCouponDiscount = (
   }
   // Never discount below ₹1.
   return { discountInPaise: Math.max(0, Math.min(discount, Math.max(0, base - 100))) };
+};
+
+/**
+ * Discount a coupon gives on an online (e-learning) course price, in paise.
+ * Valid when the coupon is scoped to everything (no item types) or to
+ * "elearning"; a coupon that lists ids must list this course. The price never
+ * drops below ₹1 (Razorpay and UPI need a real amount).
+ */
+export const computeElearnCouponDiscount = (
+  coupon: LoadedCoupon,
+  priceInPaise: number,
+  opts: { courseId: string; now?: Date },
+): CouponDiscountResult => {
+  const now = opts.now || new Date();
+  const base = Math.max(0, Math.round(num(priceInPaise)));
+  if (!coupon.active) return { discountInPaise: 0, reason: "This coupon is not active." };
+  const startsAt = parseDate(coupon.startsAt);
+  if (startsAt && startsAt.getTime() > now.getTime()) return { discountInPaise: 0, reason: "This coupon is not active yet." };
+  const expiresAt = parseDate(coupon.expiresAt);
+  if (expiresAt && expiresAt.getTime() < now.getTime()) return { discountInPaise: 0, reason: "This coupon has expired." };
+  if (coupon.maxRedemptions && (coupon.redeemedCount || 0) >= coupon.maxRedemptions) {
+    return { discountInPaise: 0, reason: "This coupon has been fully used." };
+  }
+  if (coupon.applicableItemTypes?.length && !coupon.applicableItemTypes.includes("elearning")) {
+    return { discountInPaise: 0, reason: "This coupon is not valid for online courses." };
+  }
+  // Category ids are shop/class categories; an online course has none.
+  if (coupon.applicableCategoryIds?.length && !coupon.applicableItemTypes?.includes("elearning")) {
+    return { discountInPaise: 0, reason: "This coupon is not valid for online courses." };
+  }
+  if (coupon.applicableProductIds?.length && !coupon.applicableProductIds.includes(opts.courseId)) {
+    return { discountInPaise: 0, reason: "This coupon is not valid for this course." };
+  }
+  if (coupon.minSubtotalInPaise && base < coupon.minSubtotalInPaise) {
+    return { discountInPaise: 0, reason: "This course price is below this coupon's minimum." };
+  }
+  let discount = 0;
+  if (coupon.type === "percentage") {
+    discount = Math.floor(base * Math.min(100, coupon.value) / 100);
+    if (coupon.maxDiscountInPaise) discount = Math.min(discount, coupon.maxDiscountInPaise);
+  } else if (coupon.type === "fixed_amount") {
+    discount = Math.min(coupon.value, base);
+  } else {
+    return { discountInPaise: 0, reason: "This coupon can't be used for online courses." };
+  }
+  discount = Math.max(0, Math.min(discount, Math.max(0, base - 100)));
+  if (discount <= 0) return { discountInPaise: 0, reason: "This coupon gives no discount on this course." };
+  return { discountInPaise: discount };
 };

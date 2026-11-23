@@ -38,8 +38,21 @@ export interface ElearnOrderResponse {
   courseTitle: string;
 }
 
-export const createElearnOrder = (idToken: string, courseId: string) =>
-  postJson<ElearnOrderResponse>("elearn-order", idToken, { courseId });
+export const createElearnOrder = (idToken: string, courseId: string, couponCode?: string | null) =>
+  postJson<ElearnOrderResponse>("elearn-order", idToken, { courseId, ...(couponCode ? { couponCode } : {}) });
+
+// ── elearn-coupon (price preview; the server re-checks it on order/UPI) ─────
+
+export interface ElearnCouponPreview {
+  ok: true;
+  priceInPaise: number;
+  couponCode: string;
+  discountInPaise: number;
+  finalInPaise: number;
+}
+
+export const previewElearnCoupon = (idToken: string, courseId: string, couponCode: string) =>
+  postJson<ElearnCouponPreview>("elearn-coupon", idToken, { courseId, couponCode });
 
 // ── elearn-verify ──────────────────────────────────────────────────────────
 
@@ -71,15 +84,17 @@ export const verifyElearnPayment = (idToken: string, payload: ElearnVerifyReques
 export const buyCourseWithRazorpay = async ({
   idToken,
   courseId,
+  couponCode,
   prefill,
   themeColor = "#8B1A1A",
 }: {
   idToken: string;
   courseId: string;
+  couponCode?: string | null;
   prefill?: { name?: string; email?: string; contact?: string };
   themeColor?: string;
 }): Promise<ElearnVerifyResponse> => {
-  const order = await createElearnOrder(idToken, courseId);
+  const order = await createElearnOrder(idToken, courseId, couponCode);
   const result = await openRazorpayCheckout({
     key: order.keyId,
     amount: order.amount,
@@ -107,6 +122,8 @@ export interface ElearnSubmitUpiRequest {
   proofUrl: string;
   /** Required: the 12-digit UTR / UPI reference number (spaces/dashes allowed, the server strips them). */
   upiRef: string;
+  /** A coupon the buyer applied; the server re-checks it and saves the discounted amount. */
+  couponCode?: string;
 }
 
 export interface ElearnSubmitUpiResponse {

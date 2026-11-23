@@ -98,6 +98,8 @@ export interface ActivationInput {
   requireStatus?: string[];
   /** Never activate over these stored statuses; a Razorpay payment is kept in extraPaymentIds for a refund. */
   blockStatus?: string[];
+  /** Coupon used for this purchase: saved on the record and counted once (coupons/{code}.redeemedCount). */
+  couponCode?: string;
 }
 
 export interface ActivationResult {
@@ -179,6 +181,14 @@ export const activateEnrollment = async (db: Firestore, input: ActivationInput):
     if (paymentId) {
       record.razorpayPaymentId = paymentId;
       record.razorpayPaymentIds = FieldValue.arrayUnion(paymentId);
+    }
+    const couponCode = (input.couponCode || "").trim().toUpperCase().slice(0, 60);
+    if (couponCode) {
+      record.couponCode = couponCode;
+      tx.set(db.collection("coupons").doc(couponCode), {
+        redeemedCount: FieldValue.increment(1),
+        updatedAt: FieldValue.serverTimestamp(),
+      }, { merge: true });
     }
     if (input.reviewedBy) {
       record.reviewedBy = input.reviewedBy;
@@ -272,6 +282,7 @@ export const activateFromRazorpay = async (
     identity,
     razorpayOrderId: args.razorpayOrderId,
     razorpayPaymentId: args.razorpayPaymentId,
+    couponCode: typeof notes.couponCode === "string" && notes.couponCode ? notes.couponCode : undefined,
     // Staff revoked this student: the money is noted for a refund, no access.
     blockStatus: ["revoked"],
   });

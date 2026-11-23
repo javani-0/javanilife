@@ -40,8 +40,8 @@ const LearnCourse = () => {
       navigate(`/login?redirect=${encodeURIComponent(pathname + search)}`);
       return;
     }
-    if (modes.razorpay && !modes.upi) void pay();
-    else setBuyOpen(true);
+    // Always open the dialog first so the buyer can add a coupon code.
+    setBuyOpen(true);
   };
 
   if (loading) return <CourseSkeleton />;
@@ -232,7 +232,7 @@ const LearnCourse = () => {
       <div className="hidden sm:block"><Footer /></div>
 
       {purchasable && (
-        <BuyCourseDialog course={course} modes={modes} settings={settings} open={buyOpen} onOpenChange={setBuyOpen} onPayOnline={() => void pay()} isDemo={access.isDemo} />
+        <BuyCourseDialog course={course} modes={modes} settings={settings} open={buyOpen} onOpenChange={setBuyOpen} onPayOnline={(couponCode) => void pay(couponCode)} isDemo={access.isDemo} />
       )}
       <VideoModal open={!!video} onOpenChange={(open) => !open && setVideo(null)} title={video?.title ?? ""} vimeoUrl={video?.url ?? ""} subtitle={video?.subtitle} />
     </>
