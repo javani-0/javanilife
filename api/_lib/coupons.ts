@@ -158,6 +158,11 @@ export const computeElearnBundleDiscount = (
     ? priced.filter((item) => coupon.applicableProductIds!.includes(item.courseId))
     : priced;
   if (!eligible.length) return none(several ? "This coupon is not valid for these master classes." : "This coupon is not valid for this master class.");
+  // Each discounted master class uses one redemption (so one free-class coupon can't unlock five).
+  if (coupon.maxRedemptions) {
+    const left = coupon.maxRedemptions - (coupon.redeemedCount || 0);
+    if (eligible.length > left) return none(`This coupon has only ${left} ${left === 1 ? "use" : "uses"} left. Remove some master classes and try again.`);
+  }
   const base = eligible.reduce((sum, item) => sum + item.price, 0);
   const total = priced.reduce((sum, item) => sum + item.price, 0);
   if (coupon.minSubtotalInPaise && base < coupon.minSubtotalInPaise) {

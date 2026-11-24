@@ -155,7 +155,8 @@ const createOrder = async (db: Firestore, uid: string, identity: ReturnType<type
         amountInPaise: 0,
         identity: buyer,
         couponCode: priced.couponCode,
-        countCoupon: index === 0,
+        // Every discounted master class counts as one coupon use.
+        countCoupon: item.discountInPaise > 0,
         enforceCouponLimit: true,
         bundle,
         blockStatus: ["revoked"],
@@ -183,6 +184,8 @@ const createOrder = async (db: Firestore, uid: string, identity: ReturnType<type
       courseId: courses[0].id,
       ...(several ? { courseIds: joinedIds, amounts: priced.items.map((item) => item.finalInPaise).join(",") } : {}),
       ...(priced.couponCode ? { couponCode: priced.couponCode } : {}),
+      // Which master classes the coupon discounted (each counts as one use).
+      ...(priced.couponCode && several ? { couponIds: priced.items.filter((item) => item.discountInPaise > 0).map((item) => item.course.id).join(",") } : {}),
     },
   });
 
@@ -410,8 +413,8 @@ const review = async (db: Firestore, staffUid: string, body: Record<string, unkn
         method: "upi",
         amountInPaise: Math.max(0, Math.round(Number(record.data.amountInPaise) || 0)),
         couponCode: typeof record.data.couponCode === "string" && record.data.couponCode ? record.data.couponCode : undefined,
-        // One coupon use per payment, however many master classes it covered.
-        countCoupon: index === 0,
+        // Every discounted master class counts as one coupon use.
+        countCoupon: Number(record.data.discountInPaise) > 0,
         reviewedBy: staffUid,
         // Re-checked inside the transaction: a reject/revoke in another tab wins.
         requireStatus: ["processing"],

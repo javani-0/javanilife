@@ -62,6 +62,13 @@ describe("computeElearnBundleDiscount (several master classes together)", () => 
     const r = computeElearnBundleDiscount({ ...base, type: "fixed_amount", value: 100001 }, three, { now });
     expect(sum(r.perCourse)).toBe(100001);
   });
+  it("each discounted master class uses one coupon use", () => {
+    const free = { ...base, value: 100, maxRedemptions: 1, redeemedCount: 0 };
+    expect(computeElearnBundleDiscount(free, three, { now }).reason).toMatch(/only 1 use left/);
+    expect(computeElearnBundleDiscount(free, three.slice(0, 1), { now }).discountInPaise).toBe(100000);
+    expect(computeElearnBundleDiscount({ ...free, maxRedemptions: 5, redeemedCount: 2 }, three, { now }).discountInPaise).toBe(600000);
+    expect(computeElearnBundleDiscount({ ...free, maxRedemptions: 5, redeemedCount: 3 }, three, { now }).reason).toMatch(/only 2 uses left/);
+  });
   it("100% makes all of them free", () => {
     const r = computeElearnBundleDiscount({ ...base, value: 100 }, three, { now });
     expect(r.discountInPaise).toBe(600000);

@@ -310,6 +310,7 @@ export const activateFromRazorpay = async (
     phone: String(first.userPhone || ""),
   });
   const couponCode = typeof notes.couponCode === "string" && notes.couponCode ? notes.couponCode : undefined;
+  const couponIds = typeof notes.couponIds === "string" ? notes.couponIds.split(",").filter(Boolean) : null;
   const bundle = courseIds.length > 1
     ? { id: args.razorpayOrderId, courseTitles: loaded.map((item) => item.course.title), totalInPaise: orderAmount }
     : undefined;
@@ -324,8 +325,8 @@ export const activateFromRazorpay = async (
       razorpayOrderId: args.razorpayOrderId,
       razorpayPaymentId: args.razorpayPaymentId,
       couponCode,
-      // One purchase = one coupon use, counted on the first course.
-      countCoupon: index === 0,
+      // Every discounted master class counts as one coupon use.
+      countCoupon: couponIds ? couponIds.includes(item.course.id) : index === 0,
       bundle,
       // Staff revoked this student: the money is noted for a refund, no access.
       blockStatus: ["revoked"],
