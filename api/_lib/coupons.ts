@@ -118,50 +118,89 @@ export const computeClassCouponDiscount = (
   return { discountInPaise: Math.max(0, Math.min(discount, Math.max(0, base - 100))) };
 };
 
+export interface ElearnBundleItem { courseId: string; priceInPaise: number }
+export interface ElearnBundleDiscount {
+  /** Total discount on the whole purchase. */
+  discountInPaise: number;
+  /** The discount split per course (sums to discountInPaise). */
+  perCourse: Record<string, number>;
+  reason?: string;
+}
+
 /**
- * Discount a coupon gives on an online (e-learning) course price, in paise.
- * Valid when the coupon is scoped to everything (no item types) or to
- * "elearning"; a coupon that lists ids must list this course. The price never
- * drops below ₹1 (Razorpay and UPI need a real amount).
+ * Discount a coupon gives on one or more online (e-learning) master classes
+ * bought together, in paise. Valid when the coupon is scoped to everything (no
+ * item types) or to "elearning"; a coupon that lists ids discounts only the
+ * listed courses. A coupon may make the purchase FREE (total 0, e.g. 100% off
+ * for our own students); otherwise the total never ends between 1 and 99 paise
+ * (Razorpay and UPI need at least ₹1). The discount is split across the
+ * discounted courses by price, so each course's record holds its own share.
  */
-export const computeElearnCouponDiscount = (
+export const computeElearnBundleDiscount = (
   coupon: LoadedCoupon,
-  priceInPaise: number,
-  opts: { courseId: string; now?: Date },
-): CouponDiscountResult => {
+  items: ElearnBundleItem[],
+  opts: { now?: Date } = {},
+): ElearnBundleDiscount => {
+  const none = (reason: string): ElearnBundleDiscount => ({ discountInPaise: 0, perCourse: {}, reason });
   const now = opts.now || new Date();
-  const base = Math.max(0, Math.round(num(priceInPaise)));
-  if (!coupon.active) return { discountInPaise: 0, reason: "This coupon is not active." };
+  const priced = items.map((item) => ({ courseId: item.courseId, price: Math.max(0, Math.round(num(item.priceInPaise))) }));
+  const several = priced.length > 1;
+  if (!coupon.active) return none("This coupon is not active.");
   const startsAt = parseDate(coupon.startsAt);
-  if (startsAt && startsAt.getTime() > now.getTime()) return { discountInPaise: 0, reason: "This coupon is not active yet." };
+  if (startsAt && startsAt.getTime() > now.getTime()) return none("This coupon is not active yet.");
   const expiresAt = parseDate(coupon.expiresAt);
-  if (expiresAt && expiresAt.getTime() < now.getTime()) return { discountInPaise: 0, reason: "This coupon has expired." };
-  if (coupon.maxRedemptions && (coupon.redeemedCount || 0) >= coupon.maxRedemptions) {
-    return { discountInPaise: 0, reason: "This coupon has been fully used." };
-  }
-  if (coupon.applicableItemTypes?.length && !coupon.applicableItemTypes.includes("elearning")) {
-    return { discountInPaise: 0, reason: "This coupon is not valid for master classes." };
-  }
+  if (expiresAt && expiresAt.getTime() < now.getTime()) return none("This coupon has expired.");
+  if (coupon.maxRedemptions && (coupon.redeemedCount || 0) >= coupon.maxRedemptions) return none("This coupon has been fully used.");
+  if (coupon.applicableItemTypes?.length && !coupon.applicableItemTypes.includes("elearning")) return none("This coupon is not valid for master classes.");
   // Category ids are shop/class categories; an online course has none.
-  if (coupon.applicableCategoryIds?.length && !coupon.applicableItemTypes?.includes("elearning")) {
-    return { discountInPaise: 0, reason: "This coupon is not valid for master classes." };
-  }
-  if (coupon.applicableProductIds?.length && !coupon.applicableProductIds.includes(opts.courseId)) {
-    return { discountInPaise: 0, reason: "This coupon is not valid for this master class." };
-  }
+  if (coupon.applicableCategoryIds?.length && !coupon.applicableItemTypes?.includes("elearning")) return none("This coupon is not valid for master classes.");
+  const eligible = coupon.applicableProductIds?.length
+    ? priced.filter((item) => coupon.applicableProductIds!.includes(item.courseId))
+    : priced;
+  if (!eligible.length) return none(several ? "This coupon is not valid for these master classes." : "This coupon is not valid for this master class.");
+  const base = eligible.reduce((sum, item) => sum + item.price, 0);
+  const total = priced.reduce((sum, item) => sum + item.price, 0);
   if (coupon.minSubtotalInPaise && base < coupon.minSubtotalInPaise) {
-    return { discountInPaise: 0, reason: "This master class price is below this coupon's minimum." };
+    return none(several ? "The total is below this coupon's minimum." : "This master class price is below this coupon's minimum.");
   }
   let discount = 0;
   if (coupon.type === "percentage") {
     discount = Math.floor(base * Math.min(100, coupon.value) / 100);
     if (coupon.maxDiscountInPaise) discount = Math.min(discount, coupon.maxDiscountInPaise);
   } else if (coupon.type === "fixed_amount") {
-    discount = Math.min(coupon.value, base);
+    discount = coupon.value;
   } else {
-    return { discountInPaise: 0, reason: "This coupon can't be used for master classes." };
+    return none("This coupon can't be used for master classes.");
   }
-  discount = Math.max(0, Math.min(discount, Math.max(0, base - 100)));
-  if (discount <= 0) return { discountInPaise: 0, reason: "This coupon gives no discount on this master class." };
-  return { discountInPaise: discount };
+  discount = Math.max(0, Math.min(Math.round(discount), base));
+  const left = total - discount;
+  if (left > 0 && left < 100) discount = Math.max(0, total - 100);
+  if (discount <= 0) return none(several ? "This coupon gives no discount on these master classes." : "This coupon gives no discount on this master class.");
+
+  // Split by price; the leftover paise go one by one to courses with room.
+  const perCourse: Record<string, number> = {};
+  let given = 0;
+  for (const item of eligible) {
+    const share = base > 0 ? Math.floor(discount * item.price / base) : 0;
+    perCourse[item.courseId] = share;
+    given += share;
+  }
+  for (let i = 0; given < discount && i < eligible.length * 2; i += 1) {
+    const item = eligible[i % eligible.length];
+    if (perCourse[item.courseId] < item.price) {
+      perCourse[item.courseId] += 1;
+      given += 1;
+    }
+  }
+  return { discountInPaise: discount, perCourse };
+};
+
+/** One course: see computeElearnBundleDiscount (a coupon may make it free). */
+export const computeElearnCouponDiscount = (
+  coupon: LoadedCoupon,
+  priceInPaise: number,
+  opts: { courseId: string; now?: Date },
+): CouponDiscountResult => {
+  const result = computeElearnBundleDiscount(coupon, [{ courseId: opts.courseId, priceInPaise }], { now: opts.now });
+  return result.reason ? { discountInPaise: 0, reason: result.reason } : { discountInPaise: result.discountInPaise };
 };

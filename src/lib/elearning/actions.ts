@@ -28,18 +28,30 @@ const postJson = async <T>(action: string, idToken: string, payload: unknown): P
 };
 
 // ── elearn-order ───────────────────────────────────────────────────────────
+// courseIds: 1-5 master classes bought together in one payment.
 
 export interface ElearnOrderResponse {
+  free?: undefined;
   keyId: string;
   orderId: string;
   amount: number;
   currency: string;
   enrollmentId: string;
+  enrollmentIds: string[];
   courseTitle: string;
 }
 
-export const createElearnOrder = (idToken: string, courseId: string, couponCode?: string | null) =>
-  postJson<ElearnOrderResponse>("elearn-order", idToken, { courseId, ...(couponCode ? { couponCode } : {}) });
+/** A 100% coupon: access is given at once, no payment. */
+export interface ElearnFreeResponse {
+  free: true;
+  status: "active";
+  enrollmentId: string;
+  enrollmentIds: string[];
+  courseIds: string[];
+}
+
+export const createElearnOrder = (idToken: string, courseIds: string[], couponCode?: string | null) =>
+  postJson<ElearnOrderResponse | ElearnFreeResponse>("elearn-order", idToken, { courseIds, ...(couponCode ? { couponCode } : {}) });
 
 // ── elearn-coupon (price preview; the server re-checks it on order/UPI) ─────
 
@@ -49,15 +61,17 @@ export interface ElearnCouponPreview {
   couponCode: string;
   discountInPaise: number;
   finalInPaise: number;
+  /** The coupon covers the whole price. */
+  free: boolean;
 }
 
-export const previewElearnCoupon = (idToken: string, courseId: string, couponCode: string) =>
-  postJson<ElearnCouponPreview>("elearn-coupon", idToken, { courseId, couponCode });
+export const previewElearnCoupon = (idToken: string, courseIds: string[], couponCode: string) =>
+  postJson<ElearnCouponPreview>("elearn-coupon", idToken, { courseIds, couponCode });
 
 // ── elearn-verify ──────────────────────────────────────────────────────────
 
 export interface ElearnVerifyRequest {
-  courseId: string;
+  courseIds: string[];
   razorpay_order_id: string;
   razorpay_payment_id: string;
   razorpay_signature: string;
@@ -67,9 +81,12 @@ export interface ElearnVerifyResponse {
   verified: boolean;
   status: "active";
   enrollmentId: string;
+  enrollmentIds?: string[];
   /** ISO string, or null for lifetime access. */
   expiresAt: string | null;
   alreadyActive?: boolean;
+  /** Given by a 100% coupon (no payment was taken). */
+  free?: boolean;
 }
 
 export const verifyElearnPayment = (idToken: string, payload: ElearnVerifyRequest) =>
@@ -79,22 +96,26 @@ export const verifyElearnPayment = (idToken: string, payload: ElearnVerifyReques
  * The whole online purchase: create the order, open Razorpay checkout, verify on
  * the server. Resolves once access is active. Rejects with the checkout's
  * message if the buyer closes it or the payment fails (the webhook still
- * activates a payment that was captured but not verified here).
+ * activates a payment that was captured but not verified here). When a coupon
+ * makes the total 0 the server gives access at once and checkout never opens.
  */
 export const buyCourseWithRazorpay = async ({
   idToken,
-  courseId,
+  courseIds,
   couponCode,
   prefill,
   themeColor = "#8B1A1A",
 }: {
   idToken: string;
-  courseId: string;
+  courseIds: string[];
   couponCode?: string | null;
   prefill?: { name?: string; email?: string; contact?: string };
   themeColor?: string;
 }): Promise<ElearnVerifyResponse> => {
-  const order = await createElearnOrder(idToken, courseId, couponCode);
+  const order = await createElearnOrder(idToken, courseIds, couponCode);
+  if (!("orderId" in order)) {
+    return { verified: true, status: "active", enrollmentId: order.enrollmentId, enrollmentIds: order.enrollmentIds, expiresAt: null, free: true };
+  }
   const result = await openRazorpayCheckout({
     key: order.keyId,
     amount: order.amount,
@@ -103,11 +124,11 @@ export const buyCourseWithRazorpay = async ({
     name: "Javani Spiritual Hub",
     description: order.courseTitle,
     prefill,
-    notes: { kind: "elearn", courseId },
+    notes: { kind: "elearn", courseId: courseIds[0] },
     theme: { color: themeColor },
   });
   return verifyElearnPayment(idToken, {
-    courseId,
+    courseIds,
     razorpay_order_id: result.razorpay_order_id,
     razorpay_payment_id: result.razorpay_payment_id,
     razorpay_signature: result.razorpay_signature,
@@ -117,7 +138,7 @@ export const buyCourseWithRazorpay = async ({
 // ── elearn-submit-upi ──────────────────────────────────────────────────────
 
 export interface ElearnSubmitUpiRequest {
-  courseId: string;
+  courseIds: string[];
   /** From uploadPaymentProof(file): https on our Cloudinary cloud. */
   proofUrl: string;
   /** Required: the 12-digit UTR / UPI reference number (spaces/dashes allowed, the server strips them). */

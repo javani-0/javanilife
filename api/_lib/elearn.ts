@@ -100,6 +100,12 @@ export interface ActivationInput {
   blockStatus?: string[];
   /** Coupon used for this purchase: saved on the record and counted once (coupons/{code}.redeemedCount). */
   couponCode?: string;
+  /** false = save couponCode but don't count a use (the other courses of one purchase). Default true. */
+  countCoupon?: boolean;
+  /** Free (100%) coupon: refuse inside the transaction if its use limit is already reached. */
+  enforceCouponLimit?: boolean;
+  /** Bought together with other courses in one payment (shown to staff). */
+  bundle?: { id: string; courseTitles: string[]; totalInPaise: number };
 }
 
 export interface ActivationResult {
@@ -125,6 +131,13 @@ export const activateEnrollment = async (db: Firestore, input: ActivationInput):
     const snapshot = await tx.get(ref);
     const existing = snapshot.exists ? snapshot.data() || {} : null;
     const paymentId = input.razorpayPaymentId || "";
+    const limitCode = (input.couponCode || "").trim().toUpperCase().slice(0, 60);
+    if (input.enforceCouponLimit && limitCode && input.countCoupon !== false && !(existing && hasActiveAccess(existing))) {
+      const coupon = (await tx.get(db.collection("coupons").doc(limitCode))).data() || {};
+      const max = Math.round(Number(coupon.maxRedemptions) || 0);
+      if (coupon.active === false) throw new ElearnError(409, "This coupon is not active.");
+      if (max > 0 && Math.round(Number(coupon.redeemedCount) || 0) >= max) throw new ElearnError(409, "This coupon has been fully used.");
+    }
     const usedPaymentIds: string[] = Array.isArray(existing?.razorpayPaymentIds) ? existing.razorpayPaymentIds : [];
 
     if (existing && paymentId && usedPaymentIds.includes(paymentId)) {
@@ -183,8 +196,13 @@ export const activateEnrollment = async (db: Firestore, input: ActivationInput):
       record.razorpayPaymentIds = FieldValue.arrayUnion(paymentId);
     }
     const couponCode = (input.couponCode || "").trim().toUpperCase().slice(0, 60);
-    if (couponCode) {
-      record.couponCode = couponCode;
+    if (input.bundle) {
+      record.bundleId = input.bundle.id;
+      record.bundleCourseTitles = input.bundle.courseTitles.slice(0, 10);
+      record.bundleTotalInPaise = Math.max(0, Math.round(input.bundle.totalInPaise));
+    }
+    if (couponCode) record.couponCode = couponCode;
+    if (couponCode && input.countCoupon !== false) {
       tx.set(db.collection("coupons").doc(couponCode), {
         redeemedCount: FieldValue.increment(1),
         updatedAt: FieldValue.serverTimestamp(),
@@ -229,9 +247,9 @@ export const activateFromRazorpay = async (
     razorpayOrderId: string;
     razorpayPaymentId: string;
     payment?: RazorpayEntity;
-    expected?: { uid: string; courseId: string };
+    expected?: { uid: string; courseIds: string[] };
   },
-): Promise<ActivationResult> => {
+): Promise<ActivationResult[]> => {
   const razorpay = createRazorpayClient();
   const payment = (args.payment && args.payment.id === args.razorpayPaymentId && args.payment.order_id
     ? args.payment
@@ -241,10 +259,14 @@ export const activateFromRazorpay = async (
   const order = (await razorpay.orders.fetch(args.razorpayOrderId)) as RazorpayEntity;
   const notes = notesOf(order);
   const uid = notes.uid || "";
-  const courseId = notes.courseId || "";
-  if (notes.kind !== "elearn" || !uid || !courseId) throw new ElearnError(409, "This is not a course purchase order.");
-  if (args.expected && (args.expected.uid !== uid || args.expected.courseId !== courseId)) {
-    throw new ElearnError(403, "This payment belongs to another purchase.");
+  // One course: notes.courseId. Several bought together: notes.courseIds +
+  // notes.amounts (each course's share), both comma-joined by elearn-order.
+  const courseIds = (notes.courseIds ? notes.courseIds.split(",") : [notes.courseId || ""]).map((id) => id.trim()).filter(Boolean);
+  if (notes.kind !== "elearn" || !uid || !courseIds.length) throw new ElearnError(409, "This is not a course purchase order.");
+  if (args.expected) {
+    const same = args.expected.courseIds.length === courseIds.length
+      && args.expected.courseIds.every((id) => courseIds.includes(id));
+    if (args.expected.uid !== uid || !same) throw new ElearnError(403, "This payment belongs to another purchase.");
   }
 
   const currency = getRazorpayCurrency().toUpperCase();
@@ -266,26 +288,50 @@ export const activateFromRazorpay = async (
     throw new ElearnError(409, "Razorpay payment is not successful yet.");
   }
 
-  const course = await loadSaleCourse(db, courseId);
-  const stored = (await enrollmentRef(db, uid, courseId).get()).data() || {};
-  const identity = await loadBuyerIdentity(db, uid, {
-    name: String(stored.userName || ""),
-    email: String(stored.userEmail || ""),
-    phone: String(stored.userPhone || ""),
-  });
-  return activateEnrollment(db, {
-    uid,
+  const shares = courseIds.length > 1 ? (notes.amounts || "").split(",").map((value) => Math.round(Number(value))) : [orderAmount];
+  const sharesOk = shares.length === courseIds.length
+    && shares.every((value) => Number.isFinite(value) && value >= 0)
+    && shares.reduce((sum, value) => sum + value, 0) === orderAmount;
+  // Never fail a captured payment over the split: fall back to an even split.
+  const amounts = sharesOk
+    ? shares
+    : courseIds.map((_, index) => Math.floor(orderAmount / courseIds.length) + (index === 0 ? orderAmount % courseIds.length : 0));
+
+  const loaded = await Promise.all(courseIds.map(async (courseId) => {
+    const course = await loadSaleCourse(db, courseId);
+    const stored = (await enrollmentRef(db, uid, courseId).get()).data() || {};
     // A course deleted after payment still activates (the money was taken).
-    course: course || { id: courseId, title: String(stored.courseTitle || courseId), accessDays: 0 },
-    method: "razorpay",
-    amountInPaise: orderAmount,
-    identity,
-    razorpayOrderId: args.razorpayOrderId,
-    razorpayPaymentId: args.razorpayPaymentId,
-    couponCode: typeof notes.couponCode === "string" && notes.couponCode ? notes.couponCode : undefined,
-    // Staff revoked this student: the money is noted for a refund, no access.
-    blockStatus: ["revoked"],
+    return { stored, course: course || { id: courseId, title: String(stored.courseTitle || courseId), accessDays: 0 } };
+  }));
+  const first = loaded[0].stored;
+  const identity = await loadBuyerIdentity(db, uid, {
+    name: String(first.userName || ""),
+    email: String(first.userEmail || ""),
+    phone: String(first.userPhone || ""),
   });
+  const couponCode = typeof notes.couponCode === "string" && notes.couponCode ? notes.couponCode : undefined;
+  const bundle = courseIds.length > 1
+    ? { id: args.razorpayOrderId, courseTitles: loaded.map((item) => item.course.title), totalInPaise: orderAmount }
+    : undefined;
+  const results: ActivationResult[] = [];
+  for (const [index, item] of loaded.entries()) {
+    results.push(await activateEnrollment(db, {
+      uid,
+      course: item.course,
+      method: "razorpay",
+      amountInPaise: amounts[index],
+      identity,
+      razorpayOrderId: args.razorpayOrderId,
+      razorpayPaymentId: args.razorpayPaymentId,
+      couponCode,
+      // One purchase = one coupon use, counted on the first course.
+      countCoupon: index === 0,
+      bundle,
+      // Staff revoked this student: the money is noted for a refund, no access.
+      blockStatus: ["revoked"],
+    }));
+  }
+  return results;
 };
 
 /** Webhook `payment.captured` for an elearn order (backup to elearn-verify). The ORDER's
@@ -309,23 +355,31 @@ export const revokeElearnForRefund = async (
 ) => {
   const paymentId = String(refund?.payment_id || "");
   if (!paymentId) return null;
-  const matches = await db.collection(ELEARN_ENROLLMENTS).where("razorpayPaymentId", "==", paymentId).limit(1).get();
+  // Several master classes bought together share one payment: a full refund
+  // of that payment revokes all of them.
+  const matches = await db.collection(ELEARN_ENROLLMENTS).where("razorpayPaymentId", "==", paymentId).limit(10).get();
   if (matches.empty) return null;
-  const ref = matches.docs[0].ref;
   return db.runTransaction(async (tx) => {
-    const snapshot = await tx.get(ref);
-    const data = snapshot.data();
-    if (!data || data.status !== "active" || data.method !== "razorpay" || data.razorpayPaymentId !== paymentId) return null;
-    const paid = Math.round(Number(data.amountInPaise) || 0);
+    const snapshots = await Promise.all(matches.docs.map((doc) => tx.get(doc.ref)));
+    const rows = snapshots
+      .map((snapshot) => ({ ref: snapshot.ref, data: snapshot.data() }))
+      .filter((row) => row.data && row.data.method === "razorpay" && row.data.razorpayPaymentId === paymentId);
+    if (!rows.length) return null;
+    const paid = rows.reduce((sum, row) => sum + Math.round(Number(row.data!.amountInPaise) || 0), 0);
     const refunded = Math.round(Number(refund?.amount) || 0);
     if (paid > 0 && refunded < paid) return null;
-    tx.update(ref, {
-      status: "revoked",
-      previousStatus: "active",
-      rejectReason: "Payment refunded",
-      refundedAt: FieldValue.serverTimestamp(),
-      updatedAt: FieldValue.serverTimestamp(),
-    });
-    return { enrollmentId: ref.id };
+    const revoked: string[] = [];
+    for (const row of rows) {
+      if (row.data!.status !== "active") continue;
+      tx.update(row.ref, {
+        status: "revoked",
+        previousStatus: "active",
+        rejectReason: "Payment refunded",
+        refundedAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      revoked.push(row.ref.id);
+    }
+    return revoked.length ? { enrollmentId: revoked[0], enrollmentIds: revoked } : null;
   });
 };

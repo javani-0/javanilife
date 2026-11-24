@@ -1,18 +1,23 @@
-import { useEffect, useId, useState, type ChangeEvent, type FormEvent } from "react";
+import { useEffect, useId, useMemo, useState, type ChangeEvent, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { QRCodeSVG } from "qrcode.react";
-import { ArrowLeft, CheckCircle2, Copy, CreditCard, ExternalLink, ImagePlus, Loader2, QrCode, ShieldCheck, TicketPercent, X } from "lucide-react";
+import { ArrowLeft, Check, CheckCircle2, Copy, CreditCard, ExternalLink, Gift, ImagePlus, Loader2, Plus, QrCode, ShieldCheck, TicketPercent, X } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { formatPaiseAsRupees } from "@/lib/ecommerce";
-import { buyCourseWithRazorpay, previewElearnCoupon, submitElearnUpi, type ElearnCouponPreview, type ElearnCourse, type PaymentModes } from "@/lib/elearning";
+import { optimizeImageUrl } from "@/lib/cloudinary";
+import { availablePaymentModes, buyCourseWithRazorpay, hasActiveAccess, previewElearnCoupon, submitElearnUpi, type ElearnCouponPreview, type ElearnCourse, type PaymentModes } from "@/lib/elearning";
 import { uploadPaymentProof } from "@/lib/classes/upiPayments";
 import { buildUpiIntentUrl, type PaymentSettings } from "@/lib/settings/paymentSettings";
 import { isMobileDevice, isValidUtr, normalizeUtr } from "./format";
+import { useMyEnrollments, usePublishedCourses } from "./useElearn";
 
 const MAX_PROOF_BYTES = 8 * 1024 * 1024;
+/** The server accepts up to 5 master classes in one payment. */
+const MAX_TOGETHER = 5;
 const errorMessage = (error: unknown, fallback: string) => (error instanceof Error && error.message ? error.message : fallback);
+const purchaseLabel = (courses: ElearnCourse[]) => (courses.length === 1 ? courses[0].title : `${courses.length} master classes`);
 
 /** Razorpay purchase (create order → checkout → verify), with an optional coupon the server re-checks. */
 export const usePayOnline = (course: ElearnCourse | null, isDemo = false) => {
@@ -21,8 +26,10 @@ export const usePayOnline = (course: ElearnCourse | null, isDemo = false) => {
   const { toast } = useToast();
   const [paying, setPaying] = useState(false);
 
-  const pay = async (couponCode?: string | null) => {
-    if (!course || !user || paying) return;
+  /** `courses` = everything bought together (the page's course first). */
+  const pay = async (couponCode?: string | null, courses?: ElearnCourse[]) => {
+    const list = courses?.length ? courses : course ? [course] : [];
+    if (!list.length || !user || paying) return;
     if (import.meta.env.DEV && isDemo) {
       toast({ title: "Sample course", description: "Online payment is turned off in demo mode." });
       return;
@@ -32,14 +39,17 @@ export const usePayOnline = (course: ElearnCourse | null, isDemo = false) => {
       const idToken = await user.getIdToken();
       const result = await buyCourseWithRazorpay({
         idToken,
-        courseId: course.id,
+        courseIds: list.map((item) => item.id),
         couponCode: couponCode || null,
         prefill: { name: userProfile?.username || user.displayName || "", email: userProfile?.email || user.email || "", contact: userProfile?.phone || "" },
         themeColor: "#8B1A1A",
       });
       if (result.verified) {
-        toast({ title: "You're enrolled", description: `${course.title} is unlocked. Enjoy the course.` });
-        navigate(`/learn/${encodeURIComponent(course.id)}/watch`);
+        toast({
+          title: result.free ? "Unlocked with your coupon" : "You're enrolled",
+          description: `${purchaseLabel(list)} ${list.length === 1 ? "is" : "are"} unlocked. Enjoy learning.`,
+        });
+        navigate(list.length === 1 ? `/learn/${encodeURIComponent(list[0].id)}/watch` : "/account/learning");
       } else {
         toast({ title: "Payment received", description: "We're confirming it. The master class unlocks here as soon as it's done." });
       }
@@ -65,32 +75,49 @@ interface BuyCourseDialogProps {
   settings: PaymentSettings;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** Starts the Razorpay checkout (the dialog closes first so checkout gets focus). */
-  onPayOnline: (couponCode: string | null) => void;
+  /** Starts the Razorpay checkout (the dialog closes first so checkout gets focus). A 100% coupon unlocks at once. */
+  onPayOnline: (couponCode: string | null, courses: ElearnCourse[]) => void;
   isDemo?: boolean;
 }
 
 type Step = "choose" | "upi" | "submitted";
 
 const BuyCourseDialog = ({ course, modes, settings, open, onOpenChange, onPayOnline, isDemo = false }: BuyCourseDialogProps) => {
-  const bothModes = modes.razorpay && modes.upi;
-  // Online-only courses also open here first, so the buyer can add a coupon.
-  const firstStep: Step = modes.razorpay ? "choose" : "upi";
-  const [step, setStep] = useState<Step>(firstStep);
+  const [step, setStep] = useState<Step>("choose");
   const [coupon, setCoupon] = useState<ElearnCouponPreview | null>(null);
+  const [extras, setExtras] = useState<ElearnCourse[]>([]);
 
   useEffect(() => {
-    if (open) setStep(firstStep);
-  }, [open, firstStep]);
-  useEffect(() => setCoupon(null), [course.id, course.priceInPaise]);
+    if (open) setStep("choose");
+  }, [open]);
+  useEffect(() => setExtras([]), [course.id]);
 
-  const payable = coupon ? coupon.finalInPaise : course.priceInPaise;
+  const courses = useMemo(() => [course, ...extras], [course, extras]);
+  // Every master class in the purchase must allow the payment mode.
+  const combined = useMemo<PaymentModes>(() => extras.reduce(
+    (acc, item) => {
+      const m = availablePaymentModes(item, settings);
+      return { razorpay: acc.razorpay && m.razorpay, upi: acc.upi && m.upi };
+    },
+    modes,
+  ), [extras, modes, settings]);
+  const listPrice = courses.reduce((sum, item) => sum + item.priceInPaise, 0);
+  const payable = coupon ? coupon.finalInPaise : listPrice;
+  const free = !!coupon?.free;
+  const idsKey = courses.map((item) => `${item.id}:${item.priceInPaise}`).join(",");
+
+  // A coupon was checked for one set of master classes; a change needs a new check.
+  useEffect(() => setCoupon(null), [idsKey]);
+
+  const toggleExtra = (item: ElearnCourse) => setExtras((list) => (
+    list.some((x) => x.id === item.id) ? list.filter((x) => x.id !== item.id) : [...list, item].slice(0, MAX_TOGETHER - 1)
+  ));
 
   const choosePayOnline = () => {
     onOpenChange(false);
     const code = coupon?.couponCode || null;
     // Let the dialog release focus before Razorpay opens its own window.
-    window.setTimeout(() => onPayOnline(code), 120);
+    window.setTimeout(() => onPayOnline(code, courses), 120);
   };
 
   return (
@@ -99,46 +126,61 @@ const BuyCourseDialog = ({ course, modes, settings, open, onOpenChange, onPayOnl
         {step === "choose" && (
           <div className="p-6 sm:p-7">
             <DialogHeader className="text-left">
-              <DialogTitle className="font-display text-2xl font-semibold text-foreground">{bothModes ? "How would you like to pay?" : "Buy this master class"}</DialogTitle>
+              <DialogTitle className="font-display text-2xl font-semibold text-foreground">
+                {free ? "Free with your coupon" : courses.length > 1 ? `Buy ${courses.length} master classes` : combined.razorpay && combined.upi ? "How would you like to pay?" : "Buy this master class"}
+              </DialogTitle>
               <DialogDescription className="font-body text-sm text-muted-foreground">
-                {course.title} ·{" "}
-                {coupon && <span className="mr-1 line-through">{formatPaiseAsRupees(course.priceInPaise)}</span>}
-                <span className="font-semibold text-foreground">{formatPaiseAsRupees(payable)}</span>
+                {purchaseLabel(courses)} ·{" "}
+                {coupon && <span className="mr-1 line-through">{formatPaiseAsRupees(listPrice)}</span>}
+                <span className="font-semibold text-foreground">{free ? "Free" : formatPaiseAsRupees(payable)}</span>
               </DialogDescription>
             </DialogHeader>
-            <CouponBox course={course} applied={coupon} onChange={setCoupon} isDemo={isDemo} />
+            {open && <AddMore course={course} extras={extras} modes={modes} combined={combined} settings={settings} onToggle={toggleExtra} />}
+            <CouponBox courseIds={courses.map((item) => item.id)} applied={coupon} onChange={setCoupon} isDemo={isDemo} />
             <div className="mt-5 grid gap-3">
-              <button
-                type="button"
-                onClick={choosePayOnline}
-                className="group flex w-full items-start gap-4 rounded-xl border border-primary/25 bg-card p-4 text-left transition-[border-color,box-shadow,transform] duration-150 hover:border-primary hover:shadow-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary active:scale-[0.99]"
-              >
-                <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-primary text-primary-foreground"><CreditCard className="h-5 w-5" aria-hidden="true" /></span>
-                <span>
-                  <span className="block font-body text-[0.95rem] font-semibold text-foreground">Pay online · {formatPaiseAsRupees(payable)}</span>
-                  <span className="mt-0.5 block font-body text-[0.82rem] text-muted-foreground">UPI apps, cards, netbanking</span>
-                  <span className="mt-1.5 inline-flex items-center gap-1 font-body text-[0.78rem] font-semibold text-emerald-700"><CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" /> Instant access</span>
-                </span>
-              </button>
-              {modes.upi && <button
-                type="button"
-                onClick={() => setStep("upi")}
-                className="group flex w-full items-start gap-4 rounded-xl border border-gold/30 bg-card p-4 text-left transition-[border-color,box-shadow,transform] duration-150 hover:border-primary hover:shadow-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary active:scale-[0.99]"
-              >
-                <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-ivory text-primary ring-1 ring-gold/40"><QrCode className="h-5 w-5" aria-hidden="true" /></span>
-                <span>
-                  <span className="block font-body text-[0.95rem] font-semibold text-foreground">Scan QR &amp; upload screenshot</span>
-                  <span className="mt-0.5 block font-body text-[0.82rem] text-muted-foreground">Pay from any UPI app, then send us the screenshot</span>
-                  <span className="mt-1.5 block font-body text-[0.78rem] font-medium text-muted-foreground">Unlocked after we verify</span>
-                </span>
-              </button>}
+              {free ? (
+                <button
+                  type="button"
+                  onClick={choosePayOnline}
+                  className="flex min-h-12 w-full items-center justify-center gap-2 rounded-md bg-gradient-primary font-body text-sm font-semibold text-primary-foreground shadow-gold transition-transform duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 active:scale-[0.98]"
+                >
+                  <Gift className="h-4 w-4" aria-hidden="true" /> Get it free
+                </button>
+              ) : (
+                <>
+                  {combined.razorpay && <button
+                    type="button"
+                    onClick={choosePayOnline}
+                    className="group flex w-full items-start gap-4 rounded-xl border border-primary/25 bg-card p-4 text-left transition-[border-color,box-shadow,transform] duration-150 hover:border-primary hover:shadow-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary active:scale-[0.99]"
+                  >
+                    <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-primary text-primary-foreground"><CreditCard className="h-5 w-5" aria-hidden="true" /></span>
+                    <span>
+                      <span className="block font-body text-[0.95rem] font-semibold text-foreground">Pay online · {formatPaiseAsRupees(payable)}</span>
+                      <span className="mt-0.5 block font-body text-[0.82rem] text-muted-foreground">UPI apps, cards, netbanking</span>
+                      <span className="mt-1.5 inline-flex items-center gap-1 font-body text-[0.78rem] font-semibold text-emerald-700 dark:text-emerald-400"><CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" /> Instant access</span>
+                    </span>
+                  </button>}
+                  {combined.upi && <button
+                    type="button"
+                    onClick={() => setStep("upi")}
+                    className="group flex w-full items-start gap-4 rounded-xl border border-gold/30 bg-card p-4 text-left transition-[border-color,box-shadow,transform] duration-150 hover:border-primary hover:shadow-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary active:scale-[0.99]"
+                  >
+                    <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-ivory text-primary ring-1 ring-gold/40"><QrCode className="h-5 w-5" aria-hidden="true" /></span>
+                    <span>
+                      <span className="block font-body text-[0.95rem] font-semibold text-foreground">Scan QR &amp; upload screenshot</span>
+                      <span className="mt-0.5 block font-body text-[0.82rem] text-muted-foreground">Pay from any UPI app, then send us the screenshot</span>
+                      <span className="mt-1.5 block font-body text-[0.78rem] font-medium text-muted-foreground">Unlocked after we verify</span>
+                    </span>
+                  </button>}
+                </>
+              )}
             </div>
-            <p className="mt-5 flex items-center gap-1.5 font-body text-xs text-muted-foreground"><ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" /> Online payments are processed securely by Razorpay.</p>
+            {!free && combined.razorpay && <p className="mt-5 flex items-center gap-1.5 font-body text-xs text-muted-foreground"><ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" /> Online payments are processed securely by Razorpay.</p>}
           </div>
         )}
 
         {step === "upi" && (
-          <UpiPanel course={course} settings={settings} coupon={coupon} onCouponChange={setCoupon} canGoBack={bothModes} onBack={() => setStep("choose")} onSubmitted={() => setStep("submitted")} isDemo={isDemo} />
+          <UpiPanel courses={courses} listPrice={listPrice} settings={settings} coupon={coupon} onBack={() => setStep("choose")} onSubmitted={() => setStep("submitted")} isDemo={isDemo} />
         )}
 
         {step === "submitted" && (
@@ -146,7 +188,7 @@ const BuyCourseDialog = ({ course, modes, settings, open, onOpenChange, onPayOnl
             <span className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-emerald-50 text-emerald-700"><CheckCircle2 className="h-7 w-7" aria-hidden="true" /></span>
             <DialogTitle className="mt-4 font-display text-2xl font-semibold text-foreground">Payment submitted</DialogTitle>
             <DialogDescription className="mx-auto mt-2 max-w-sm font-body text-sm leading-relaxed text-muted-foreground">
-              Thank you. We'll check your payment and unlock {course.title}. You'll see it in My Learning as soon as it's verified.
+              Thank you. We'll check your payment and unlock {courses.length === 1 ? course.title : `your ${courses.length} master classes`}. You'll see {courses.length === 1 ? "it" : "them"} in My Learning as soon as it's verified.
             </DialogDescription>
             <div className="mt-6 grid gap-2 sm:grid-cols-2">
               <Link
@@ -170,15 +212,84 @@ const BuyCourseDialog = ({ course, modes, settings, open, onOpenChange, onPayOnl
   );
 };
 
+// ── Add more master classes (bought together: one payment, one coupon) ─────
+interface AddMoreProps {
+  course: ElearnCourse;
+  extras: ElearnCourse[];
+  modes: PaymentModes;
+  combined: PaymentModes;
+  settings: PaymentSettings;
+  onToggle: (course: ElearnCourse) => void;
+}
+
+const AddMore = ({ course, extras, modes, combined, settings, onToggle }: AddMoreProps) => {
+  const { courses } = usePublishedCourses();
+  const { enrollments } = useMyEnrollments();
+  const options = useMemo(() => {
+    const blocked = new Set(enrollments
+      .filter((e) => hasActiveAccess(e) || e.status === "processing" || e.status === "revoked")
+      .map((e) => e.courseId));
+    return courses.filter((item) => {
+      if (item.id === course.id || item.priceInPaise <= 0 || blocked.has(item.id)) return false;
+      const m = availablePaymentModes(item, settings);
+      return (modes.razorpay && m.razorpay) || (modes.upi && m.upi);
+    });
+  }, [courses, enrollments, course.id, modes, settings]);
+
+  if (!options.length) return null;
+  const full = extras.length >= MAX_TOGETHER - 1;
+
+  return (
+    <fieldset className="mt-5">
+      <legend className="font-body text-sm font-semibold text-foreground">Add more master classes</legend>
+      <p className="mt-0.5 font-body text-xs text-muted-foreground">Buy them together in one payment.</p>
+      <ul className="mt-2.5 grid gap-2">
+        {options.map((item) => {
+          const picked = extras.some((x) => x.id === item.id);
+          const m = availablePaymentModes(item, settings);
+          // Adding it must leave at least one way to pay for everything.
+          const fits = (combined.razorpay && m.razorpay) || (combined.upi && m.upi);
+          const disabled = !picked && (full || !fits);
+          return (
+            <li key={item.id}>
+              <button
+                type="button"
+                role="checkbox"
+                aria-checked={picked}
+                disabled={disabled}
+                onClick={() => onToggle(item)}
+                className={`flex w-full items-center gap-3 rounded-xl border p-2.5 text-left transition-[border-color,background-color,transform] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-50 ${picked ? "border-primary bg-primary/5" : "border-gold/25 bg-card hover:border-primary/60"}`}
+              >
+                {item.coverImageUrl ? (
+                  <img src={optimizeImageUrl(item.coverImageUrl, 160)} alt="" loading="lazy" className="h-11 w-16 shrink-0 rounded-md object-cover ring-1 ring-black/5" />
+                ) : (
+                  <span className="h-11 w-16 shrink-0 rounded-md bg-muted" aria-hidden="true" />
+                )}
+                <span className="min-w-0 flex-1">
+                  <span className="line-clamp-2 block font-body text-[0.85rem] font-semibold leading-snug text-foreground">{item.title}</span>
+                  <span className="block font-body text-xs text-muted-foreground">{formatPaiseAsRupees(item.priceInPaise)}{!fits && !picked ? " · pay for this one separately" : ""}</span>
+                </span>
+                <span className={`grid h-7 w-7 shrink-0 place-items-center rounded-full ${picked ? "bg-primary text-primary-foreground" : "border border-gold/40 text-primary"}`} aria-hidden="true">
+                  {picked ? <Check className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+                </span>
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </fieldset>
+  );
+};
+
 // ── Coupon code box (the server checks the code and returns the new price) ──
 interface CouponBoxProps {
-  course: ElearnCourse;
+  courseIds: string[];
   applied: ElearnCouponPreview | null;
   onChange: (coupon: ElearnCouponPreview | null) => void;
   isDemo: boolean;
 }
 
-const CouponBox = ({ course, applied, onChange, isDemo }: CouponBoxProps) => {
+const CouponBox = ({ courseIds, applied, onChange, isDemo }: CouponBoxProps) => {
   const { user } = useAuth();
   const inputId = useId();
   const [open, setOpen] = useState(false);
@@ -193,7 +304,7 @@ const CouponBox = ({ course, applied, onChange, isDemo }: CouponBoxProps) => {
     setError("");
     try {
       if (import.meta.env.DEV && isDemo) throw new Error("Coupons work on live courses only (demo mode).");
-      const result = await previewElearnCoupon(await user.getIdToken(), course.id, clean);
+      const result = await previewElearnCoupon(await user.getIdToken(), courseIds, clean);
       onChange(result);
       setCode("");
       setOpen(false);
@@ -269,17 +380,16 @@ const CouponBox = ({ course, applied, onChange, isDemo }: CouponBoxProps) => {
 
 
 interface UpiPanelProps {
-  course: ElearnCourse;
+  courses: ElearnCourse[];
+  listPrice: number;
   settings: PaymentSettings;
   coupon: ElearnCouponPreview | null;
-  onCouponChange: (coupon: ElearnCouponPreview | null) => void;
-  canGoBack: boolean;
   onBack: () => void;
   onSubmitted: () => void;
   isDemo: boolean;
 }
 
-const UpiPanel = ({ course, settings, coupon, onCouponChange, canGoBack, onBack, onSubmitted, isDemo }: UpiPanelProps) => {
+const UpiPanel = ({ courses, listPrice, settings, coupon, onBack, onSubmitted, isDemo }: UpiPanelProps) => {
   const { user } = useAuth();
   const { toast } = useToast();
   const fileId = useId();
@@ -296,8 +406,8 @@ const UpiPanel = ({ course, settings, coupon, onCouponChange, canGoBack, onBack,
 
   const upiId = settings.upiId.trim();
   const payee = settings.upiName.trim() || "Javani Spiritual Hub";
-  const amount = coupon ? coupon.finalInPaise : course.priceInPaise;
-  const upiUrl = upiId ? buildUpiIntentUrl({ upiId, name: payee, amountInPaise: amount, note: course.title.slice(0, 50) }) : "";
+  const amount = coupon ? coupon.finalInPaise : listPrice;
+  const upiUrl = upiId ? buildUpiIntentUrl({ upiId, name: payee, amountInPaise: amount, note: purchaseLabel(courses).slice(0, 50) }) : "";
   const utrValid = isValidUtr(utr);
   const canSubmit = !!file && utrValid && !submitting;
 
@@ -331,7 +441,7 @@ const UpiPanel = ({ course, settings, coupon, onCouponChange, canGoBack, onBack,
       if (!(import.meta.env.DEV && isDemo)) {
         const proofUrl = await uploadPaymentProof(file!);
         const idToken = await user.getIdToken();
-        await submitElearnUpi(idToken, { courseId: course.id, proofUrl, upiRef: normalizeUtr(utr), ...(coupon ? { couponCode: coupon.couponCode } : {}) });
+        await submitElearnUpi(idToken, { courseIds: courses.map((item) => item.id), proofUrl, upiRef: normalizeUtr(utr), ...(coupon ? { couponCode: coupon.couponCode } : {}) });
       }
       onSubmitted();
     } catch (error) {
@@ -345,22 +455,18 @@ const UpiPanel = ({ course, settings, coupon, onCouponChange, canGoBack, onBack,
 
   return (
     <form onSubmit={submit} className="p-6 sm:p-7" noValidate>
-      {canGoBack && (
-        <button type="button" onClick={onBack} className="-ml-1 mb-3 inline-flex items-center gap-1 rounded font-body text-xs font-semibold text-muted-foreground hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
-          <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" /> Other ways to pay
-        </button>
-      )}
+      <button type="button" onClick={onBack} className="-ml-1 mb-3 inline-flex items-center gap-1 rounded font-body text-xs font-semibold text-muted-foreground hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
+        <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" /> Back
+      </button>
       <DialogHeader className="text-left">
         <DialogTitle className="font-display text-2xl font-semibold text-foreground">Scan &amp; pay</DialogTitle>
-        <DialogDescription className="font-body text-sm text-muted-foreground">Pay from any UPI app, then upload the screenshot. We unlock the master class after we verify it.</DialogDescription>
+        <DialogDescription className="font-body text-sm text-muted-foreground">Pay from any UPI app, then upload the screenshot. We unlock {courses.length === 1 ? "the master class" : `all ${courses.length} master classes`} after we verify it.</DialogDescription>
       </DialogHeader>
-
-      {!canGoBack && <CouponBox course={course} applied={coupon} onChange={onCouponChange} isDemo={isDemo} />}
 
       <div className="mt-5 rounded-xl border border-gold/25 bg-ivory/60 p-4 sm:p-5">
         <p className="text-center font-body text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">Amount to pay</p>
         <p className="text-center font-display text-4xl font-bold text-primary">{formatPaiseAsRupees(amount)}</p>
-        {coupon && <p className="text-center font-body text-xs text-muted-foreground"><span className="line-through">{formatPaiseAsRupees(course.priceInPaise)}</span> · {coupon.couponCode} saves {formatPaiseAsRupees(coupon.discountInPaise)}</p>}
+        {coupon && <p className="text-center font-body text-xs text-muted-foreground"><span className="line-through">{formatPaiseAsRupees(listPrice)}</span> · {coupon.couponCode} saves {formatPaiseAsRupees(coupon.discountInPaise)}</p>}
         <div className="mx-auto mt-4 w-fit rounded-xl bg-white p-3 shadow-sm ring-1 ring-black/5">
           {settings.qrImageUrl ? (
             <img src={settings.qrImageUrl} alt={`UPI QR code to pay ${payee}`} className="h-48 w-48 object-contain" />

@@ -36,7 +36,7 @@ export const ELEARN_CLOUDINARY_CLOUD = "dxeyhsuyr";
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 export type ElearnEnrollmentStatus = "awaiting-payment" | "processing" | "active" | "rejected" | "revoked";
-export type ElearnPaymentMethod = "razorpay" | "upi" | "grant";
+export type ElearnPaymentMethod = "razorpay" | "upi" | "grant" | "coupon";
 
 export const ELEARN_ENROLLMENT_STATUSES: ElearnEnrollmentStatus[] = ["awaiting-payment", "processing", "active", "rejected", "revoked"];
 

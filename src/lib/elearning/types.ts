@@ -93,6 +93,12 @@ export interface ElearnEnrollment {
   previousRejectReason?: string;
   /** Razorpay payment ids received for this purchase; any beyond razorpayPaymentId must be refunded. */
   extraPaymentIds?: string[];
+  couponCode?: string;
+  /** Bought together with other master classes in one payment. */
+  bundleId?: string;
+  bundleCourseTitles?: string[];
+  /** What the whole purchase cost (this record's amountInPaise is its share). */
+  bundleTotalInPaise?: number;
   refundedAt?: TimestampLike;
   submittedAt: TimestampLike;
   activatedAt: TimestampLike;

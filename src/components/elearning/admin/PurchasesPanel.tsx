@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { format, formatDistanceToNow } from "date-fns";
 import {
   AlertTriangle, Ban, Check, Copy, ExternalLink, Gift, Loader2, QrCode, RotateCcw, Search, Smartphone, X, ZoomIn,
+  TicketPercent,
 } from "lucide-react";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
@@ -52,7 +53,7 @@ const STATUS_STYLE: Record<ElearnEnrollmentStatus, string> = {
   revoked: "bg-muted text-foreground ring-border",
 };
 
-const METHOD_LABEL = { razorpay: "Razorpay", upi: "QR scan", grant: "Granted", "": "Not paid" } as const;
+const METHOD_LABEL = { razorpay: "Razorpay", upi: "QR scan", grant: "Granted", coupon: "Free coupon", "": "Not paid" } as const;
 
 const dateText = (value: unknown, pattern = "d MMM yyyy") => {
   const ms = toMillis(value as never);
@@ -293,6 +294,14 @@ const PurchasesPanel = ({
                         {courseTitle(item)} · <span className="font-semibold">{formatPaiseAsRupees(item.amountInPaise)}</span>
                         {agoText(item.submittedAt) && <span className="text-muted-foreground"> · sent {agoText(item.submittedAt)}</span>}
                       </p>
+                      {(item.bundleCourseTitles?.length ?? 0) > 1 && (
+                        <p className="mt-1 rounded-lg bg-amber-50 px-3 py-2 font-body text-xs text-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
+                          Paid together for {item.bundleCourseTitles!.length} master classes: {item.bundleCourseTitles!.join(", ")}
+                          {typeof item.bundleTotalInPaise === "number" && <> · total <span className="font-semibold">{formatPaiseAsRupees(item.bundleTotalInPaise)}</span></>}
+                          . Approve or reject applies to all of them.
+                        </p>
+                      )}
+                      {item.couponCode && <p className="mt-1 font-body text-xs text-muted-foreground">Coupon <span className="font-mono font-semibold text-foreground">{item.couponCode}</span> used</p>}
                       <div className="mt-2 inline-flex flex-wrap items-center gap-2 rounded-lg bg-ivory px-3 py-2">
                         <span className="font-body text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">UTR</span>
                         <span className="font-mono text-base font-semibold tracking-wider text-foreground">{item.upiRef || "not given"}</span>
@@ -333,11 +342,23 @@ const PurchasesPanel = ({
                       <span>{courseTitle(item)}</span>
                       <span className="text-muted-foreground">·</span>
                       <span className="inline-flex items-center gap-1">
-                        {item.method === "razorpay" ? <Smartphone className="h-3.5 w-3.5" aria-hidden="true" /> : item.method === "upi" ? <QrCode className="h-3.5 w-3.5" aria-hidden="true" /> : item.method === "grant" ? <Gift className="h-3.5 w-3.5" aria-hidden="true" /> : null}
+                        {item.method === "razorpay" ? <Smartphone className="h-3.5 w-3.5" aria-hidden="true" /> : item.method === "upi" ? <QrCode className="h-3.5 w-3.5" aria-hidden="true" /> : item.method === "grant" ? <Gift className="h-3.5 w-3.5" aria-hidden="true" /> : item.method === "coupon" ? <TicketPercent className="h-3.5 w-3.5" aria-hidden="true" /> : null}
                         {METHOD_LABEL[item.method]}
                       </span>
                       {item.method !== "grant" && item.amountInPaise > 0 && <span className="font-semibold">{formatPaiseAsRupees(item.amountInPaise)}</span>}
                     </p>
+                    {(item.couponCode || (item.bundleCourseTitles?.length ?? 0) > 1) && (
+                      <p className="mt-0.5 font-body text-xs text-muted-foreground">
+                        {item.couponCode && <>Coupon <span className="font-mono font-semibold text-foreground">{item.couponCode}</span></>}
+                        {item.couponCode && (item.bundleCourseTitles?.length ?? 0) > 1 && " · "}
+                        {(item.bundleCourseTitles?.length ?? 0) > 1 && (
+                          <>
+                            Paid together: {item.bundleCourseTitles!.length} master classes
+                            {typeof item.bundleTotalInPaise === "number" && item.bundleTotalInPaise > 0 && <> · total {formatPaiseAsRupees(item.bundleTotalInPaise)}</>}
+                          </>
+                        )}
+                      </p>
+                    )}
                     <p className="mt-0.5 font-body text-xs text-muted-foreground">
                       {item.status === "active" && (
                         <>

@@ -376,7 +376,7 @@ export const normalizeEnrollment = (id: string, data: Data = {}): ElearnEnrollme
   const status = ELEARN_ENROLLMENT_STATUSES.includes(data.status as ElearnEnrollmentStatus)
     ? (data.status as ElearnEnrollmentStatus)
     : "awaiting-payment";
-  const method = data.method === "razorpay" || data.method === "upi" || data.method === "grant" ? data.method : "";
+  const method = data.method === "razorpay" || data.method === "upi" || data.method === "grant" || data.method === "coupon" ? data.method : "";
   const optional = (key: string) => (str(data[key]) ? { [key]: str(data[key]) } : {});
   return {
     id,
@@ -403,6 +403,12 @@ export const normalizeEnrollment = (id: string, data: Data = {}): ElearnEnrollme
     ...(Array.isArray(data.extraPaymentIds)
       ? { extraPaymentIds: data.extraPaymentIds.filter((item): item is string => typeof item === "string" && item.length > 0) }
       : {}),
+    ...optional("couponCode"),
+    ...optional("bundleId"),
+    ...(Array.isArray(data.bundleCourseTitles)
+      ? { bundleCourseTitles: data.bundleCourseTitles.filter((item): item is string => typeof item === "string" && item.length > 0).slice(0, 10) }
+      : {}),
+    ...(nonNegInt(data.bundleTotalInPaise) > 0 ? { bundleTotalInPaise: nonNegInt(data.bundleTotalInPaise) } : {}),
     ...(timestamp(data.refundedAt) ? { refundedAt: timestamp(data.refundedAt) } : {}),
     submittedAt: timestamp(data.submittedAt),
     activatedAt: timestamp(data.activatedAt),

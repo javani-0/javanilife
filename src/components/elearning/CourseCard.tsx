@@ -20,6 +20,7 @@ const CourseCard = ({ course, owned, search = "" }: CourseCardProps) => {
   const percent = owned ? progressPercent(course.sections, progress?.completedLessonIds ?? []) : 0;
   const hasStrike = typeof course.compareAtInPaise === "number" && course.compareAtInPaise > course.priceInPaise;
   const href = `/learn/${encodeURIComponent(course.id)}${search}`;
+  const hasPreview = !owned && course.sections.some((section) => section.lessons.some((lesson) => lesson.isPreview && lesson.previewVimeoUrl));
 
   return (
     <Link
@@ -78,11 +79,16 @@ const CourseCard = ({ course, owned, search = "" }: CourseCardProps) => {
               </div>
             </div>
           ) : (
-            <div className="flex items-baseline gap-2">
+            <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
               <span className="font-display text-[1.45rem] font-bold text-primary">{course.priceInPaise > 0 ? formatPaiseAsRupees(course.priceInPaise) : "Free"}</span>
               {hasStrike && (
                 <span className="font-body text-sm text-muted-foreground line-through">
                   <span className="sr-only">Was </span>{formatPaiseAsRupees(course.compareAtInPaise!)}
+                </span>
+              )}
+              {hasPreview && (
+                <span className="ml-auto inline-flex items-center gap-1 self-center rounded-full bg-primary/10 px-2.5 py-1 font-body text-[0.72rem] font-semibold text-primary">
+                  <PlayCircle className="h-3.5 w-3.5" aria-hidden="true" /> Free preview
                 </span>
               )}
             </div>

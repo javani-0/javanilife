@@ -69,6 +69,8 @@ const LearnCourse = () => {
   const busy = paying || authLoading || access.loading || !settingsLoaded;
 
   const openPreview = (lesson: ElearnLesson) => lesson.previewVimeoUrl && setVideo({ title: lesson.title, url: lesson.previewVimeoUrl, subtitle: "Free preview" });
+  // First free lesson: anyone can watch it, signed in or not.
+  const firstPreview = course.sections.flatMap((section) => section.lessons).find((lesson) => lesson.isPreview && lesson.previewVimeoUrl);
 
   const panelProps: BuyPanelProps = {
     course, state, percent, purchasable, busy, paying, watchHref,
@@ -150,6 +152,15 @@ const LearnCourse = () => {
                     <PlayCircle className="h-5 w-5" aria-hidden="true" /> Play trailer
                   </button>
                 )}
+                {firstPreview && state !== "active" && (
+                  <button
+                    type="button"
+                    onClick={() => openPreview(firstPreview)}
+                    className="inline-flex min-h-11 items-center gap-2 rounded-full bg-[hsl(40_80%_78%)] px-5 font-body text-sm font-semibold text-[hsl(0_60%_18%)] shadow-sm transition-[transform,background-color] duration-150 hover:bg-[hsl(40_85%_84%)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold focus-visible:ring-offset-2 focus-visible:ring-offset-[hsl(0_60%_18%)] active:scale-[0.97]"
+                  >
+                    <PlayCircle className="h-5 w-5" aria-hidden="true" /> Watch free preview
+                  </button>
+                )}
                 <ShareButtons title={course.title} subtitle={course.subtitle} path={path} />
               </div>
             </div>
@@ -189,7 +200,7 @@ const LearnCourse = () => {
 
             {course.description && (
               <Section title="About this master class">
-                <div className="max-w-prose whitespace-pre-line font-body text-[0.95rem] leading-[1.75] text-foreground/90">{course.description}</div>
+                <div className="max-w-prose whitespace-pre-line font-body text-[0.95rem] leading-[1.75] text-foreground/90">{withBold(course.description)}</div>
               </Section>
             )}
 
@@ -232,7 +243,7 @@ const LearnCourse = () => {
       <div className="hidden sm:block"><Footer /></div>
 
       {purchasable && (
-        <BuyCourseDialog course={course} modes={modes} settings={settings} open={buyOpen} onOpenChange={setBuyOpen} onPayOnline={(couponCode) => void pay(couponCode)} isDemo={access.isDemo} />
+        <BuyCourseDialog course={course} modes={modes} settings={settings} open={buyOpen} onOpenChange={setBuyOpen} onPayOnline={(couponCode, courses) => void pay(couponCode, courses)} isDemo={access.isDemo} />
       )}
       <VideoModal open={!!video} onOpenChange={(open) => !open && setVideo(null)} title={video?.title ?? ""} vimeoUrl={video?.url ?? ""} subtitle={video?.subtitle} />
     </>
@@ -474,3 +485,12 @@ const CourseSkeleton = () => (
 );
 
 export default LearnCourse;
+
+/** Shows **text** as bold (admins type it in the description); everything else stays plain text. */
+function withBold(text: string): ReactNode[] {
+  return text.split(/(\*\*[^*\n]+\*\*)/g).map((part, i) =>
+    part.length > 4 && part.startsWith("**") && part.endsWith("**")
+      ? <strong key={i} className="font-semibold text-foreground">{part.slice(2, -2)}</strong>
+      : part,
+  );
+}
