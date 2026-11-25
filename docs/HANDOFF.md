@@ -2,7 +2,7 @@
 
 Javani Spiritual Hub (www.javanilife.com): a classical dance/music academy + shop. React 18 + Vite SPA, Firebase, Vercel (project `javanilife`), Razorpay.
 
-Last updated: 2026-11-25 (voice changes 4: multi-buy, free 100% coupons, preview buttons: committed LOCALLY f4e1967, not pushed)
+Last updated: 2026-11-25 (coupon per-class fix pushed, live)
 
 ## State
 
