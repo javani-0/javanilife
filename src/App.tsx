@@ -40,6 +40,7 @@ import CourseDetail from "./pages/CourseDetail";
 import TermsAndConditions from "./pages/TermsAndConditions";
 import Learn from "./pages/Learn";
 import LearnCourse from "./pages/LearnCourse";
+import { useAppUpdate } from "./lib/appUpdate";
 
 /**
  * `lazy()` that survives a failed chunk fetch.
@@ -138,6 +139,12 @@ const ScrollToTop = () => {
 };
 
 // Fires a Meta Pixel PageView on initial load and on every client-side route change.
+/** Keeps open tabs on the latest release (see lib/appUpdate.ts). */
+const AppUpdater = () => {
+  useAppUpdate();
+  return null;
+};
+
 const MetaPixelPageViews = () => {
   const { pathname } = useLocation();
   useEffect(() => { trackPageView(); }, [pathname]);
@@ -240,6 +247,7 @@ const App = () => {
             <BrowserRouter>
               <ScrollToTop />
               <MetaPixelPageViews />
+              <AppUpdater />
               <NotificationPermissionPrompt />
               <WhatsAppPromptModal />
               <PublicNavbar />
