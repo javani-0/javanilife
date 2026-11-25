@@ -41,10 +41,10 @@ export interface ElearnOrderResponse {
   courseTitle: string;
 }
 
-/** A 100% coupon: access is given at once, no payment. */
+/** A 100% coupon: no payment; it waits for staff approval in Purchases. */
 export interface ElearnFreeResponse {
   free: true;
-  status: "active";
+  status: "processing";
   enrollmentId: string;
   enrollmentIds: string[];
   courseIds: string[];
@@ -79,7 +79,7 @@ export interface ElearnVerifyRequest {
 
 export interface ElearnVerifyResponse {
   verified: boolean;
-  status: "active";
+  status: "active" | "processing";
   enrollmentId: string;
   enrollmentIds?: string[];
   /** ISO string, or null for lifetime access. */
@@ -114,7 +114,7 @@ export const buyCourseWithRazorpay = async ({
 }): Promise<ElearnVerifyResponse> => {
   const order = await createElearnOrder(idToken, courseIds, couponCode);
   if (!("orderId" in order)) {
-    return { verified: true, status: "active", enrollmentId: order.enrollmentId, enrollmentIds: order.enrollmentIds, expiresAt: null, free: true };
+    return { verified: false, status: "processing", enrollmentId: order.enrollmentId, enrollmentIds: order.enrollmentIds, expiresAt: null, free: true };
   }
   const result = await openRazorpayCheckout({
     key: order.keyId,

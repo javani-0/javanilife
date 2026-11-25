@@ -1,6 +1,6 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
-import { AlertCircle, ArrowLeft, Check, Clock, Globe2, Hourglass, Infinity as InfinityIcon, Layers, Link2, Loader2, MessageCircle, PlayCircle, Share2, ShieldCheck, UserRound } from "lucide-react";
+import { AlertCircle, ArrowLeft, Check, Clock, Globe2, Hourglass, Infinity as InfinityIcon, Layers, Link2, Loader2, MessageCircle, PlayCircle, Share2, ShieldCheck, ShoppingBag, UserRound } from "lucide-react";
 import Footer from "@/components/Footer";
 import SEO from "@/components/SEO";
 import { breadcrumbJsonLd, elearnCourseJsonLd, graph } from "../../api/_lib/seo";
@@ -11,7 +11,9 @@ import { availablePaymentModes, formatTotalDuration, progressPercent, type Elear
 import BuyCourseDialog, { usePayOnline } from "@/components/elearning/BuyCourseDialog";
 import CurriculumAccordion from "@/components/elearning/CurriculumAccordion";
 import VideoModal from "@/components/elearning/VideoModal";
-import { useCourse, useMyCourseAccess, usePaymentSettingsLive } from "@/components/elearning/useElearn";
+import { useCourse, useMyCourseAccess, usePaymentSettingsLive, usePublishedCourses } from "@/components/elearning/useElearn";
+import { learnCart, useLearnCart } from "@/components/elearning/learnCart";
+import { useCartCourses } from "@/components/elearning/LearnCartBar";
 import { GOLD_TEXT, LEVEL_LABELS, REVOKED_MESSAGE, accessLabel, accessStateOf, canBuy, formatDate, isMobileDevice, lessonsLabel, type AccessState } from "@/components/elearning/format";
 import { useToast } from "@/hooks/use-toast";
 
@@ -23,8 +25,12 @@ const LearnCourse = () => {
   const { course, loading } = useCourse(courseId);
   const access = useMyCourseAccess(courseId);
   const { settings, loaded: settingsLoaded } = usePaymentSettingsLive();
-  const { pay, paying } = usePayOnline(course, access.isDemo);
+  const { pay, paying } = usePayOnline(course, access.isDemo, (ids) => learnCart.removeMany(ids));
   const [buyOpen, setBuyOpen] = useState(false);
+  const cartIds = useLearnCart();
+  const { courses: allCourses } = usePublishedCourses();
+  const cartCourses = useCartCourses(allCourses);
+  const fromCart = new URLSearchParams(search).has("cart");
   const [video, setVideo] = useState<{ title: string; url: string; subtitle: string } | null>(null);
 
   const linkSearch = import.meta.env.DEV && new URLSearchParams(search).has("demo") ? search : "";
@@ -43,6 +49,16 @@ const LearnCourse = () => {
     // Always open the dialog first so the buyer can add a coupon code.
     setBuyOpen(true);
   };
+
+  // Checkout from the cart (?cart=1): open the buy window once, with the whole cart in it.
+  const cartOpened = useRef(false);
+  const readyToBuy = !!course && !loading && !authLoading && !access.loading && settingsLoaded;
+  useEffect(() => {
+    if (!fromCart || cartOpened.current || !readyToBuy) return;
+    cartOpened.current = true;
+    if (state === "signed-out" || canBuy(state)) startBuy();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fromCart, readyToBuy, state]);
 
   if (loading) return <CourseSkeleton />;
 
@@ -77,7 +93,11 @@ const LearnCourse = () => {
     enrollmentExpires: access.enrollment?.expiresAt,
     rejectReason: access.enrollment?.rejectReason,
     onBuy: startBuy,
+    inCart: cartIds.includes(course.id),
+    onToggleCart: () => (cartIds.includes(course.id) ? learnCart.remove(course.id) : learnCart.add(course.id)),
   };
+  // Classes from the cart join this purchase when the cart has this class or the student came from checkout.
+  const cartExtras = fromCart || cartIds.includes(course.id) ? cartCourses.filter((item) => item.id !== course.id) : [];
 
   return (
     <>
@@ -243,7 +263,7 @@ const LearnCourse = () => {
       <div className="hidden sm:block"><Footer /></div>
 
       {purchasable && (
-        <BuyCourseDialog course={course} modes={modes} settings={settings} open={buyOpen} onOpenChange={setBuyOpen} onPayOnline={(couponCode, courses) => void pay(couponCode, courses)} isDemo={access.isDemo} />
+        <BuyCourseDialog course={course} modes={modes} settings={settings} open={buyOpen} onOpenChange={setBuyOpen} onPayOnline={(couponCode, courses) => void pay(couponCode, courses)} initialExtras={cartExtras} isDemo={access.isDemo} />
       )}
       <VideoModal open={!!video} onOpenChange={(open) => !open && setVideo(null)} title={video?.title ?? ""} vimeoUrl={video?.url ?? ""} subtitle={video?.subtitle} />
     </>
@@ -344,6 +364,8 @@ interface BuyPanelProps {
   enrollmentExpires: unknown;
   rejectReason?: string;
   onBuy: () => void;
+  inCart: boolean;
+  onToggleCart: () => void;
   hasStrike?: boolean;
 }
 
@@ -353,7 +375,7 @@ const primaryBtn =
 // Same button without w-full, for rows that share space (w-auto would lose to w-full in the CSS order).
 const inlineBtn = primaryBtn.replace(" w-full", "");
 
-const buyLabel = (state: AccessState) => (state === "rejected" ? "Pay again" : state === "expired" ? "Buy again" : "Buy now");
+const buyLabel = (state: AccessState) => (state === "rejected" ? "Pay again" : state === "expired" || state === "revoked" ? "Buy again" : "Buy now");
 
 const Price = ({ course, hasStrike, size = "lg" }: { course: ElearnCourse; hasStrike?: boolean; size?: "lg" | "sm" }) => (
   <div className="flex items-baseline gap-2">
@@ -389,7 +411,23 @@ const StatusNote = ({ state, rejectReason, enrollmentExpires }: Pick<BuyPanelPro
   return null;
 };
 
-const BuyPanel = ({ course, state, percent, purchasable, busy, paying, watchHref, enrollmentExpires, rejectReason, onBuy, hasStrike }: BuyPanelProps) => {
+/** Cart toggle for paid classes the student can buy. */
+const CartButton = ({ inCart, onToggleCart, compact = false }: Pick<BuyPanelProps, "inCart" | "onToggleCart"> & { compact?: boolean }) => (
+  <button
+    type="button"
+    onClick={onToggleCart}
+    aria-pressed={inCart}
+    aria-label={compact ? (inCart ? "Remove from cart" : "Add to cart") : undefined}
+    className={compact
+      ? `grid h-11 w-11 shrink-0 place-items-center rounded-full border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${inCart ? "border-primary bg-primary/10 text-primary" : "border-gold/40 text-primary hover:border-primary"}`
+      : `flex min-h-12 w-full items-center justify-center gap-2 rounded-full border font-body text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${inCart ? "border-primary bg-primary/10 text-primary" : "border-gold/40 text-foreground hover:border-primary"}`}
+  >
+    {inCart ? <Check className="h-4 w-4" aria-hidden="true" /> : <ShoppingBag className="h-4 w-4" aria-hidden="true" />}
+    {!compact && (inCart ? "In cart · tap to remove" : "Add to cart")}
+  </button>
+);
+
+const BuyPanel = ({ course, state, percent, purchasable, busy, paying, watchHref, enrollmentExpires, rejectReason, onBuy, inCart, onToggleCart, hasStrike }: BuyPanelProps) => {
   if (state === "active") {
     const until = formatDate(enrollmentExpires);
     return (
@@ -407,8 +445,8 @@ const BuyPanel = ({ course, state, percent, purchasable, busy, paying, watchHref
 
   return (
     <div>
-      {state !== "revoked" && <Price course={course} hasStrike={hasStrike} />}
-      <div className={state !== "revoked" ? "mt-4 space-y-4" : "space-y-4"}>
+      <Price course={course} hasStrike={hasStrike} />
+      <div className="mt-4 space-y-4">
         <StatusNote state={state} rejectReason={rejectReason} enrollmentExpires={enrollmentExpires} />
         {(state === "signed-out" || canBuy(state)) && (
           purchasable ? (
@@ -420,7 +458,7 @@ const BuyPanel = ({ course, state, percent, purchasable, busy, paying, watchHref
             <p className="rounded-lg bg-muted p-3 font-body text-sm text-foreground">Enrolment for this master class isn't open yet. <Link to="/contact" className="font-semibold text-primary underline-offset-4 hover:underline">Contact us</Link> to join.</p>
           )
         )}
-        {state === "revoked" && <Link to="/contact" className={primaryBtn}>Contact us</Link>}
+        {canBuy(state) && purchasable && course.priceInPaise > 0 && <div className="-mt-1"><CartButton inCart={inCart} onToggleCart={onToggleCart} /></div>}
         {state === "processing" && <Link to="/account/learning" className="block text-center font-body text-sm font-semibold text-primary underline-offset-4 hover:underline">See My Learning</Link>}
       </div>
       {(state === "signed-out" || canBuy(state)) && purchasable && (
@@ -434,7 +472,7 @@ const BuyPanel = ({ course, state, percent, purchasable, busy, paying, watchHref
   );
 };
 
-const MobileBar = ({ course, state, percent, purchasable, busy, paying, watchHref, rejectReason, enrollmentExpires, onBuy, hasStrike }: BuyPanelProps) => {
+const MobileBar = ({ course, state, percent, purchasable, busy, paying, watchHref, rejectReason, enrollmentExpires, onBuy, inCart, onToggleCart, hasStrike }: BuyPanelProps) => {
   if (state === "active")
     return (
       <div className="flex items-center gap-3">
@@ -445,14 +483,16 @@ const MobileBar = ({ course, state, percent, purchasable, busy, paying, watchHre
         <Link to={watchHref} className={`${inlineBtn} shrink-0`}>Continue learning</Link>
       </div>
     );
-  if (state === "processing" || state === "revoked")
+  if (state === "processing")
     return <StatusNote state={state} rejectReason={rejectReason} enrollmentExpires={enrollmentExpires} />;
   return (
     <div className="space-y-2">
       {state === "rejected" && <p className="font-body text-xs font-medium text-destructive">We couldn't verify your payment{rejectReason ? `: ${rejectReason}` : "."}</p>}
       {state === "expired" && <p className="font-body text-xs text-muted-foreground">Your access has ended.</p>}
+      {state === "revoked" && <p className="font-body text-xs text-muted-foreground">Your access was removed. You can buy it again.</p>}
       <div className="flex items-center gap-3">
         <div className="min-w-0 flex-1"><Price course={course} hasStrike={hasStrike} size="sm" /></div>
+        {purchasable && canBuy(state) && course.priceInPaise > 0 && <CartButton inCart={inCart} onToggleCart={onToggleCart} compact />}
         {purchasable ? (
           <button type="button" onClick={onBuy} disabled={busy} className={`${inlineBtn} shrink-0 px-7`}>
             {paying && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}

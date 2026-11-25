@@ -86,9 +86,7 @@ const assertCanBuy = (existing: Record<string, unknown> | null | undefined, titl
   if (existing && hasActiveAccess(existing)) {
     throw new ElearnError(409, several ? `You already have access to "${title}". Remove it and try again.` : "You already have access to this master class.");
   }
-  if (existing?.status === "revoked") {
-    throw new ElearnError(403, several ? `Your access to "${title}" was removed. Please contact us.` : "Your access to this master class was removed. Please contact us.");
-  }
+  // A revoked student may buy again (owner 2026-11-25: "Buy now", not "Contact us").
 };
 
 interface PricedItem { course: SaleCourse; priceInPaise: number; discountInPaise: number; finalInPaise: number }
@@ -129,7 +127,7 @@ const previewCoupon = async (db: Firestore, body: Record<string, unknown>) => {
 };
 
 // ── elearn-order ───────────────────────────────────────────────────────────
-// Total 0 (a 100% coupon): no payment, access is given at once (method "coupon").
+// Total 0 (a 100% coupon): no payment; it waits for staff approval (method "coupon").
 const createOrder = async (db: Firestore, uid: string, identity: ReturnType<typeof identityFromToken>, body: Record<string, unknown>) => {
   const ids = parseCourseIds(body);
   const courses = await loadForSale(db, ids);
@@ -143,27 +141,42 @@ const createOrder = async (db: Firestore, uid: string, identity: ReturnType<type
   const titles = courses.map((course) => course.title);
 
   if (priced.finalInPaise === 0 && priced.couponCode) {
-    const bundle = several
-      ? { id: `free_${Date.now().toString(36)}_${uid.slice(0, 8)}`, courseTitles: titles, totalInPaise: 0 }
-      : undefined;
-    const enrollmentIds: string[] = [];
-    for (const [index, item] of priced.items.entries()) {
-      const result = await activateEnrollment(db, {
-        uid,
-        course: item.course,
-        method: "coupon",
-        amountInPaise: 0,
-        identity: buyer,
-        couponCode: priced.couponCode,
-        // Every discounted master class counts as one coupon use.
-        countCoupon: item.discountInPaise > 0,
-        enforceCouponLimit: true,
-        bundle,
-        blockStatus: ["revoked"],
+    // Free with a coupon: staff approve it in Purchases first (owner 2026-11-25),
+    // so it waits as "processing"; the coupon use is counted on approval.
+    const bundleFields = several
+      ? { bundleId: `free_${Date.now().toString(36)}_${uid.slice(0, 8)}`, bundleCourseTitles: titles, bundleTotalInPaise: 0 }
+      : { bundleId: FieldValue.delete(), bundleCourseTitles: FieldValue.delete(), bundleTotalInPaise: FieldValue.delete() };
+    await db.runTransaction(async (tx) => {
+      const snapshots = await Promise.all(refs.map((ref) => tx.get(ref)));
+      snapshots.forEach((snapshot, index) => assertCanBuy(snapshot.exists ? snapshot.data() : null, courses[index].title, several));
+      snapshots.forEach((snapshot, index) => {
+        const existing = snapshot.exists ? snapshot.data() || {} : null;
+        const item = priced.items[index];
+        tx.set(refs[index], {
+          uid,
+          courseId: item.course.id,
+          courseTitle: item.course.title,
+          ...buyer,
+          status: "processing",
+          method: "coupon",
+          amountInPaise: 0,
+          couponCode: priced.couponCode,
+          listPriceInPaise: item.priceInPaise,
+          discountInPaise: item.discountInPaise,
+          ...bundleFields,
+          upiProofUrl: FieldValue.delete(),
+          upiRef: FieldValue.delete(),
+          submittedAt: FieldValue.serverTimestamp(),
+          ...(existing?.status === "rejected"
+            ? { previousStatus: "rejected", previousRejectReason: String(existing.rejectReason || "") }
+            : {}),
+          rejectReason: FieldValue.delete(),
+          updatedAt: FieldValue.serverTimestamp(),
+          ...(existing ? {} : { createdAt: FieldValue.serverTimestamp() }),
+        }, { merge: true });
       });
-      enrollmentIds.push(result.enrollmentId);
-    }
-    return { free: true as const, status: "active" as const, enrollmentId: enrollmentIds[0], enrollmentIds, courseIds: ids };
+    });
+    return { free: true as const, status: "processing" as const, enrollmentId: refs[0].id, enrollmentIds: refs.map((ref) => ref.id), courseIds: ids };
   }
 
   for (const course of courses) {
@@ -410,11 +423,13 @@ const review = async (db: Firestore, staffUid: string, body: Record<string, unkn
       const result = await activateEnrollment(db, {
         uid: String(record.data.uid || ""),
         course,
-        method: "upi",
+        method: record.data.method === "coupon" ? "coupon" : "upi",
         amountInPaise: Math.max(0, Math.round(Number(record.data.amountInPaise) || 0)),
         couponCode: typeof record.data.couponCode === "string" && record.data.couponCode ? record.data.couponCode : undefined,
         // Every discounted master class counts as one coupon use.
         countCoupon: Number(record.data.discountInPaise) > 0,
+        // A free-coupon request: the coupon must still have uses left now.
+        enforceCouponLimit: record.data.method === "coupon",
         reviewedBy: staffUid,
         // Re-checked inside the transaction: a reject/revoke in another tab wins.
         requireStatus: ["processing"],

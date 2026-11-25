@@ -29,10 +29,10 @@ export const accessStateOf = (signedIn: boolean, enrollment: ElearnEnrollment | 
   return enrollment.status;
 };
 
-/** True when the student may (re)start a purchase. Revoked access is final (the server answers 403). */
-export const canBuy = (state: AccessState) => state === "none" || state === "awaiting-payment" || state === "rejected" || state === "expired";
+/** True when the student may (re)start a purchase. A revoked student may buy again (owner 2026-11-25). */
+export const canBuy = (state: AccessState) => state === "none" || state === "awaiting-payment" || state === "rejected" || state === "expired" || state === "revoked";
 
-export const REVOKED_MESSAGE = "Your access to this course was removed. Please contact us.";
+export const REVOKED_MESSAGE = "Your access to this master class was removed. You can buy it again below.";
 
 /** UTR / UPI reference: 12 digits once spaces and dashes are removed. */
 export const normalizeUtr = (value: string) => value.replace(/[\s-]/g, "");

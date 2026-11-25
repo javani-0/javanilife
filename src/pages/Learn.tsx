@@ -5,6 +5,7 @@ import Footer from "@/components/Footer";
 import PageHero from "@/components/PageHero";
 import { PageSEO } from "@/components/SEO";
 import CourseCard, { CourseCardSkeleton } from "@/components/elearning/CourseCard";
+import LearnCartBar from "@/components/elearning/LearnCartBar";
 import { useMyEnrollments, usePublishedCourses } from "@/components/elearning/useElearn";
 import { hasActiveAccess, toMillis, type ElearnCourse } from "@/lib/elearning";
 import heroTemple from "@/assets/hero-temple.jpg";
@@ -174,6 +175,7 @@ const Learn = () => {
         </section>
       </main>
       <div className="hidden sm:block"><Footer /></div>
+      <LearnCartBar courses={courses} search={linkSearch} />
     </>
   );
 };

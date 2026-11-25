@@ -263,7 +263,7 @@ const PurchasesPanel = ({
       ) : visible.length === 0 ? (
         <div className="rounded-xl border border-dashed border-border bg-card/60 px-4 py-10 text-center">
           <p className="font-body text-sm font-semibold text-foreground">
-            {filter === "processing" ? "No QR payments waiting. You're all caught up." : "Nothing here yet."}
+            {filter === "processing" ? "No QR payments or free coupon requests waiting. You're all caught up." : "Nothing here yet."}
           </p>
           {(search || courseFilter) && <p className="mt-1 font-body text-sm text-muted-foreground">Try clearing the search or course filter.</p>}
         </div>
@@ -281,6 +281,8 @@ const PurchasesPanel = ({
                         <img src={item.upiProofUrl} alt="" className="h-full w-full object-cover object-top" loading="lazy" />
                         <span className="absolute inset-x-0 bottom-0 flex items-center justify-center gap-1 bg-charcoal/70 py-1 font-body text-xs font-semibold text-white"><ZoomIn className="h-3.5 w-3.5" aria-hidden="true" /> Zoom</span>
                       </button>
+                    ) : item.method === "coupon" ? (
+                      <span className="flex h-24 w-full shrink-0 flex-col items-center justify-center gap-1 rounded-lg border border-emerald-600/30 bg-emerald-50 font-body text-xs font-semibold text-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-300 sm:h-36 sm:w-28"><TicketPercent className="h-6 w-6" aria-hidden="true" /> Free coupon</span>
                     ) : (
                       <span className="flex h-24 w-full shrink-0 items-center justify-center rounded-lg border border-dashed border-border font-body text-xs text-muted-foreground sm:h-36 sm:w-28">No screenshot</span>
                     )}
@@ -291,23 +293,34 @@ const PurchasesPanel = ({
                       </div>
                       <p className="font-body text-sm text-muted-foreground break-all">{item.userEmail}{item.userPhone ? ` · ${item.userPhone}` : ""}</p>
                       <p className="mt-1 font-body text-sm text-foreground">
-                        {courseTitle(item)} · <span className="font-semibold">{formatPaiseAsRupees(item.amountInPaise)}</span>
+                        {courseTitle(item)} · <span className="font-semibold">{item.method === "coupon" ? "Free" : formatPaiseAsRupees(item.amountInPaise)}</span>
                         {agoText(item.submittedAt) && <span className="text-muted-foreground"> · sent {agoText(item.submittedAt)}</span>}
                       </p>
                       {(item.bundleCourseTitles?.length ?? 0) > 1 && (
                         <p className="mt-1 rounded-lg bg-amber-50 px-3 py-2 font-body text-xs text-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
-                          Paid together for {item.bundleCourseTitles!.length} master classes: {item.bundleCourseTitles!.join(", ")}
+                          {item.method === "coupon" ? "Asked together for" : "Paid together for"} {item.bundleCourseTitles!.length} master classes: {item.bundleCourseTitles!.join(", ")}
                           {typeof item.bundleTotalInPaise === "number" && <> · total <span className="font-semibold">{formatPaiseAsRupees(item.bundleTotalInPaise)}</span></>}
                           . Approve or reject applies to all of them.
                         </p>
                       )}
-                      {item.couponCode && <p className="mt-1 font-body text-xs text-muted-foreground">Coupon <span className="font-mono font-semibold text-foreground">{item.couponCode}</span> used</p>}
-                      <div className="mt-2 inline-flex flex-wrap items-center gap-2 rounded-lg bg-ivory px-3 py-2">
-                        <span className="font-body text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">UTR</span>
-                        <span className="font-mono text-base font-semibold tracking-wider text-foreground">{item.upiRef || "not given"}</span>
-                        {item.upiRef && <CopyButton value={item.upiRef} label={`Copy UTR ${item.upiRef}`} />}
-                      </div>
-                      <p className="mt-1 font-body text-xs text-muted-foreground">Match this UTR and the amount in your bank or UPI app before approving.</p>
+                      {item.method === "coupon" ? (
+                        <>
+                          <p className="mt-2 rounded-lg bg-emerald-50 px-3 py-2 font-body text-sm text-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200">
+                            Free with coupon <span className="font-mono font-semibold">{item.couponCode}</span>{typeof item.listPriceInPaise === "number" && item.listPriceInPaise > 0 ? <> (price {formatPaiseAsRupees(item.listPriceInPaise)})</> : null}. No payment to check.
+                          </p>
+                          <p className="mt-1 font-body text-xs text-muted-foreground">Check that this student should get it free, then approve. It unlocks only after you approve.</p>
+                        </>
+                      ) : (
+                        <>
+                          {item.couponCode && <p className="mt-1 font-body text-xs text-muted-foreground">Coupon <span className="font-mono font-semibold text-foreground">{item.couponCode}</span> used</p>}
+                          <div className="mt-2 inline-flex flex-wrap items-center gap-2 rounded-lg bg-ivory px-3 py-2">
+                            <span className="font-body text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">UTR</span>
+                            <span className="font-mono text-base font-semibold tracking-wider text-foreground">{item.upiRef || "not given"}</span>
+                            {item.upiRef && <CopyButton value={item.upiRef} label={`Copy UTR ${item.upiRef}`} />}
+                          </div>
+                          <p className="mt-1 font-body text-xs text-muted-foreground">Match this UTR and the amount in your bank or UPI app before approving.</p>
+                        </>
+                      )}
                       {item.previousStatus === "rejected" && item.previousRejectReason && (
                         <p className="mt-1 font-body text-xs text-muted-foreground">Earlier rejected: "{item.previousRejectReason}"</p>
                       )}

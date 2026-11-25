@@ -20,7 +20,7 @@ const errorMessage = (error: unknown, fallback: string) => (error instanceof Err
 const purchaseLabel = (courses: ElearnCourse[]) => (courses.length === 1 ? courses[0].title : `${courses.length} master classes`);
 
 /** Razorpay purchase (create order → checkout → verify), with an optional coupon the server re-checks. */
-export const usePayOnline = (course: ElearnCourse | null, isDemo = false) => {
+export const usePayOnline = (course: ElearnCourse | null, isDemo = false, onDone?: (courseIds: string[]) => void) => {
   const { user, userProfile } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -44,9 +44,13 @@ export const usePayOnline = (course: ElearnCourse | null, isDemo = false) => {
         prefill: { name: userProfile?.username || user.displayName || "", email: userProfile?.email || user.email || "", contact: userProfile?.phone || "" },
         themeColor: "#8B1A1A",
       });
-      if (result.verified) {
+      onDone?.(list.map((item) => item.id));
+      if (result.free) {
+        toast({ title: "Sent for approval", description: `We'll check your coupon and unlock ${purchaseLabel(list)} soon. You'll see it in My Learning.` });
+        navigate("/account/learning");
+      } else if (result.verified) {
         toast({
-          title: result.free ? "Unlocked with your coupon" : "You're enrolled",
+          title: "You're enrolled",
           description: `${purchaseLabel(list)} ${list.length === 1 ? "is" : "are"} unlocked. Enjoy learning.`,
         });
         navigate(list.length === 1 ? `/learn/${encodeURIComponent(list[0].id)}/watch` : "/account/learning");
@@ -75,22 +79,29 @@ interface BuyCourseDialogProps {
   settings: PaymentSettings;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** Starts the Razorpay checkout (the dialog closes first so checkout gets focus). A 100% coupon unlocks at once. */
+  /** Starts the Razorpay checkout (the dialog closes first so checkout gets focus). A 100% coupon goes to staff for approval. */
   onPayOnline: (couponCode: string | null, courses: ElearnCourse[]) => void;
+  /** Classes from the cart to buy together with `course`. */
+  initialExtras?: ElearnCourse[];
   isDemo?: boolean;
 }
 
 type Step = "choose" | "upi" | "submitted";
 
-const BuyCourseDialog = ({ course, modes, settings, open, onOpenChange, onPayOnline, isDemo = false }: BuyCourseDialogProps) => {
+const BuyCourseDialog = ({ course, modes, settings, open, onOpenChange, onPayOnline, initialExtras, isDemo = false }: BuyCourseDialogProps) => {
   const [step, setStep] = useState<Step>("choose");
   const [coupon, setCoupon] = useState<ElearnCouponPreview | null>(null);
   const [extras, setExtras] = useState<ElearnCourse[]>([]);
 
-  useEffect(() => {
-    if (open) setStep("choose");
-  }, [open]);
+  // A new page's course starts a new order (runs before the cart fill below).
   useEffect(() => setExtras([]), [course.id]);
+  useEffect(() => {
+    if (!open) return;
+    setStep("choose");
+    if (initialExtras?.length) setExtras(initialExtras.filter((item) => item.id !== course.id).slice(0, MAX_TOGETHER - 1));
+    // Only when the window opens: later changes are the student's own picks.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   const courses = useMemo(() => [course, ...extras], [course, extras]);
   // Every master class in the purchase must allow the payment mode.
@@ -135,17 +146,21 @@ const BuyCourseDialog = ({ course, modes, settings, open, onOpenChange, onPayOnl
                 <span className="font-semibold text-foreground">{free ? "Free" : formatPaiseAsRupees(payable)}</span>
               </DialogDescription>
             </DialogHeader>
+            <OrderList courses={courses} onRemove={toggleExtra} />
             {open && <AddMore course={course} extras={extras} modes={modes} combined={combined} settings={settings} onToggle={toggleExtra} />}
             <CouponBox courseIds={courses.map((item) => item.id)} applied={coupon} onChange={setCoupon} isDemo={isDemo} />
             <div className="mt-5 grid gap-3">
               {free ? (
+                <>
                 <button
                   type="button"
                   onClick={choosePayOnline}
                   className="flex min-h-12 w-full items-center justify-center gap-2 rounded-md bg-gradient-primary font-body text-sm font-semibold text-primary-foreground shadow-gold transition-transform duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 active:scale-[0.98]"
                 >
-                  <Gift className="h-4 w-4" aria-hidden="true" /> Get it free
+                  <Gift className="h-4 w-4" aria-hidden="true" /> Request free access
                 </button>
+                <p className="text-center font-body text-xs text-muted-foreground">We check every free coupon. {courses.length === 1 ? "It unlocks" : "They unlock"} in My Learning once we approve.</p>
+                </>
               ) : (
                 <>
                   {combined.razorpay && <button
@@ -212,6 +227,38 @@ const BuyCourseDialog = ({ course, modes, settings, open, onOpenChange, onPayOnl
   );
 };
 
+// ── Your order: every master class being bought, so it is clear what is paid for ──
+const OrderList = ({ courses, onRemove }: { courses: ElearnCourse[]; onRemove: (course: ElearnCourse) => void }) => (
+  <section className="mt-5" aria-label="Your order">
+    <h3 className="font-body text-sm font-semibold text-foreground">Your order</h3>
+    <ul className="mt-2 grid gap-2">
+      {courses.map((item, index) => (
+        <li key={item.id} className="flex items-center gap-3 rounded-xl border border-primary/25 bg-primary/5 p-2.5">
+          {item.coverImageUrl ? (
+            <img src={optimizeImageUrl(item.coverImageUrl, 160)} alt="" loading="lazy" className="h-11 w-16 shrink-0 rounded-md object-cover ring-1 ring-black/5" />
+          ) : (
+            <span className="h-11 w-16 shrink-0 rounded-md bg-muted" aria-hidden="true" />
+          )}
+          <span className="min-w-0 flex-1">
+            <span className="line-clamp-2 block font-body text-[0.85rem] font-semibold leading-snug text-foreground">{item.title}</span>
+            <span className="block font-body text-xs text-muted-foreground">{formatPaiseAsRupees(item.priceInPaise)}</span>
+          </span>
+          {index > 0 && (
+            <button
+              type="button"
+              onClick={() => onRemove(item)}
+              aria-label={`Remove ${item.title}`}
+              className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-muted-foreground hover:bg-destructive/10 hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            >
+              <X className="h-4 w-4" aria-hidden="true" />
+            </button>
+          )}
+        </li>
+      ))}
+    </ul>
+  </section>
+);
+
 // ── Add more master classes (bought together: one payment, one coupon) ─────
 interface AddMoreProps {
   course: ElearnCourse;
@@ -227,14 +274,14 @@ const AddMore = ({ course, extras, modes, combined, settings, onToggle }: AddMor
   const { enrollments } = useMyEnrollments();
   const options = useMemo(() => {
     const blocked = new Set(enrollments
-      .filter((e) => hasActiveAccess(e) || e.status === "processing" || e.status === "revoked")
+      .filter((e) => hasActiveAccess(e) || e.status === "processing")
       .map((e) => e.courseId));
     return courses.filter((item) => {
-      if (item.id === course.id || item.priceInPaise <= 0 || blocked.has(item.id)) return false;
+      if (item.id === course.id || item.priceInPaise <= 0 || blocked.has(item.id) || extras.some((x) => x.id === item.id)) return false;
       const m = availablePaymentModes(item, settings);
       return (modes.razorpay && m.razorpay) || (modes.upi && m.upi);
     });
-  }, [courses, enrollments, course.id, modes, settings]);
+  }, [courses, enrollments, course.id, extras, modes, settings]);
 
   if (!options.length) return null;
   const full = extras.length >= MAX_TOGETHER - 1;

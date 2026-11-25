@@ -112,7 +112,7 @@ const LearningCard = ({ enrollment, course, state, linkSearch }: { enrollment: E
         {state === "revoked" && (
           <>
             <p className="mt-2 font-body text-sm text-muted-foreground">{REVOKED_MESSAGE}</p>
-            <Link to="/contact" className="mt-3 w-fit font-body text-sm font-semibold text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">Contact us</Link>
+            <Link to={courseHref} className="mt-3 w-fit font-body text-sm font-semibold text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">Buy again</Link>
           </>
         )}
 

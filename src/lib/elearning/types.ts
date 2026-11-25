@@ -94,6 +94,9 @@ export interface ElearnEnrollment {
   /** Razorpay payment ids received for this purchase; any beyond razorpayPaymentId must be refunded. */
   extraPaymentIds?: string[];
   couponCode?: string;
+  /** Coupon purchases: the price before the discount, and the discount. */
+  listPriceInPaise?: number;
+  discountInPaise?: number;
   /** Bought together with other master classes in one payment. */
   bundleId?: string;
   bundleCourseTitles?: string[];

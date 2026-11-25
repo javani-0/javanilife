@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { CheckCircle2, Clock, PlayCircle } from "lucide-react";
+import { Check, CheckCircle2, Clock, PlayCircle, ShoppingBag } from "lucide-react";
 import { formatPaiseAsRupees } from "@/lib/ecommerce";
 import { optimizeImageUrl } from "@/lib/cloudinary";
 import { formatTotalDuration, progressPercent, type ElearnCourse } from "@/lib/elearning";
 import { GOLD_TEXT, LEVEL_LABELS, lessonsLabel } from "./format";
 import { useCourseProgress } from "./useElearn";
+import { CART_MAX, learnCart, useLearnCart } from "./learnCart";
 
 interface CourseCardProps {
   course: ElearnCourse;
@@ -21,8 +22,13 @@ const CourseCard = ({ course, owned, search = "" }: CourseCardProps) => {
   const hasStrike = typeof course.compareAtInPaise === "number" && course.compareAtInPaise > course.priceInPaise;
   const href = `/learn/${encodeURIComponent(course.id)}${search}`;
   const hasPreview = !owned && course.sections.some((section) => section.lessons.some((lesson) => lesson.isPreview && lesson.previewVimeoUrl));
+  const cart = useLearnCart();
+  const inCart = cart.includes(course.id);
+  const showCart = !owned && course.priceInPaise > 0;
+  const cartFull = !inCart && cart.length >= CART_MAX;
 
   return (
+    <div className="relative h-full">
     <Link
       to={href}
       className="group flex h-full flex-col overflow-hidden rounded-xl border border-gold/15 bg-card shadow-[0_1px_0_rgba(51,35,20,0.04),0_14px_32px_-18px_rgba(51,35,20,0.28)] transition-[transform,box-shadow] duration-300 ease-[cubic-bezier(0.23,1,0.32,1)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 active:scale-[0.99] motion-safe:hover:-translate-y-0.5 hover:shadow-[0_1px_0_rgba(51,35,20,0.04),0_22px_44px_-20px_rgba(51,35,20,0.38)]"
@@ -96,6 +102,22 @@ const CourseCard = ({ course, owned, search = "" }: CourseCardProps) => {
         </div>
       </div>
     </Link>
+    {showCart && (
+      // Outside the card link (a button can't sit inside a link); placed over the cover's corner.
+      <button
+        type="button"
+        onClick={() => (inCart ? learnCart.remove(course.id) : learnCart.add(course.id))}
+        disabled={cartFull}
+        aria-pressed={inCart}
+        aria-label={inCart ? `Remove ${course.title} from cart` : `Add ${course.title} to cart`}
+        title={cartFull ? `Up to ${CART_MAX} master classes in one order` : undefined}
+        className={`absolute right-3 top-3 inline-flex min-h-9 items-center gap-1.5 rounded-full px-3 font-body text-[0.72rem] font-semibold shadow-md transition-[background-color,transform] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-60 ${inCart ? "bg-primary text-primary-foreground" : "bg-ivory/95 text-charcoal hover:bg-ivory"}`}
+      >
+        {inCart ? <Check className="h-3.5 w-3.5" aria-hidden="true" /> : <ShoppingBag className="h-3.5 w-3.5" aria-hidden="true" />}
+        {inCart ? "In cart" : "Add to cart"}
+      </button>
+    )}
+    </div>
   );
 };
 
