@@ -57,3 +57,4 @@ Last updated: 2026-11-25 (voice changes 5 pushed: cart, coupon approval, revoked
 - `vite preview` doesn't apply the Vercel rewrites.
 - Git Bash turns `/learn` args into Windows paths: prefix `MSYS_NO_PATHCONV=1`. To catch first-paint flashes use raw CDP `Page.captureScreenshot` in a loop (Playwright `page.screenshot` waits for fonts and misses them). Port 4317 is taken by another local app.
 - The `ss/` folder next to `javanilife/` is the old base copy; don't edit it.
+- 2026-11-25: open tabs kept old JS after a deploy (client photo showed old "Contact us"). `src/lib/appUpdate.ts` now compares the served `/assets/index-*.js` and reloads on the next route change / tab refocus (f22a59b).
