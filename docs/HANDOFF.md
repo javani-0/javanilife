@@ -2,7 +2,7 @@
 
 Javani Spiritual Hub (www.javanilife.com): a classical dance/music academy + shop. React 18 + Vite SPA, Firebase, Vercel (project `javanilife`), Razorpay.
 
-Last updated: 2026-11-25 (coupon per-class fix pushed, live)
+Last updated: 2026-11-25 (voice changes 5 pushed: cart, coupon approval, revoked can rebuy)
 
 ## State
 
@@ -20,11 +20,8 @@ Last updated: 2026-11-25 (coupon per-class fix pushed, live)
 - **SEO is LIVE** (2026-11-06). `/learn` + course pages are in the sitemap/prerender once deployed. Details in `docs/seo/SEO-2026-11-06.md`.
 - Checks 2026-11-15: api tsc clean; app tsc only the 7 old errors (CategoryManager, categories.ts); tests 624/629 (5 old failures: course-installments, delivery-flow-ui); build OK.
 
-- **Client voice changes 2026-11-19 (LIVE, cd17834):** the client renamed TEST 2 into the real course "Anantha Thillana - kuchipudi" (doc id still `test-2-e-learning-qa`). Laptop showed "Contact us" because the admin account's test enrollment there is REVOKED (phone, other account, shows Buy now). Added: course page "Share on WhatsApp" + "Copy link/Share"; the floating WhatsApp message names the course and carries its link; "0m total" hidden when lesson durations are empty; admin Purchases "Allow to buy again" (server op `reopen` deletes a revoked/rejected record); course editor "Update link to /learn/<title-slug>" (`changeCourseLink`, refused while any non-rejected/revoked enrollment exists).
-
-- **Client voice changes 2026-11-23 (LOCAL commits 2133623, 32cff72, 0f1dfef; NOT pushed yet):** (1) coupon codes for online master classes (admin Coupons, scope "Online master classes"; server re-checks price at order time; `redeemedCount` +1 on activation; known: maxRedemptions can overrun by simultaneous checkouts). (2) Buyer-facing "course" → "Master Class". (3) Lesson/preview/trailer links accept Vimeo OR YouTube (`videoProvider()` in `src/lib/elearning/helpers.ts`; `YouTubeLessonPlayer.tsx` with resume/progress; YouTube needs Unlisted + embedding on, and the duration typed by hand). Checks: vitest 636 pass + 5 old failures; app tsc only old errors; screenshots 390/1440 light/dark OK. No rules change.
-
-- **Client voice changes 2026-11-25 (LOCAL commit f4e1967 on top of the 3 above; NOT pushed):** (1) buy up to 5 master classes in one payment (dialog "Add more master classes"; Razorpay notes courseIds/amounts; one enrollment per class with `bundleId`; UPI approve/reject acts on the whole bundle; refund revokes all). (2) 100% coupon = "Get it free" (method `coupon`, no Razorpay; maxRedemptions enforced in the transaction). (3) Previews already played logged out on live; added "Watch free preview" on the course hero + "Free preview" tag on cards. (4) `**bold**` renders in descriptions. Client said "payments not collected": the coupon/multi-buy code isn't live yet; check Razorpay keys + a real buy after the push. Checks: vitest 643 pass + 5 old failures; api tsc clean; app tsc only old errors; build OK; dialog screenshots 390/1440 OK (site has no dark theme).
+- **Client voice changes (all LIVE):** 11-19 share buttons, "Allow to buy again", course link rename (cd17834). 11-23 coupons for master classes, "Master Class" wording, Vimeo or YouTube lessons. 11-25 buy up to 5 classes together (`bundleId`), 100% coupons, free-preview buttons, per-class coupon uses (463e026).
+- **Voice changes 5, 2026-11-25 (pushed 06d44e8):** (1) Master class cart: `learnCart.ts` (localStorage ids, max 5), "Add to cart" on cards + course page, `LearnCartBar` on /learn, Checkout = `/learn/<first>?cart=1` opens the buy window with the cart. (2) Free (100% coupon) buys now go to `processing` (method `coupon`) and unlock only when staff approve in Purchases (coupon card, no UTR); paid Razorpay stays instant (owner asked "free or paid"; we kept paid instant so paying students don't wait). (3) Buy window shows "Your order" (each class, price, remove). (4) Revoked students see "Buy again" (server `assertCanBuy` no longer blocks revoked). Checks: api tsc clean, app tsc old errors only, vitest 644 + 5 old failures, build OK, cart/checkout screenshots 390/1440.
 - Admin guides: ICONOIQ `Desktop/ICONOIQ-Admin-Guide.pdf`; Javani `docs/client-guide/Javani-Admin-Guide.pdf` (+ Desktop copy).
 
 ## Next steps (in order)
@@ -32,7 +29,7 @@ Last updated: 2026-11-25 (coupon per-class fix pushed, live)
 
 | # | Step | Effort |
 |---|---|---|
-| 0 | Push the 4 local commits (owner OK needed), then on live: buy dialog, add-more, a 100% coupon on a ₹1 draft course, free preview logged out | Low |
+| 0 | On live: cart → checkout, a 100% coupon on a ₹1 draft course → shows in admin Purchases → approve → unlocks; revoke → Buy again | Low |
 | 1 | **QR buy flow tested end to end 2026-11-16 night: PASS.** New draft course "TEST 2 E-Learning QA" (₹1, Razorpay + QR): published → admin bought via QR (test screenshot, test UTR 888822223333, no money moved) → "Under review" in My Learning → Approved in admin (revenue ₹1, 1 active) → My Learning "Start" → watch page plays the Vimeo lesson → revoked + back to draft. Still left for the client: one REAL UPI payment on their phone when the first real course is live (only the real money part is untested) and a Razorpay online buy. Both TEST courses can be deleted once real courses exist. | Medium |
 | 2 | Any later rules change: publish via the Firebase console in the javani Chrome (paste `firestore.rules`), run the emulator tests first | Low |
 | 3 | SEO day 3/7/14/30 checks (report file) | Low |
